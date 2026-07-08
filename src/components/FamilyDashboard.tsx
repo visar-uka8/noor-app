@@ -3,6 +3,7 @@
 import { UsersRound } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { AppBottomNav } from "@/components/AppBottomNav";
 import {
   CardListSkeleton,
   ConnectionErrorState,
@@ -117,66 +118,78 @@ export function FamilyDashboard() {
 
   if (isLoading) {
     return (
-      <main className="mx-auto flex min-h-full w-full max-w-app flex-1 flex-col px-5 py-6">
-        <DashboardHeader />
-        <div className="mt-6">
-          <CardListSkeleton />
-          {isSlow ? (
-            <SlowConnectionNotice message="Das dauert etwas länger — bitte warten Sie." />
-          ) : null}
-        </div>
-      </main>
+      <>
+        <main className="content-bottom-nav mx-auto flex min-h-full w-full max-w-app flex-1 flex-col px-5 py-6">
+          <DashboardHeader />
+          <div className="mt-6">
+            <CardListSkeleton />
+            {isSlow ? (
+              <SlowConnectionNotice message="Das dauert etwas länger — bitte warten Sie." />
+            ) : null}
+          </div>
+        </main>
+        <AppBottomNav />
+      </>
     );
   }
 
   if (hasLoadError || !dashboard) {
     return (
-      <main className="mx-auto flex min-h-full w-full max-w-app flex-1 flex-col px-5 py-6">
-        <DashboardHeader />
-        <div className="mt-6">
-          <ConnectionErrorState
-            isOffline={!isOnline}
-            onRetry={loadDashboard}
-          />
-        </div>
-      </main>
+      <>
+        <main className="content-bottom-nav mx-auto flex min-h-full w-full max-w-app flex-1 flex-col px-5 py-6">
+          <DashboardHeader />
+          <div className="mt-6">
+            <ConnectionErrorState
+              isOffline={!isOnline}
+              onRetry={loadDashboard}
+            />
+          </div>
+        </main>
+        <AppBottomNav />
+      </>
     );
   }
 
   if (!dashboard.connected || !dashboard.member) {
     return (
-      <main className="mx-auto flex min-h-full w-full max-w-app flex-1 flex-col px-5 py-6">
-        <DashboardHeader />
-        <FeatureEmptyState
-          emoji="👨‍👩‍👦"
-          title="Noch keine Familienverbindung"
-          subtitle="Verbinden Sie sich mit Ihren Eltern, damit Sie ihre Gesundheit liebevoll im Blick behalten können."
-          actionLabel="Familie verbinden"
-          href="/family/connect"
-        />
-      </main>
+      <>
+        <main className="content-bottom-nav mx-auto flex min-h-full w-full max-w-app flex-1 flex-col px-5 py-6">
+          <DashboardHeader />
+          <FeatureEmptyState
+            emoji="👨‍👩‍👦"
+            title="Noch keine Familienverbindung"
+            subtitle="Verbinden Sie sich mit Ihren Eltern, damit Sie ihre Gesundheit liebevoll im Blick behalten können."
+            actionLabel="Familie verbinden"
+            href="/family/connect"
+          />
+        </main>
+        <AppBottomNav />
+      </>
     );
   }
 
   return (
-    <main className="mx-auto flex min-h-full w-full max-w-app flex-1 flex-col px-5 py-6">
-      <DashboardHeader />
+    <>
+      <main className="content-bottom-nav mx-auto flex min-h-full w-full max-w-app flex-1 flex-col px-5 py-6">
+        <DashboardHeader patientName={dashboard.member.name} />
 
-      <FamilyMemberCard data={dashboard} />
+        <FamilyMemberCard data={dashboard} />
 
-      <FamilyNotificationSettings patientLabel={dashboard.member.displayLabel} />
+        <FamilyNotificationSettings patientLabel={dashboard.member.displayLabel} />
 
-      <Link
-        href="/family/connect"
-        className="btn-touch mt-6 w-full rounded-2xl border-2 border-primary bg-surface px-5 py-4 text-base font-semibold text-primary transition-colors hover:bg-primary-light"
-      >
-        Weitere Familie verbinden
-      </Link>
-    </main>
+        <Link
+          href="/family/connect"
+          className="btn-touch mt-6 w-full rounded-2xl border-2 border-primary bg-surface px-5 py-4 text-base font-semibold text-primary transition-colors hover:bg-primary-light"
+        >
+          Weitere Familie verbinden
+        </Link>
+      </main>
+      <AppBottomNav />
+    </>
   );
 }
 
-function DashboardHeader() {
+function DashboardHeader({ patientName }: { patientName?: string }) {
   return (
     <header>
       <div className="flex items-center gap-3">
@@ -187,13 +200,12 @@ function DashboardHeader() {
           <UsersRound size={28} strokeWidth={2.2} />
         </div>
         <div>
-          <p className="text-sm font-medium text-muted">Für Alex</p>
+          {patientName ? (
+            <p className="text-sm font-medium text-muted">Für {patientName}</p>
+          ) : null}
           <h1 className="heading-lg text-[1.75rem] leading-tight">Familie</h1>
         </div>
       </div>
-      <p className="text-body mt-3 text-muted">
-        Alles Wichtige auf einen Blick — ruhig, übersichtlich und liebevoll.
-      </p>
     </header>
   );
 }

@@ -1,8 +1,9 @@
 "use client";
 
 import { CheckCircle2, Loader2, UsersRound } from "lucide-react";
+import { useRouter } from "next/navigation";
 import type { FormEvent } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   familyInviteErrors,
   familyRelationships,
@@ -12,12 +13,23 @@ import {
 type ConnectStep = "form" | "success";
 
 export function FamilyConnectJoin() {
+  const router = useRouter();
   const [step, setStep] = useState<ConnectStep>("form");
   const [code, setCode] = useState("");
   const [relationship, setRelationship] = useState<FamilyRelationship>("Tochter");
   const [patientName, setPatientName] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (step !== "success") return;
+
+    const timer = window.setTimeout(() => {
+      router.push("/dashboard");
+    }, 1800);
+
+    return () => window.clearTimeout(timer);
+  }, [step, router]);
 
   async function connectFamily(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -71,7 +83,7 @@ export function FamilyConnectJoin() {
           Verbunden mit {patientName} ✓
         </h2>
         <p className="mt-2 text-base leading-relaxed text-muted">
-          Sie können jetzt die Gesundheitsübersicht in Noor sehen.
+          Sie werden zum Familien-Dashboard weitergeleitet...
         </p>
         <a
           href="/dashboard"

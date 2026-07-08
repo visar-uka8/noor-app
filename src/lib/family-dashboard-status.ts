@@ -67,11 +67,22 @@ export const overallStatusCopy: Record<
     textClass: "text-warning",
   },
   red: {
-    text: "Dosis vergessen — bitte anrufen",
+    text: "Dosis vergessen — jetzt anrufen?",
     circleClass: "bg-danger",
     textClass: "text-danger",
   },
 };
+
+export function buildOverallStatusText(
+  status: FamilyOverallStatus,
+  displayLabel: string,
+) {
+  if (status === "green") {
+    return `${displayLabel} hat alle Medikamente heute genommen ✓`;
+  }
+
+  return overallStatusCopy[status].text;
+}
 
 export function buildFamilyDashboardData(input: {
   member: FamilyDashboardMember;
@@ -86,7 +97,10 @@ export function buildFamilyDashboardData(input: {
     connected: true,
     member: input.member,
     overallStatus,
-    overallStatusText: overallStatusCopy[overallStatus].text,
+    overallStatusText: buildOverallStatusText(
+      overallStatus,
+      input.member.displayLabel,
+    ),
     medications,
     lastCheckIn: input.lastCheckIn,
     lastCheckInText: formatCheckInText(input.lastCheckIn),

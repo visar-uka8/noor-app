@@ -98,6 +98,17 @@ export async function POST(request: Request) {
 
     if (linkError) throw linkError;
 
+    // Whoever redeems an invite code becomes a family member,
+    // so the app shows the family view from now on.
+    const { error: roleError } = await supabase
+      .from("profiles")
+      .update({ role: "family_member" })
+      .eq("id", user.id);
+
+    if (roleError) {
+      console.error("Family connect role update failed", roleError);
+    }
+
     const { data: profile } = await supabase
       .from("profiles")
       .select("first_name, last_name")

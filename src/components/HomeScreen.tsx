@@ -2,6 +2,7 @@
 
 import { FlaskConical, Pill, ShieldPlus, Users } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { AppBottomNav } from "@/components/AppBottomNav";
 import {
@@ -13,6 +14,7 @@ import { useLanguage } from "@/components/LanguageProvider";
 import { SlowConnectionNotice } from "@/components/SlowConnectionNotice";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { useSlowConnection } from "@/hooks/useSlowConnection";
+import { useUserRole } from "@/hooks/useUserRole";
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 import { getTimeGreeting } from "@/lib/i18n/messages";
 import {
@@ -48,7 +50,9 @@ const featureCards = [
 ];
 
 export function HomeScreen() {
+  const router = useRouter();
   const { language, t } = useLanguage();
+  const role = useUserRole();
   const isOnline = useOnlineStatus();
   const [now, setNow] = useState(new Date());
   const [homeData, setHomeData] = useState<HomeScreenData | null>(null);
@@ -65,6 +69,13 @@ export function HomeScreen() {
   useEffect(() => {
     void fetch("/api/check-in", { method: "POST" });
   }, []);
+
+  // Family members live on the family dashboard, not the patient home.
+  useEffect(() => {
+    if (role === "family_member") {
+      router.replace("/dashboard");
+    }
+  }, [role, router]);
 
   async function loadHomeData() {
     setIsLoading(true);

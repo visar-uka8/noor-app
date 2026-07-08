@@ -49,12 +49,12 @@ export function FamilyMemberCard({ data }: FamilyMemberCardProps) {
             Ihre Verbindung ist aktiv
           </p>
 
-          <div className="mt-5 flex items-center gap-3 rounded-2xl bg-surface px-4 py-4">
+          <div className="mt-5 flex items-center gap-4 rounded-2xl bg-surface px-4 py-5">
             <span
-              className={`h-5 w-5 shrink-0 rounded-full ${status.circleClass}`}
+              className={`h-10 w-10 shrink-0 rounded-full ${status.circleClass}`}
               aria-hidden="true"
             />
-            <p className={`text-body font-bold ${status.textClass}`}>
+            <p className={`text-lg font-bold leading-snug ${status.textClass}`}>
               {data.overallStatusText}
             </p>
           </div>
@@ -107,7 +107,7 @@ export function FamilyMemberCard({ data }: FamilyMemberCardProps) {
                   onClick={() => setShowLabAnalysis(true)}
                   className="btn-touch mt-4 w-full rounded-2xl border-2 border-primary bg-surface px-5 py-3 text-base font-semibold text-primary transition-colors hover:bg-primary-light"
                 >
-                  Ansehen
+                  Vollständige Analyse ansehen
                 </button>
               </div>
             </div>
@@ -117,10 +117,10 @@ export function FamilyMemberCard({ data }: FamilyMemberCardProps) {
         <div className="border-t border-border px-5 py-5">
           <a
             href={`tel:${data.member.phone}`}
-            className="btn-primary mt-0 w-full gap-2"
+            className="btn-primary mt-0 min-h-14 w-full gap-2 text-lg"
           >
-            <Phone size={22} strokeWidth={2.4} aria-hidden="true" />
-            Anrufen
+            <Phone size={24} strokeWidth={2.4} aria-hidden="true" />
+            {data.member.displayLabel} anrufen
           </a>
         </div>
       </article>
