@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import { useLanguage } from "@/components/LanguageProvider";
 
 type AppHeaderProps = {
   showBack?: boolean;
@@ -11,6 +14,8 @@ export function AppHeader({
   backHref = "/",
   title,
 }: AppHeaderProps) {
+  const { t } = useLanguage();
+
   return (
     <header className="sticky top-0 z-10 border-b border-border bg-surface/95 backdrop-blur-sm">
       <div className="mx-auto flex max-w-app items-center gap-4 px-5 py-4">
@@ -18,7 +23,7 @@ export function AppHeader({
           <Link
             href={backHref}
             className="flex min-h-12 min-w-12 items-center justify-center rounded-xl text-primary transition-colors hover:bg-primary-light"
-            aria-label="Zurück"
+            aria-label={t("common.back")}
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -46,12 +51,10 @@ export function AppHeader({
 
         <div className="min-w-0 flex-1">
           {title ? (
-            <h1 className="heading-lg truncate">
-              {title}
-            </h1>
+            <h1 className="heading-lg truncate">{title}</h1>
           ) : (
             <>
-              <p className="text-sm font-medium text-muted">Willkommen bei</p>
+              <p className="text-sm font-medium text-muted">Noor</p>
               <h1 className="text-2xl font-bold text-foreground">Noor</h1>
             </>
           )}

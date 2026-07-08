@@ -6,7 +6,6 @@ import {
   Download,
   FileText,
   Info,
-  Languages,
   LogOut,
   Mail,
   Trash2,
@@ -20,6 +19,7 @@ import { useEffect, useState } from "react";
 import { AppBottomNav } from "@/components/AppBottomNav";
 import { ErrorBanner, ErrorState, PageSkeleton } from "@/components/AppStates";
 import { useElderMode } from "@/components/ElderModeProvider";
+import { useLanguage } from "@/components/LanguageProvider";
 import { appVersion, contactEmail } from "@/lib/app-info";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -59,6 +59,7 @@ const notificationLabels: Record<keyof NotificationPreferences, string> = {
 export function SettingsScreen() {
   const router = useRouter();
   const { elderMode, setElderMode } = useElderMode();
+  const { t } = useLanguage();
   const [settings, setSettings] = useState<SettingsData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -109,20 +110,22 @@ export function SettingsScreen() {
 
   async function patchSettings(updates: {
     elderMode?: boolean;
-    language?: "de" | "en";
     notificationPreferences?: NotificationPreferences;
   }) {
     if (!settings || isDemo) return;
 
-    await fetch("/api/settings", {
+    const response = await fetch("/api/settings", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         elder_mode: updates.elderMode,
-        language: updates.language,
         notification_preferences: updates.notificationPreferences,
       }),
     });
+
+    if (!response.ok) {
+      showError("Einstellungen konnten nicht gespeichert werden.");
+    }
   }
 
   function showError(message: string) {
@@ -134,16 +137,6 @@ export function SettingsScreen() {
     setSuccessMessage(message);
     setBannerError(null);
     window.setTimeout(() => setSuccessMessage(null), 2200);
-  }
-
-  async function setLanguage(language: "de" | "en") {
-    if (!settings) return;
-
-    setSettings({
-      ...settings,
-      profile: { ...settings.profile, language },
-    });
-    await patchSettings({ language });
   }
 
   async function setTextSize(enabled: boolean) {
@@ -341,40 +334,24 @@ export function SettingsScreen() {
               href="/settings/profile"
               className="mt-4 text-base font-semibold text-primary underline-offset-4 hover:underline"
             >
-              Profil bearbeiten
+              {t("settings.editProfile")}
             </Link>
           </div>
         </section>
 
-        <SectionHeading title="Persönliche Einstellungen" />
+        <SectionHeading title={t("settings.personal")} />
         <section className="noor-card overflow-hidden">
           <SettingsRow
-            icon={<Languages size={24} aria-hidden="true" />}
-            title="Sprache"
-            subtitle="Deutsch oder English"
-            action={
-              <SegmentedToggle
-                leftLabel="Deutsch"
-                rightLabel="English"
-                checked={profile.language === "en"}
-                onChange={(isEnglish) =>
-                  setLanguage(isEnglish ? "en" : "de")
-                }
-                label="Sprache"
-              />
-            }
-          />
-          <SettingsRow
             icon={<Type size={24} aria-hidden="true" />}
-            title="Schriftgröße"
-            subtitle="Normal oder Groß für bessere Lesbarkeit"
+            title={t("settings.textSize")}
+            subtitle={t("settings.textSizeSubtitle")}
             action={
               <SegmentedToggle
-                leftLabel="Normal"
-                rightLabel="Groß"
+                leftLabel={t("settings.normal")}
+                rightLabel={t("settings.large")}
                 checked={elderMode}
                 onChange={setTextSize}
-                label="Schriftgröße"
+                label={t("settings.textSize")}
               />
             }
           />

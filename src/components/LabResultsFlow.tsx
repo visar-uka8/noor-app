@@ -5,22 +5,31 @@ import { useEffect, useRef, useState } from "react";
 import { ErrorBanner, ErrorState } from "@/components/AppStates";
 import { LabResultAnalysis } from "@/components/LabResultAnalysis";
 import { LabResultHistory } from "@/components/LabResultHistory";
-import { createClient } from "@/lib/supabase/client";
+import { useLanguage } from "@/components/LanguageProvider";
+import { SlowConnectionNotice } from "@/components/SlowConnectionNotice";
+import { useSlowConnection } from "@/hooks/useSlowConnection";
+import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 import {
-  ANALYSIS_UNAVAILABLE_MESSAGE,
-  UNREADABLE_IMAGE_MESSAGE,
+  fileWithResolvedType,
+  isAcceptedLabFile,
+  isHeicFile,
+  resolveLabFileType,
+} from "@/lib/lab-file";
+import {
   type LabAnalysisResult,
   type LabResultRecord,
 } from "@/types/lab-results";
+import { createClient } from "@/lib/supabase/client";
 
 type FlowStep = "upload" | "analyzing" | "results" | "error";
 
 type AnalyzeLabErrorResponse = {
   error?: string;
-  code?: "unreadable" | "unavailable";
+  code?: "unreadable" | "unavailable" | "not_configured" | "unsupported" | "rate_limit";
 };
 
 export function LabResultsFlow() {
+  const { t } = useLanguage();
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const generalInputRef = useRef<HTMLInputElement>(null);
@@ -31,8 +40,9 @@ export function LabResultsFlow() {
   );
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [errorMessage, setErrorMessage] = useState(ANALYSIS_UNAVAILABLE_MESSAGE);
+  const [errorMessage, setErrorMessage] = useState("");
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
+  const isAnalyzingSlow = useSlowConnection(step === "analyzing");
 
   useEffect(() => {
     return () => {
@@ -58,19 +68,38 @@ export function LabResultsFlow() {
     const file = event.target.files?.[0];
     if (!file) return;
 
+    if (isHeicFile(file)) {
+      setErrorMessage(t("lab.heicUnsupported"));
+      setStep("error");
+      event.target.value = "";
+      return;
+    }
+
+    if (!isAcceptedLabFile(file)) {
+      setErrorMessage(t("lab.invalidFile"));
+      setStep("error");
+      event.target.value = "";
+      return;
+    }
+
     if (previewUrlRef.current) {
       URL.revokeObjectURL(previewUrlRef.current);
       previewUrlRef.current = null;
     }
 
-    setSelectedFile(file);
-    if (file.type.startsWith("image/")) {
-      const objectUrl = URL.createObjectURL(file);
+    const normalized = fileWithResolvedType(file);
+    setSelectedFile(normalized);
+    setStep("upload");
+    setErrorMessage("");
+
+    if (normalized.type.startsWith("image/")) {
+      const objectUrl = URL.createObjectURL(normalized);
       previewUrlRef.current = objectUrl;
       setPreviewUrl(objectUrl);
     } else {
       setPreviewUrl(null);
     }
+
     event.target.value = "";
   }
 
@@ -81,18 +110,24 @@ export function LabResultsFlow() {
 
   async function analyzeFile(file: File) {
     setStep("analyzing");
-    setErrorMessage(ANALYSIS_UNAVAILABLE_MESSAGE);
+    setErrorMessage(t("lab.unavailable"));
 
     try {
-      const filePath = await uploadLabResult(file);
+      const normalized = fileWithResolvedType(file);
+      const filePath = await uploadLabResult(normalized);
 
       const formData = new FormData();
-      formData.append("file", file);
+      formData.append("file", normalized);
       formData.append("file_url", filePath);
+      const mediaType = resolveLabFileType(normalized);
+      if (mediaType) {
+        formData.append("media_type", mediaType);
+      }
 
-      const response = await fetch("/api/analyze-lab", {
+      const response = await fetchWithTimeout("/api/analyze-lab", {
         method: "POST",
         body: formData,
+        timeoutMs: 120_000,
       });
 
       const payload = (await response.json()) as
@@ -103,9 +138,13 @@ export function LabResultsFlow() {
         const errorPayload = payload as AnalyzeLabErrorResponse;
         setErrorMessage(
           errorPayload.error ??
-            (errorPayload.code === "unreadable"
-              ? UNREADABLE_IMAGE_MESSAGE
-              : ANALYSIS_UNAVAILABLE_MESSAGE),
+            (errorPayload.code === "not_configured"
+              ? t("lab.notConfigured")
+              : errorPayload.code === "rate_limit"
+                ? errorPayload.error ?? t("lab.unavailable")
+              : errorPayload.code === "unreadable"
+                ? t("lab.unreadable")
+                : t("lab.unavailable")),
         );
         setStep("error");
         return;
@@ -114,8 +153,15 @@ export function LabResultsFlow() {
       setAnalysisResult(payload as LabAnalysisResult);
       setHistoryRefreshKey((current) => current + 1);
       setStep("results");
-    } catch {
-      setErrorMessage(ANALYSIS_UNAVAILABLE_MESSAGE);
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message.includes("signed in")
+      ) {
+        setErrorMessage(t("lab.loginRequired"));
+      } else {
+        setErrorMessage(t("lab.unavailable"));
+      }
       setStep("error");
     }
   }
@@ -136,9 +182,12 @@ export function LabResultsFlow() {
               aria-hidden="true"
             />
             <p className="mt-6 text-2xl font-semibold text-foreground">
-              Ihre Laborwerte werden analysiert...
+              {t("lab.analyzing")}
             </p>
-            <p className="mt-2 text-lg text-muted">Das dauert nur einen Moment</p>
+            <p className="mt-2 text-lg text-muted">{t("lab.analyzingHint")}</p>
+            {isAnalyzingSlow ? (
+              <SlowConnectionNotice message={t("lab.slowHint")} />
+            ) : null}
           </div>
         </main>
       </div>
@@ -154,14 +203,14 @@ export function LabResultsFlow() {
       <>
         <ErrorBanner
           message={errorMessage}
-          actionLabel="Erneut versuchen"
+          actionLabel={t("common.retry")}
           onAction={() =>
             selectedFile ? void analyzeFile(selectedFile) : setStep("upload")
           }
         />
         <main className="mx-auto flex w-full max-w-app flex-1 flex-col px-5 py-6">
           <ErrorState
-            message="Die Analyse konnte nicht abgeschlossen werden."
+            message={t("lab.errorTitle")}
             onRetry={() =>
               selectedFile ? void analyzeFile(selectedFile) : setStep("upload")
             }
@@ -176,7 +225,7 @@ export function LabResultsFlow() {
       <input
         ref={cameraInputRef}
         type="file"
-        accept="image/*"
+        accept="image/jpeg,image/png,image/webp,image/gif,.pdf,application/pdf"
         capture="environment"
         className="sr-only"
         onChange={handleFileSelect}
@@ -186,7 +235,7 @@ export function LabResultsFlow() {
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/*,.pdf,application/pdf"
+        accept="image/jpeg,image/png,image/webp,image/gif,.pdf,application/pdf"
         className="sr-only"
         onChange={handleFileSelect}
         aria-hidden="true"
@@ -195,7 +244,7 @@ export function LabResultsFlow() {
       <input
         ref={generalInputRef}
         type="file"
-        accept="image/*,.pdf,application/pdf"
+        accept="image/jpeg,image/png,image/webp,image/gif,.pdf,application/pdf"
         className="sr-only"
         onChange={handleFileSelect}
         aria-hidden="true"
@@ -206,7 +255,7 @@ export function LabResultsFlow() {
         type="button"
         onClick={() => generalInputRef.current?.click()}
         className="noor-card flex min-h-[200px] w-full flex-col items-center justify-center gap-3 px-6 py-8 text-center transition-colors hover:bg-primary-light active:scale-[0.99]"
-        aria-label="Foto oder PDF hochladen"
+        aria-label={t("lab.uploadLabel")}
       >
         <div
           className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary-light text-primary"
@@ -215,10 +264,8 @@ export function LabResultsFlow() {
           <FileText size={34} strokeWidth={2.2} />
         </div>
         <div>
-          <p className="heading-lg leading-tight">Foto oder PDF hochladen</p>
-          <p className="text-body mt-2 text-muted">
-            Tippen Sie hier um Ihren Laborbefund hochzuladen
-          </p>
+          <p className="heading-lg leading-tight">{t("lab.uploadTitle")}</p>
+          <p className="text-body mt-2 text-muted">{t("lab.uploadHint")}</p>
         </div>
       </button>
 
@@ -229,7 +276,7 @@ export function LabResultsFlow() {
           className="btn-touch noor-card flex flex-col items-center justify-center gap-2 px-3 py-4 text-base font-semibold text-foreground transition-colors hover:border-primary/30"
         >
           <Camera size={24} className="text-primary" aria-hidden="true" />
-          Foto aufnehmen
+          {t("lab.takePhoto")}
         </button>
 
         <button
@@ -238,7 +285,7 @@ export function LabResultsFlow() {
           className="btn-touch noor-card flex flex-col items-center justify-center gap-2 px-3 py-4 text-base font-semibold text-foreground transition-colors hover:border-primary/30"
         >
           <FileText size={24} className="text-primary" aria-hidden="true" />
-          Datei auswählen
+          {t("lab.chooseFile")}
         </button>
       </div>
 
@@ -249,14 +296,14 @@ export function LabResultsFlow() {
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={previewUrl}
-                alt="Vorschau des ausgewählten Laborbefunds"
+                alt={t("lab.previewAlt")}
                 className="h-56 w-full object-cover"
               />
             ) : (
               <div className="flex h-56 flex-col items-center justify-center gap-3 text-primary">
                 <FileText size={56} strokeWidth={2} aria-hidden="true" />
                 <p className="text-lg font-bold text-foreground">
-                  PDF ausgewählt
+                  {t("lab.pdfSelected")}
                 </p>
               </div>
             )}
@@ -271,12 +318,12 @@ export function LabResultsFlow() {
             onClick={() => analyzeFile(selectedFile)}
             className="btn-primary mt-4 w-full"
           >
-            Jetzt analysieren
+            {t("lab.analyzeNow")}
           </button>
 
           <p className="mt-4 flex items-center justify-center gap-2 text-center text-sm text-muted">
             <Lock size={16} className="shrink-0 text-primary" aria-hidden="true" />
-            Ihre Daten sind verschlüsselt und werden nicht weitergegeben
+            {t("lab.privacy")}
           </p>
         </section>
       )}
@@ -302,10 +349,11 @@ async function uploadLabResult(file: File) {
 
   const today = new Date().toISOString().slice(0, 10);
   const filePath = `${user.id}/${today}/${Date.now()}-${sanitizeFileName(file.name)}`;
+  const contentType = resolveLabFileType(file) ?? file.type ?? "application/octet-stream";
   const { error } = await supabase.storage
     .from("lab-results")
     .upload(filePath, file, {
-      contentType: file.type || "application/octet-stream",
+      contentType,
       upsert: false,
     });
 

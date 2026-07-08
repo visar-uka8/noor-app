@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { CardListSkeleton, FeatureEmptyState } from "@/components/AppStates";
+import { useLanguage } from "@/components/LanguageProvider";
+import { formatLocalizedDate } from "@/lib/i18n/messages";
 import {
-  formatLabResultDate,
   getAnalysisPreview,
   type LabResultRecord,
 } from "@/types/lab-results";
@@ -14,6 +15,7 @@ type LabResultHistoryProps = {
 };
 
 export function LabResultHistory({ onSelect, refreshKey = 0 }: LabResultHistoryProps) {
+  const { language, t } = useLanguage();
   const [results, setResults] = useState<LabResultRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -51,16 +53,16 @@ export function LabResultHistory({ onSelect, refreshKey = 0 }: LabResultHistoryP
   }, [refreshKey]);
 
   return (
-    <section className="mt-8" aria-label="Frühere Laborwerte">
-      <h2 className="heading-lg mb-4">Frühere Laborwerte</h2>
+    <section className="mt-8" aria-label={t("lab.historyTitle")}>
+      <h2 className="heading-lg mb-4">{t("lab.historyTitle")}</h2>
 
       {isLoading ? (
         <CardListSkeleton />
       ) : results.length === 0 ? (
         <FeatureEmptyState
           emoji="🧪"
-          title="Noch keine Laborwerte"
-          subtitle="Laden Sie Ihren ersten Befund hoch — wir erklären alles auf einfachem Deutsch."
+          title={t("lab.historyEmptyTitle")}
+          subtitle={t("lab.historyEmptySubtitle")}
         />
       ) : (
         <div className="flex flex-col gap-3">
@@ -73,10 +75,10 @@ export function LabResultHistory({ onSelect, refreshKey = 0 }: LabResultHistoryP
             >
               <div className="flex items-start justify-between gap-3">
                 <p className="text-stat text-heading">
-                  {formatLabResultDate(result.created_at)}
+                  {formatLocalizedDate(language, result.created_at)}
                 </p>
                 <span className="shrink-0 rounded-full bg-primary-light px-3 py-1 text-sm font-semibold text-heading">
-                  Analysiert
+                  {t("lab.analyzed")}
                 </span>
               </div>
               <p className="text-body mt-3 line-clamp-2 whitespace-pre-wrap text-muted">

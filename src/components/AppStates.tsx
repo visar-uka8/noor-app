@@ -192,6 +192,41 @@ export function FeatureEmptyState({
   );
 }
 
+export function ConnectionErrorState({
+  onRetry,
+  isOffline = false,
+}: {
+  onRetry: () => void;
+  isOffline?: boolean;
+}) {
+  return (
+    <section className="noor-card p-6 text-center" role="alert">
+      <div
+        className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-warning-light"
+        aria-hidden="true"
+      >
+        <span className="text-4xl">{isOffline ? "📡" : "😔"}</span>
+      </div>
+      <h2 className="heading-lg mt-4">
+        {isOffline
+          ? "Keine Internetverbindung"
+          : "Daten konnten nicht geladen werden"}
+      </h2>
+      <p className="text-body mt-2 text-muted">
+        Ihre echten Daten können gerade nicht angezeigt werden. Bitte versuchen
+        Sie es erneut.
+      </p>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="btn-primary mt-5 w-full"
+      >
+        Erneut versuchen
+      </button>
+    </section>
+  );
+}
+
 export function NoorStatusBanner({
   level,
   children,

@@ -156,6 +156,71 @@ export async function POST(request: Request) {
   }
 }
 
+type UndoPayload = {
+  dose_time?: unknown;
+};
+
+export async function DELETE(request: Request) {
+  try {
+    const payload = (await request.json()) as UndoPayload;
+    const doseTime = normalizeDoseTime(payload.dose_time);
+    const authSupabase = await createClient();
+    const {
+      data: { user },
+      error: authError,
+    } = await authSupabase.auth.getUser();
+
+    if (authError || !user) {
+      return Response.json(
+        { error: "Bitte melden Sie sich an." },
+        { status: 401 },
+      );
+    }
+
+    const { start, end } = getTodayRange();
+    const supabase = createSupabaseDataClient() ?? authSupabase;
+    const dose = medicationDoses.find((item) => item.time === doseTime);
+
+    if (!dose) {
+      return Response.json({ error: "Dosis nicht gefunden." }, { status: 404 });
+    }
+
+    const medicationName = `${dose.name}${dose.dose ? ` ${dose.dose}` : ""}`.trim();
+    const scheduledAt = getScheduledAt(doseTime).toISOString();
+
+    const { data: existing, error: existingError } = await supabase
+      .from("medication_confirmations")
+      .select("id, confirmed_at")
+      .eq("user_id", user.id)
+      .eq("medication_name", medicationName)
+      .eq("dose_time", doseTime)
+      .eq("scheduled_at", scheduledAt)
+      .maybeSingle<{ id: string; confirmed_at: string | null }>();
+
+    if (existingError) throw existingError;
+
+    if (!existing?.confirmed_at) {
+      return Response.json({ undone: true });
+    }
+
+    const { error } = await supabase
+      .from("medication_confirmations")
+      .update({ confirmed_at: null, missed: isMissed(doseTime) })
+      .eq("id", existing.id);
+
+    if (error) throw error;
+
+    return Response.json({ undone: true });
+  } catch (error) {
+    console.error("Medication confirmation undo failed", error);
+
+    return Response.json(
+      { error: "Rückgängig machen ist gerade nicht möglich." },
+      { status: 500 },
+    );
+  }
+}
+
 function createSupabaseDataClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;

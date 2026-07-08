@@ -78,9 +78,9 @@ export function FamilyMemberCard({ data }: FamilyMemberCardProps) {
               <Clock3 size={22} strokeWidth={2.2} />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-foreground">Letzter Check-in</h2>
+              <h2 className="text-lg font-bold text-foreground">Letzte Aktivität</h2>
               <p className="mt-1 text-base text-muted">
-                Letzter Check-in: {data.lastCheckInText}
+                Letzte Aktivität: {data.lastCheckInText}
               </p>
             </div>
           </div>

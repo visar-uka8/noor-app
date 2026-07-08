@@ -193,7 +193,7 @@ export function DoctorSearch() {
             active={activeFilters.has("videoConsultation")}
             onClick={() => toggleFilter("videoConsultation")}
           >
-            Video-Konsultation
+            Videosprechstunde
           </FilterChip>
         </div>
       </section>
@@ -432,7 +432,7 @@ function ConfirmationStep({
           <SummaryRow label="Arzt" value={doctor.name} />
           <SummaryRow label="Datum" value={formatFullDate(selectedDate)} />
           <SummaryRow label="Uhrzeit" value={`${selectedTime} Uhr`} />
-          <SummaryRow label="Art" value="Video" />
+          <SummaryRow label="Art" value="Videosprechstunde" />
           <SummaryRow label="Kosten" value={`€${doctor.fee}`} />
         </dl>
 
@@ -498,7 +498,7 @@ function SuccessStep({
         Termin bestätigt!
       </h1>
       <p className="mt-3 text-lg leading-relaxed text-muted">
-        Video-Konsultation mit {getShortDoctorName(doctor.name)} am{" "}
+        Videosprechstunde mit {getShortDoctorName(doctor.name)} am{" "}
         {formatFullDate(selectedDate)} um {selectedTime} Uhr.
       </p>
 

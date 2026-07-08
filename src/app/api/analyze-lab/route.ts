@@ -1,37 +1,9 @@
-import Anthropic from "@anthropic-ai/sdk";
-import { createClient as createAdminClient } from "@supabase/supabase-js";
-import type { ContentBlockParam } from "@anthropic-ai/sdk/resources/messages";
 import { createClient } from "@/lib/supabase/server";
-import {
-  ANALYSIS_UNAVAILABLE_MESSAGE,
-  UNREADABLE_IMAGE_MESSAGE,
-  type LabAnalysisResult,
-} from "@/types/lab-results";
+import { resolveLabFileType } from "@/lib/lab-file";
+import { analyzeLabDocument, getLabAiProvider } from "@/lib/lab-analyze";
+import type { LabAnalysisResult } from "@/types/lab-results";
 
 export const runtime = "nodejs";
-
-const SYSTEM_PROMPT = `Du bist Noor, ein freundlicher Gesundheitsbegleiter. 
-Ein älterer Patient hat dir ein Foto seines Laborbefunds geschickt.
-
-Deine Aufgabe:
-1. Lies alle sichtbaren Laborwerte aus dem Bild
-2. Erkläre jeden Wert in sehr einfacher Sprache — kein Fachjargon
-3. Sage klar ob der Wert normal, leicht erhöht, oder erhöht ist
-4. Gib einen einfachen praktischen Tipp für jeden auffälligen Wert
-5. Bleibe warm, ruhig und beruhigend im Ton
-6. Schreibe maximal 400 Wörter
-7. Strukturiere die Antwort so:
-   - Kurze Zusammenfassung (2 Sätze)
-   - Einzelne Werte (Liste)
-   - Empfehlungen (2-3 Punkte)
-8. Ende immer mit diesem Satz:
-   'Diese Erklärung ersetzt keine ärztliche Beratung. 
-   Bei Fragen sprechen Sie bitte mit Ihrem Arzt.'
-
-Antworte immer auf Deutsch.`;
-
-const UNREADABLE_MARKER = "UNREADABLE";
-const MODEL = "claude-sonnet-4-20250514";
 
 type AcceptedMediaType =
   | "image/jpeg"
@@ -48,110 +20,160 @@ const ACCEPTED_MEDIA_TYPES = new Set<string>([
   "application/pdf",
 ]);
 
-export async function POST(request: Request) {
-  try {
-    const apiKey = process.env.ANTHROPIC_API_KEY;
+const UNREADABLE_MARKER = "UNREADABLE";
 
-    if (!apiKey) {
+function errorMessage(language: "de" | "en", key: string) {
+  const messages: Record<string, Record<"de" | "en", string>> = {
+    upload: {
+      de: "Bitte laden Sie eine Datei hoch.",
+      en: "Please upload a file.",
+    },
+    invalid: {
+      de: "Bitte laden Sie ein Foto (JPEG/PNG) oder eine PDF-Datei hoch.",
+      en: "Please upload a photo (JPEG/PNG) or a PDF file.",
+    },
+    heic: {
+      de: "Dieses Fotoformat wird nicht unterstützt. Bitte wählen Sie JPEG oder PDF.",
+      en: "This photo format is not supported. Please choose JPEG or PDF.",
+    },
+    unreadable: {
+      de: "Das Bild war leider nicht gut lesbar. Bitte versuchen Sie ein klareres Foto aufzunehmen.",
+      en: "The image was hard to read. Please try a clearer photo.",
+    },
+    unavailable: {
+      de: "Analyse momentan nicht verfügbar. Bitte versuchen Sie es später erneut.",
+      en: "Analysis is temporarily unavailable. Please try again later.",
+    },
+    rateLimit: {
+      de: "Zu viele Anfragen gerade. Bitte warten Sie eine Minute und versuchen Sie es erneut.",
+      en: "Too many requests right now. Please wait a minute and try again.",
+    },
+    notConfigured: {
+      de: "Die KI-Analyse ist noch nicht eingerichtet. Ein kostenloser Google Gemini API-Schlüssel wird benötigt.",
+      en: "AI analysis is not set up yet. A free Google Gemini API key is required.",
+    },
+  };
+
+  return messages[key]?.[language] ?? messages[key]?.de ?? "";
+}
+
+export async function POST(request: Request) {
+  const authSupabase = await createClient();
+  const {
+    data: { user },
+  } = await authSupabase.auth.getUser();
+
+  const language = await getUserLanguage();
+
+  try {
+    if (!getLabAiProvider()) {
       return Response.json(
-        { error: ANALYSIS_UNAVAILABLE_MESSAGE, code: "unavailable" },
-        { status: 500 },
+        {
+          error: errorMessage(language, "notConfigured"),
+          code: "not_configured",
+        },
+        { status: 503 },
       );
     }
 
     const formData = await request.formData();
     const file = formData.get("file");
     const fileUrl = formData.get("file_url");
+    const mediaTypeField = formData.get("media_type");
 
     if (!(file instanceof File)) {
       return Response.json(
-        { error: "Bitte laden Sie eine Datei hoch." },
+        { error: errorMessage(language, "upload") },
         { status: 400 },
       );
     }
 
-    if (!ACCEPTED_MEDIA_TYPES.has(file.type)) {
+    const resolvedType =
+      typeof mediaTypeField === "string" && mediaTypeField.length > 0
+        ? mediaTypeField
+        : resolveLabFileType(file) ?? file.type;
+
+    if (resolvedType === "image/heic") {
       return Response.json(
-        { error: "Bitte laden Sie ein Foto oder eine PDF-Datei hoch." },
+        { error: errorMessage(language, "heic"), code: "unsupported" },
         { status: 400 },
       );
     }
 
-    const mediaType = file.type as AcceptedMediaType;
+    if (!ACCEPTED_MEDIA_TYPES.has(resolvedType)) {
+      return Response.json(
+        { error: errorMessage(language, "invalid") },
+        { status: 400 },
+      );
+    }
+
+    const mediaType = resolvedType as AcceptedMediaType;
     const base64File = Buffer.from(await file.arrayBuffer()).toString("base64");
-    const anthropic = new Anthropic({ apiKey });
-    const contentBlock: ContentBlockParam =
-      mediaType === "application/pdf"
-        ? {
-            type: "document",
-            source: {
-              type: "base64",
-              media_type: mediaType,
-              data: base64File,
-            },
-          }
-        : {
-            type: "image",
-            source: {
-              type: "base64",
-              media_type: mediaType,
-              data: base64File,
-            },
-          };
 
-    const message = await anthropic.messages.create({
-      model: MODEL,
-      max_tokens: 1800,
-      temperature: 0.2,
-      system: SYSTEM_PROMPT,
-      messages: [
-        {
-          role: "user",
-          content: [
-            contentBlock,
-            {
-              type: "text",
-              text: "Bitte analysiere diesen Laborbefund. Falls das Bild oder PDF nicht lesbar ist oder keine Laborwerte erkennbar sind, antworte ausschließlich mit dem Wort UNREADABLE.",
-            },
-          ],
-        },
-      ],
+    const analysis = await analyzeLabDocument({
+      language,
+      mediaType,
+      base64File,
     });
-
-    const analysis = message.content
-      .filter((block) => block.type === "text")
-      .map((block) => block.text)
-      .join("\n")
-      .trim();
 
     if (isUnreadableResponse(analysis)) {
       return Response.json(
-        { error: UNREADABLE_IMAGE_MESSAGE, code: "unreadable" },
+        { error: errorMessage(language, "unreadable"), code: "unreadable" },
         { status: 422 },
       );
     }
-
-    const authSupabase = await createClient();
-    const {
-      data: { user },
-    } = await authSupabase.auth.getUser();
 
     const storedFileUrl =
       typeof fileUrl === "string" && fileUrl.length > 0 ? fileUrl : null;
 
     if (user && storedFileUrl) {
-      await saveLabResult(user.id, storedFileUrl, analysis);
+      const { error } = await authSupabase.from("lab_results").insert({
+        user_id: user.id,
+        file_url: storedFileUrl,
+        ai_analysis: analysis,
+      });
+
+      if (error) {
+        console.error("Lab result save failed", error);
+      }
     }
 
     return Response.json({ analysis } satisfies LabAnalysisResult);
   } catch (error) {
     console.error("Lab analysis failed", error);
 
+    if (error instanceof Error && error.message === "LAB_AI_NOT_CONFIGURED") {
+      return Response.json(
+        {
+          error: errorMessage(language, "notConfigured"),
+          code: "not_configured",
+        },
+        { status: 503 },
+      );
+    }
+
+    if (error instanceof Error && error.message === "GEMINI_RATE_LIMIT") {
+      return Response.json(
+        {
+          error: errorMessage(language, "rateLimit"),
+          code: "rate_limit",
+        },
+        { status: 429 },
+      );
+    }
+
     return Response.json(
-      { error: ANALYSIS_UNAVAILABLE_MESSAGE, code: "unavailable" },
+      {
+        error: errorMessage(language, "unavailable"),
+        code: "unavailable",
+      },
       { status: 500 },
     );
   }
+}
+
+async function getUserLanguage() {
+  return "de" as const;
 }
 
 function isUnreadableResponse(text: string) {
@@ -168,42 +190,14 @@ function isUnreadableResponse(text: string) {
     /keine\s+werte\s+erkenn/i,
     /bild\s+ist\s+zu\s+unscharf/i,
     /nicht\s+erkennbar/i,
+    /hard to read/i,
+    /cannot read/i,
+    /no lab values/i,
+    /unreadable/i,
   ];
 
   return (
     text.length < 80 &&
     unreadablePatterns.some((pattern) => pattern.test(text))
   );
-}
-
-async function saveLabResult(
-  userId: string,
-  fileUrl: string,
-  aiAnalysis: string,
-) {
-  const supabase = createSupabaseAdminClient();
-  if (!supabase) return;
-
-  const { error } = await supabase.from("lab_results").insert({
-    user_id: userId,
-    file_url: fileUrl,
-    ai_analysis: aiAnalysis,
-  });
-
-  if (error) {
-    console.error("Lab result save failed", error);
-  }
-}
-
-function createSupabaseAdminClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseKey =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ??
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-  if (!supabaseUrl || !supabaseKey) return null;
-
-  return createAdminClient(supabaseUrl, supabaseKey, {
-    auth: { persistSession: false },
-  });
 }

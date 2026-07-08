@@ -1,8 +1,8 @@
 "use client";
 
-import { Pill } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
+  ConnectionErrorState,
   ErrorBanner,
   ErrorState,
   FeatureEmptyState,
@@ -10,25 +10,43 @@ import {
   PageSkeleton,
 } from "@/components/AppStates";
 import { MedicationDoseButton } from "@/components/MedicationDoseButton";
+import { SlowConnectionNotice } from "@/components/SlowConnectionNotice";
+import { useOnlineStatus } from "@/hooks/useOnlineStatus";
+import { useSlowConnection } from "@/hooks/useSlowConnection";
+import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 import {
   medicationDoses,
+  type MedicationDose,
   type MedicationTime,
 } from "@/types/medication";
 
+const UNDO_WINDOW_MS = 60_000;
+
 export function MedicationConfirmation() {
+  const isOnline = useOnlineStatus();
   const [confirmed, setConfirmed] = useState<Set<MedicationTime>>(new Set());
   const [missed, setMissed] = useState<Set<MedicationTime>>(new Set());
   const [pending, setPending] = useState<Set<MedicationTime>>(new Set());
   const [isLoading, setIsLoading] = useState(true);
   const [hasLoadError, setHasLoadError] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [doseToConfirm, setDoseToConfirm] = useState<MedicationDose | null>(
+    null,
+  );
+  const [undoTarget, setUndoTarget] = useState<{
+    time: MedicationTime;
+    label: string;
+    expiresAt: number;
+  } | null>(null);
+  const [isUndoing, setIsUndoing] = useState(false);
+  const isSlow = useSlowConnection(isLoading || pending.size > 0);
 
   async function loadConfirmations() {
     setIsLoading(true);
     setHasLoadError(false);
 
     try {
-      const response = await fetch("/api/medication-confirmations");
+      const response = await fetchWithTimeout("/api/medication-confirmations");
 
       if (!response.ok) throw new Error("Medication confirmations failed.");
 
@@ -77,6 +95,19 @@ export function MedicationConfirmation() {
     return () => window.clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    if (!undoTarget) return;
+
+    const remainingMs = undoTarget.expiresAt - Date.now();
+    if (remainingMs <= 0) {
+      setUndoTarget(null);
+      return;
+    }
+
+    const timer = window.setTimeout(() => setUndoTarget(null), remainingMs);
+    return () => window.clearTimeout(timer);
+  }, [undoTarget]);
+
   if (medicationDoses.length === 0) {
     return (
       <main className="mx-auto w-full max-w-app flex-1 px-5 py-6">
@@ -92,14 +123,23 @@ export function MedicationConfirmation() {
   }
 
   if (isLoading) {
-    return <PageSkeleton />;
+    return (
+      <>
+        <PageSkeleton />
+        {isSlow ? (
+          <div className="px-5 pb-6">
+            <SlowConnectionNotice message="Das dauert etwas länger — bitte warten Sie." />
+          </div>
+        ) : null}
+      </>
+    );
   }
 
   if (hasLoadError) {
     return (
       <main className="mx-auto w-full max-w-app flex-1 px-5 py-6">
-        <ErrorState
-          message="Medikamente konnten nicht geladen werden."
+        <ConnectionErrorState
+          isOffline={!isOnline}
           onRetry={loadConfirmations}
         />
       </main>
@@ -118,7 +158,7 @@ export function MedicationConfirmation() {
     setPending((current) => new Set(current).add(time));
 
     try {
-      const response = await fetch("/api/medication-confirmations", {
+      const response = await fetchWithTimeout("/api/medication-confirmations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -137,6 +177,11 @@ export function MedicationConfirmation() {
         next.delete(time);
         return next;
       });
+      setUndoTarget({
+        time,
+        label: `${dose.name} ${dose.dose}`.trim(),
+        expiresAt: Date.now() + UNDO_WINDOW_MS,
+      });
     } catch {
       setSaveError(
         "Bestätigung konnte nicht gespeichert werden. Bitte tippen Sie erneut auf die Einnahme.",
@@ -150,8 +195,42 @@ export function MedicationConfirmation() {
     }
   }
 
+  async function undoConfirmation() {
+    if (!undoTarget || isUndoing) return;
+
+    setIsUndoing(true);
+    setSaveError(null);
+
+    try {
+      const response = await fetchWithTimeout("/api/medication-confirmations", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dose_time: undoTarget.time }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Undo failed.");
+      }
+
+      setConfirmed((current) => {
+        const next = new Set(current);
+        next.delete(undoTarget.time);
+        return next;
+      });
+      setUndoTarget(null);
+      await loadConfirmations();
+    } catch {
+      setSaveError(
+        "Rückgängig machen ist gerade nicht möglich. Bitte versuchen Sie es erneut.",
+      );
+    } finally {
+      setIsUndoing(false);
+    }
+  }
+
   const allConfirmed = confirmed.size === medicationDoses.length;
   const pendingCount = medicationDoses.length - confirmed.size - missed.size;
+  const isSaving = pending.size > 0;
 
   return (
     <>
@@ -175,6 +254,10 @@ export function MedicationConfirmation() {
           Tippen Sie auf jede Einnahme, wenn Sie Ihr Medikament genommen haben.
         </p>
 
+        {isSaving && isSlow ? (
+          <SlowConnectionNotice message="Wird gespeichert — bei langsamem Internet kann das einen Moment dauern." />
+        ) : null}
+
         <div
           className="flex flex-col gap-4"
           role="group"
@@ -187,10 +270,29 @@ export function MedicationConfirmation() {
               confirmed={confirmed.has(dose.time)}
               missed={missed.has(dose.time)}
               pending={pending.has(dose.time)}
-              onConfirm={() => void confirmDose(dose.time)}
+              onConfirm={() => setDoseToConfirm(dose)}
             />
           ))}
         </div>
+
+        {undoTarget ? (
+          <section className="noor-card mt-5 p-4" role="status">
+            <p className="text-body text-foreground">
+              <span className="font-bold">{undoTarget.label}</span> bestätigt.
+            </p>
+            <p className="text-body mt-1 text-muted">
+              Versehentlich getippt? Sie können das noch rückgängig machen.
+            </p>
+            <button
+              type="button"
+              onClick={() => void undoConfirmation()}
+              disabled={isUndoing}
+              className="btn-touch mt-4 w-full rounded-2xl border-2 border-warning bg-warning-light px-4 py-3 text-base font-bold text-warning"
+            >
+              {isUndoing ? "Wird rückgängig gemacht…" : "Rückgängig machen"}
+            </button>
+          </section>
+        ) : null}
 
         {allConfirmed && (
           <p
@@ -201,7 +303,66 @@ export function MedicationConfirmation() {
           </p>
         )}
       </main>
+
+      {doseToConfirm ? (
+        <MedicationConfirmDialog
+          dose={doseToConfirm}
+          onConfirm={() => {
+            const time = doseToConfirm.time;
+            setDoseToConfirm(null);
+            void confirmDose(time);
+          }}
+          onCancel={() => setDoseToConfirm(null)}
+        />
+      ) : null}
     </>
+  );
+}
+
+function MedicationConfirmDialog({
+  dose,
+  onConfirm,
+  onCancel,
+}: {
+  dose: MedicationDose;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const label = `${dose.name} ${dose.dose}`.trim();
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 px-5"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="medication-confirm-title"
+    >
+      <div className="w-full max-w-app rounded-2xl border border-border bg-surface p-5 shadow-[var(--warm-shadow)]">
+        <h3 id="medication-confirm-title" className="heading-lg">
+          Wirklich genommen?
+        </h3>
+        <p className="text-body mt-3 text-muted">
+          Haben Sie <span className="font-bold text-foreground">{label}</span>{" "}
+          ({dose.label}) wirklich eingenommen?
+        </p>
+        <div className="mt-5 grid grid-cols-1 gap-3">
+          <button
+            type="button"
+            onClick={onConfirm}
+            className="btn-primary w-full"
+          >
+            Ja, genommen
+          </button>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="btn-touch w-full rounded-2xl border border-border px-4 py-3 text-base font-semibold text-foreground"
+          >
+            Noch nicht
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

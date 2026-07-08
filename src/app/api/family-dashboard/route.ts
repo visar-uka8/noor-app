@@ -239,7 +239,7 @@ function emptyDashboardResponse(): FamilyDashboardData {
     overallStatusText: "Alles okay heute ✓",
     medications: [],
     lastCheckIn: null,
-    lastCheckInText: "Noch kein Check-in heute",
+    lastCheckInText: "Noch keine Aktivität heute",
     latestLabResult: null,
   };
 }

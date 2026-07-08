@@ -31,7 +31,7 @@ export function getTimeGreeting(date: Date) {
   const hour = date.getHours();
 
   if (hour >= 5 && hour < 11) return "Guten Morgen";
-  if (hour >= 11 && hour < 14) return "Guten Mittag";
+  if (hour >= 11 && hour < 14) return "Guten Tag";
   if (hour >= 14 && hour < 21) return "Guten Abend";
 
   return "Gute Nacht";

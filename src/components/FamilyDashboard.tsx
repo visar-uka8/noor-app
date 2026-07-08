@@ -3,14 +3,19 @@
 import { UsersRound } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { CardListSkeleton, ErrorBanner, FeatureEmptyState } from "@/components/AppStates";
+import {
+  CardListSkeleton,
+  ConnectionErrorState,
+  FeatureEmptyState,
+} from "@/components/AppStates";
 import { FamilyMemberCard } from "@/components/FamilyMemberCard";
 import { FamilyNotificationSettings } from "@/components/FamilyNotificationSettings";
+import { SlowConnectionNotice } from "@/components/SlowConnectionNotice";
+import { useOnlineStatus } from "@/hooks/useOnlineStatus";
+import { useSlowConnection } from "@/hooks/useSlowConnection";
+import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
+import type { FamilyDashboardData } from "@/lib/family-dashboard-status";
 import { createClient } from "@/lib/supabase/client";
-import {
-  demoFamilyDashboard,
-  type FamilyDashboardData,
-} from "@/lib/family-dashboard-status";
 
 const emptyDashboard: FamilyDashboardData = {
   connected: false,
@@ -19,18 +24,23 @@ const emptyDashboard: FamilyDashboardData = {
   overallStatusText: "Alles okay heute ✓",
   medications: [],
   lastCheckIn: null,
-  lastCheckInText: "Noch kein Check-in heute",
+  lastCheckInText: "Noch keine Aktivität heute",
   latestLabResult: null,
 };
 
 export function FamilyDashboard() {
+  const isOnline = useOnlineStatus();
   const [dashboard, setDashboard] = useState<FamilyDashboardData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [hasLoadError, setHasLoadError] = useState(false);
+  const isSlow = useSlowConnection(isLoading);
 
   const loadDashboard = useCallback(async () => {
+    setIsLoading(true);
+    setHasLoadError(false);
+
     try {
-      const response = await fetch("/api/family-dashboard");
+      const response = await fetchWithTimeout("/api/family-dashboard");
 
       if (!response.ok) {
         throw new Error("Family dashboard request failed.");
@@ -38,9 +48,8 @@ export function FamilyDashboard() {
 
       const data = (await response.json()) as FamilyDashboardData;
       setDashboard(data.connected ? data : emptyDashboard);
-      setHasLoadError(false);
     } catch {
-      setDashboard(demoFamilyDashboard);
+      setDashboard(null);
       setHasLoadError(true);
     } finally {
       setIsLoading(false);
@@ -56,7 +65,9 @@ export function FamilyDashboard() {
 
     const patientId = dashboard.member.patientId;
     const supabase = createClient();
-    let pollTimer: number | undefined;
+    const pollTimer = window.setInterval(() => {
+      void loadDashboard();
+    }, 5000);
 
     const channel = supabase
       .channel(`family-dashboard-${patientId}`)
@@ -98,10 +109,6 @@ export function FamilyDashboard() {
       )
       .subscribe();
 
-    pollTimer = window.setInterval(() => {
-      void loadDashboard();
-    }, 5000);
-
     return () => {
       window.clearInterval(pollTimer);
       void supabase.removeChannel(channel);
@@ -114,12 +121,29 @@ export function FamilyDashboard() {
         <DashboardHeader />
         <div className="mt-6">
           <CardListSkeleton />
+          {isSlow ? (
+            <SlowConnectionNotice message="Das dauert etwas länger — bitte warten Sie." />
+          ) : null}
         </div>
       </main>
     );
   }
 
-  if (!dashboard?.connected || !dashboard.member) {
+  if (hasLoadError || !dashboard) {
+    return (
+      <main className="mx-auto flex min-h-full w-full max-w-app flex-1 flex-col px-5 py-6">
+        <DashboardHeader />
+        <div className="mt-6">
+          <ConnectionErrorState
+            isOffline={!isOnline}
+            onRetry={loadDashboard}
+          />
+        </div>
+      </main>
+    );
+  }
+
+  if (!dashboard.connected || !dashboard.member) {
     return (
       <main className="mx-auto flex min-h-full w-full max-w-app flex-1 flex-col px-5 py-6">
         <DashboardHeader />
@@ -135,30 +159,20 @@ export function FamilyDashboard() {
   }
 
   return (
-    <>
-      {hasLoadError ? (
-        <ErrorBanner
-          message="Live-Daten sind gerade nicht verfügbar. Es werden Beispieldaten angezeigt."
-          actionLabel="Erneut laden"
-          onAction={() => void loadDashboard()}
-        />
-      ) : null}
+    <main className="mx-auto flex min-h-full w-full max-w-app flex-1 flex-col px-5 py-6">
+      <DashboardHeader />
 
-      <main className="mx-auto flex min-h-full w-full max-w-app flex-1 flex-col px-5 py-6">
-        <DashboardHeader />
+      <FamilyMemberCard data={dashboard} />
 
-        <FamilyMemberCard data={dashboard} />
+      <FamilyNotificationSettings patientLabel={dashboard.member.displayLabel} />
 
-        <FamilyNotificationSettings patientLabel={dashboard.member.displayLabel} />
-
-        <Link
-          href="/family/connect"
-          className="btn-touch mt-6 w-full rounded-2xl border-2 border-primary bg-surface px-5 py-4 text-base font-semibold text-primary transition-colors hover:bg-primary-light"
-        >
-          Weitere Familie verbinden
-        </Link>
-      </main>
-    </>
+      <Link
+        href="/family/connect"
+        className="btn-touch mt-6 w-full rounded-2xl border-2 border-primary bg-surface px-5 py-4 text-base font-semibold text-primary transition-colors hover:bg-primary-light"
+      >
+        Weitere Familie verbinden
+      </Link>
+    </main>
   );
 }
 
@@ -177,7 +191,7 @@ function DashboardHeader() {
           <h1 className="heading-lg text-[1.75rem] leading-tight">Familie</h1>
         </div>
       </div>
-      <p className="mt-3 text-base leading-relaxed text-muted">
+      <p className="text-body mt-3 text-muted">
         Alles Wichtige auf einen Blick — ruhig, übersichtlich und liebevoll.
       </p>
     </header>

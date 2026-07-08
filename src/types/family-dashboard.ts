@@ -52,7 +52,7 @@ export const familyStatusRows: FamilyStatusRow[] = [
   },
   {
     id: "check-in",
-    label: "Letzter Check-in",
+    label: "Letzte Aktivität",
     subtext: "Heute um 8:12",
     tone: "green",
     icon: Clock,

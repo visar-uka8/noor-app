@@ -81,7 +81,7 @@ export function FamilyNotificationSettings({
       setStatusMessage("Benachrichtigungen sind jetzt aktiv.");
     } catch {
       setStatusMessage(
-        "Push-Benachrichtigungen konnten gerade nicht aktiviert werden.",
+        "Gerätebenachrichtigungen konnten gerade nicht aktiviert werden.",
       );
     } finally {
       setIsUpdating(false);
@@ -157,8 +157,8 @@ export function FamilyNotificationSettings({
           </p>
           <p className="mt-1 text-sm text-muted">
             {permissionState === "denied" || permissionState === "unsupported"
-              ? "E-Mail-Hinweise bleiben als Fallback aktiv."
-              : "Push-Hinweise kommen mit einer kurzen Verzögerung."}
+              ? "E-Mail-Hinweise bleiben als Ersatz aktiv."
+              : "Gerätehinweise kommen mit einer kurzen Verzögerung."}
           </p>
         </div>
 

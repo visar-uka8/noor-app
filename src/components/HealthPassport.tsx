@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { PageSkeleton, ErrorBanner } from "@/components/AppStates";
 import { HealthPassportEmergencyMode } from "@/components/HealthPassportEmergencyMode";
 import { HealthPassportShareDialog } from "@/components/HealthPassportShareDialog";
+import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 import { createClient } from "@/lib/supabase/client";
 import {
   bloodTypes,
@@ -35,6 +36,7 @@ export function HealthPassport() {
   const [saveIndicator, setSaveIndicator] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [autoSaveError, setAutoSaveError] = useState<string | null>(null);
   const [isEmergencyMode, setIsEmergencyMode] = useState(false);
   const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
   const passportRef = useRef(passport);
@@ -59,9 +61,10 @@ export function HealthPassport() {
     setIsSaving(true);
     setStatusMessage(null);
     setSaveError(null);
+    setAutoSaveError(null);
 
     try {
-      const response = await fetch("/api/health-passport", {
+      const response = await fetchWithTimeout("/api/health-passport", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(passportRef.current),
@@ -72,6 +75,7 @@ export function HealthPassport() {
       }
 
       setIsDirty(false);
+      setAutoSaveError(null);
 
       if (mode === "auto") {
         setSaveIndicator("Gespeichert");
@@ -82,7 +86,11 @@ export function HealthPassport() {
 
       return true;
     } catch {
-      if (mode === "manual") {
+      if (mode === "auto") {
+        setAutoSaveError(
+          "Automatisches Speichern fehlgeschlagen — wird erneut versucht.",
+        );
+      } else {
         setSaveError(
           "Gesundheitspass konnte nicht gespeichert werden. Bitte versuchen Sie es erneut.",
         );
@@ -103,7 +111,7 @@ export function HealthPassport() {
           data: { user },
         } = await supabase.auth.getUser();
 
-        const response = await fetch("/api/health-passport");
+        const response = await fetchWithTimeout("/api/health-passport");
 
         if (response.ok) {
           const data = (await response.json()) as {
@@ -156,6 +164,15 @@ export function HealthPassport() {
           actionLabel="Erneut speichern"
           onAction={() => void savePassport("manual")}
           onDismiss={() => setSaveError(null)}
+        />
+      ) : null}
+
+      {autoSaveError ? (
+        <ErrorBanner
+          message={autoSaveError}
+          actionLabel="Jetzt speichern"
+          onAction={() => void savePassport("manual")}
+          onDismiss={() => setAutoSaveError(null)}
         />
       ) : null}
 

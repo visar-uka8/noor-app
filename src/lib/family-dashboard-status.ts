@@ -183,7 +183,7 @@ export function getAnalysisFirstSentence(text: string) {
 
 export function formatCheckInText(timestamp: string | null) {
   if (!timestamp) {
-    return "Noch kein Check-in heute";
+    return "Noch keine Aktivität heute";
   }
 
   const date = new Date(timestamp);
