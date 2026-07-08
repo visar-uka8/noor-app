@@ -3,6 +3,7 @@
 import { FlaskConical, House, Pill, UserRound, UsersRound } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useHomeViewModeContext } from "@/components/HomeViewModeContext";
 import { useLanguage } from "@/components/LanguageProvider";
 import { useUserRole } from "@/hooks/useUserRole";
 
@@ -10,20 +11,24 @@ export function AppBottomNav() {
   const pathname = usePathname();
   const { t } = useLanguage();
   const role = useUserRole();
+  const { mode, hasFamilyConnection } = useHomeViewModeContext();
 
-  const items =
-    role === "family_member"
-      ? [
-          { href: "/dashboard", label: "Familie", icon: UsersRound },
-          { href: "/lab-results", label: "Laborwerte", icon: FlaskConical },
-          { href: "/settings", label: t("nav.profile"), icon: UserRound },
-        ]
-      : [
-          { href: "/", label: t("nav.home"), icon: House },
-          { href: "/medication", label: t("nav.medication"), icon: Pill },
-          { href: "/lab-results", label: t("nav.lab"), icon: FlaskConical },
-          { href: "/settings", label: t("nav.profile"), icon: UserRound },
-        ];
+  const isFamilyNav =
+    (pathname === "/" && hasFamilyConnection && mode === "family") ||
+    (role === "family_member" && pathname.startsWith("/dashboard"));
+
+  const items = isFamilyNav
+    ? [
+        { href: "/", label: "Familie", icon: UsersRound },
+        { href: "/lab-results", label: "Laborwerte", icon: FlaskConical },
+        { href: "/settings", label: t("nav.profile"), icon: UserRound },
+      ]
+    : [
+        { href: "/", label: t("nav.home"), icon: House },
+        { href: "/medication", label: t("nav.medication"), icon: Pill },
+        { href: "/lab-results", label: t("nav.lab"), icon: FlaskConical },
+        { href: "/settings", label: t("nav.profile"), icon: UserRound },
+      ];
 
   return (
     <nav
@@ -39,7 +44,7 @@ export function AppBottomNav() {
           const Icon = item.icon;
           const isActive =
             item.href === "/"
-              ? pathname === "/"
+              ? pathname === "/" || pathname.startsWith("/dashboard")
               : pathname.startsWith(item.href);
 
           return (

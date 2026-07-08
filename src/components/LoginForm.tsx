@@ -37,7 +37,11 @@ export function LoginForm() {
       };
       const role = profileData.profile?.role ?? "patient";
 
-      router.push(role === "family_member" ? "/dashboard" : "/");
+      if (role === "family_member") {
+        window.localStorage.setItem("noor-home-view-mode", "family");
+      }
+
+      router.push("/");
     } catch {
       setErrorMessage(
         "Anmeldung ist gerade nicht möglich. Bitte prüfen Sie E-Mail und Passwort.",

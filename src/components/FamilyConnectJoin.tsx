@@ -25,7 +25,8 @@ export function FamilyConnectJoin() {
     if (step !== "success") return;
 
     const timer = window.setTimeout(() => {
-      router.push("/dashboard");
+      window.localStorage.setItem("noor-home-view-mode", "family");
+      router.push("/");
     }, 1800);
 
     return () => window.clearTimeout(timer);

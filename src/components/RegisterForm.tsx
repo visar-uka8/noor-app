@@ -75,7 +75,11 @@ export function RegisterForm() {
 
       if (!response.ok) throw new Error("Profile save failed.");
 
-      router.push(role === "patient" ? "/" : "/dashboard");
+      if (role === "family_member") {
+        window.localStorage.setItem("noor-home-view-mode", "family");
+      }
+
+      router.push("/");
     } catch {
       setErrorMessage(
         "Profil konnte gerade nicht gespeichert werden. Bitte versuchen Sie es erneut.",
