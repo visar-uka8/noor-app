@@ -73,11 +73,11 @@ export function LabResultHistory({ onSelect, refreshKey = 0 }: LabResultHistoryP
               onClick={() => onSelect(result)}
               className="noor-card btn-touch min-h-12 p-4 text-left transition-colors hover:border-primary/30 active:scale-[0.99]"
             >
-              <div className="flex items-start justify-between gap-3">
-                <p className="text-stat text-heading">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-stat min-w-[110px] whitespace-nowrap text-heading">
                   {formatLocalizedDate(language, result.created_at)}
                 </p>
-                <span className="shrink-0 rounded-full bg-primary-light px-3 py-1 text-sm font-semibold text-heading">
+                <span className="shrink-0 whitespace-nowrap rounded-full bg-primary-light px-3 py-1 text-sm font-semibold text-heading">
                   {t("lab.analyzed")}
                 </span>
               </div>
