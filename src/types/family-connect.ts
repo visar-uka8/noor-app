@@ -29,12 +29,19 @@ export function formatInviteCountdown(expiresAt: string) {
     return null;
   }
 
-  const totalSeconds = Math.floor(remainingMs / 1000);
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
+  const totalMinutes = Math.floor(remainingMs / 60_000);
+  const hours = Math.floor(totalMinutes / 60);
 
-  return `${hours} Std. ${minutes} Min. ${seconds} Sek.`;
+  if (hours >= 1) {
+    return hours === 1
+      ? "Noch 1 Stunde gültig"
+      : `Noch ${hours} Stunden gültig`;
+  }
+
+  const minutes = Math.max(totalMinutes, 1);
+  return minutes === 1
+    ? "Noch 1 Minute gültig"
+    : `Noch ${minutes} Minuten gültig`;
 }
 
 export function buildInviteShareMessage(code: string) {

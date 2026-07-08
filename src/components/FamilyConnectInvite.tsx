@@ -26,7 +26,7 @@ export function FamilyConnectInvite() {
     }
 
     updateCountdown();
-    const interval = window.setInterval(updateCountdown, 1000);
+    const interval = window.setInterval(updateCountdown, 30_000);
     return () => window.clearInterval(interval);
   }, [invite]);
 
@@ -101,9 +101,7 @@ export function FamilyConnectInvite() {
             Dieser Code ist abgelaufen. Bitte erstellen Sie einen neuen.
           </p>
         ) : (
-          <p className="mt-4 text-center text-base text-muted">
-            Noch gültig: <span className="font-semibold text-foreground">{countdown}</span>
-          </p>
+          <p className="mt-4 text-center text-base text-muted">{countdown}</p>
         )}
 
         <button
