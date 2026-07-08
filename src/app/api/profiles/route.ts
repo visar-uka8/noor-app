@@ -136,8 +136,7 @@ function normalizeProfile(payload: ProfilePayload) {
   if (
     typeof payload.id !== "string" ||
     typeof payload.first_name !== "string" ||
-    typeof payload.last_name !== "string" ||
-    typeof payload.date_of_birth !== "string"
+    typeof payload.last_name !== "string"
   ) {
     throw new Error("Profile payload is incomplete.");
   }
@@ -146,7 +145,10 @@ function normalizeProfile(payload: ProfilePayload) {
     id: payload.id,
     first_name: payload.first_name.trim(),
     last_name: payload.last_name.trim(),
-    date_of_birth: payload.date_of_birth,
+    date_of_birth:
+      typeof payload.date_of_birth === "string" && payload.date_of_birth
+        ? payload.date_of_birth
+        : null,
     role: normalizeRole(payload.role),
     elder_mode: false,
     language: "de",

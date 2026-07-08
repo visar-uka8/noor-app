@@ -4,7 +4,7 @@ export type Profile = {
   id: string;
   first_name: string;
   last_name: string;
-  date_of_birth: string;
+  date_of_birth: string | null;
   role: UserRole;
   elder_mode: boolean;
   language: "de" | "en";
@@ -15,5 +15,4 @@ export type PendingRegistrationProfile = {
   id: string;
   firstName: string;
   lastName: string;
-  dateOfBirth: string;
 };

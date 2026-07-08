@@ -15,7 +15,6 @@ export function RegisterForm() {
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [dateOfBirth, setDateOfBirth] = useState("");
   const [pendingProfile, setPendingProfile] =
     useState<PendingRegistrationProfile | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -35,7 +34,6 @@ export function RegisterForm() {
           data: {
             first_name: firstName,
             last_name: lastName,
-            date_of_birth: dateOfBirth,
           },
         },
       });
@@ -47,7 +45,6 @@ export function RegisterForm() {
         id: data.user.id,
         firstName,
         lastName,
-        dateOfBirth,
       });
     } catch {
       setErrorMessage(
@@ -72,7 +69,6 @@ export function RegisterForm() {
           id: pendingProfile.id,
           first_name: pendingProfile.firstName,
           last_name: pendingProfile.lastName,
-          date_of_birth: pendingProfile.dateOfBirth,
           role,
         }),
       });
@@ -147,12 +143,6 @@ export function RegisterForm() {
             value={password}
             onChange={setPassword}
             type="password"
-          />
-          <AuthInput
-            label="Geburtsdatum"
-            value={dateOfBirth}
-            onChange={setDateOfBirth}
-            type="date"
           />
         </div>
 
