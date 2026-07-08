@@ -1,0 +1,215 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f7f6f2;
+  --foreground: #2d2a26;
+  --heading: #085041;
+  --surface: #ffffff;
+  --primary: #1d9e75;
+  --primary-dark: #157a5c;
+  --primary-light: #e1f5ee;
+  --success: #1d9e75;
+  --warning: #ba7517;
+  --warning-light: #fdf4e7;
+  --danger: #a32d2d;
+  --danger-light: #fceaea;
+  --family: #534ab7;
+  --family-light: #efedff;
+  --upload-surface: #e1f5ee;
+  --muted: #5c5750;
+  --border: #edeae4;
+  --skeleton: #e4e2db;
+  --warm-shadow: 0 4px 20px rgba(45, 42, 38, 0.06);
+  --app-max-width: 430px;
+  --body-size: 17px;
+  --heading-size: 22px;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-heading: var(--heading);
+  --color-surface: var(--surface);
+  --color-primary: var(--primary);
+  --color-primary-dark: var(--primary-dark);
+  --color-primary-light: var(--primary-light);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-warning-light: var(--warning-light);
+  --color-danger: var(--danger);
+  --color-danger-light: var(--danger-light);
+  --color-family: var(--family);
+  --color-family-light: var(--family-light);
+  --color-upload-surface: var(--upload-surface);
+  --color-muted: var(--muted);
+  --color-border: var(--border);
+  --color-skeleton: var(--skeleton);
+  --font-sans: var(--font-inter);
+  --max-width-app: var(--app-max-width);
+}
+
+html {
+  overflow-x: hidden;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-inter), system-ui, sans-serif;
+  font-size: var(--body-size);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+h1,
+h2,
+h3,
+h4,
+.text-heading {
+  color: var(--heading);
+}
+
+:focus-visible {
+  outline: 3px solid var(--primary);
+  outline-offset: 3px;
+}
+
+/* Page fade-in */
+.page-fade {
+  animation: page-fade-in 0.25s ease-out;
+}
+
+@keyframes page-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Medication confirm bounce */
+@keyframes confirm-bounce {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  35% {
+    transform: scale(1.04);
+  }
+  65% {
+    transform: scale(0.98);
+  }
+}
+
+.animate-confirm-bounce {
+  animation: confirm-bounce 0.55s ease;
+}
+
+/* Status banner smooth transitions */
+.status-banner {
+  transition:
+    background-color 0.45s ease,
+    border-color 0.45s ease,
+    color 0.45s ease;
+}
+
+/* Skeleton shimmer */
+@keyframes skeleton-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+.skeleton-block {
+  background-color: var(--skeleton);
+  animation: skeleton-pulse 1.6s ease-in-out infinite;
+}
+
+/* Shared component classes */
+.noor-card {
+  border-radius: 1rem;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: var(--warm-shadow);
+}
+
+.btn-touch {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-primary {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 1rem;
+  background: var(--primary);
+  padding: 0.75rem 1.25rem;
+  font-size: var(--body-size);
+  font-weight: 600;
+  color: white;
+  transition:
+    background-color 0.2s ease,
+    transform 0.15s ease;
+}
+
+.btn-primary:hover {
+  background: var(--primary-dark);
+}
+
+.btn-primary:active {
+  transform: scale(0.98);
+}
+
+.btn-primary:disabled {
+  opacity: 0.65;
+}
+
+.text-stat {
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.text-body {
+  font-size: var(--body-size);
+  line-height: 1.6;
+}
+
+.heading-lg {
+  font-size: max(var(--heading-size), 1.375rem);
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--heading);
+}
+
+/* iOS safe area */
+.safe-bottom {
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+}
+
+.content-bottom-nav {
+  padding-bottom: calc(7rem + env(safe-area-inset-bottom, 0px));
+}
+
+html.elder-mode {
+  font-size: 140%;
+}
+
+html.elder-mode button:not([role="switch"]),
+html.elder-mode input,
+html.elder-mode select,
+html.elder-mode textarea,
+html.elder-mode .btn-touch,
+html.elder-mode .btn-primary {
+  min-height: 64px;
+}

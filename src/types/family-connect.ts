@@ -1,0 +1,44 @@
+export const familyRelationships = [
+  "Sohn",
+  "Tochter",
+  "Ehepartner",
+  "Andere",
+] as const;
+
+export type FamilyRelationship = (typeof familyRelationships)[number];
+
+export type FamilyInvite = {
+  id: string;
+  code: string;
+  patientId: string;
+  createdAt: string;
+  expiresAt: string;
+  used: boolean;
+};
+
+export const familyInviteErrors = {
+  expired: "Dieser Code ist abgelaufen. Bitte fordern Sie einen neuen an.",
+  used: "Dieser Code wurde bereits verwendet. Bitte fordern Sie einen neuen an.",
+  invalid: "Ungültiger Code. Bitte überprüfen Sie die Eingabe.",
+} as const;
+
+export function formatInviteCountdown(expiresAt: string) {
+  const remainingMs = new Date(expiresAt).getTime() - Date.now();
+
+  if (remainingMs <= 0) {
+    return null;
+  }
+
+  const totalSeconds = Math.floor(remainingMs / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  return `${hours} Std. ${minutes} Min. ${seconds} Sek.`;
+}
+
+export function buildInviteShareMessage(code: string) {
+  return `Ich benutze Noor für meine Gesundheit. 
+Verbinde dich mit mir — mein Code ist: ${code}
+Lade die App herunter: noor.health`;
+}
