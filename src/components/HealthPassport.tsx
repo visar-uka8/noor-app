@@ -26,6 +26,14 @@ type SaveMode = "manual" | "auto";
 const inputClassName =
   "min-h-12 w-full rounded-2xl border border-border bg-background px-4 py-3 text-base outline-none focus:border-primary";
 
+const emergencyRelationships = [
+  "Mutter",
+  "Vater",
+  "Ehepartner",
+  "Kind",
+  "Andere",
+];
+
 export function HealthPassport() {
   const [passport, setPassport] = useState<HealthPassportData>(
     createEmptyPassport(),
@@ -501,7 +509,7 @@ export function HealthPassport() {
           </FormField>
 
           <FormField label="Beziehung">
-            <input
+            <select
               value={passport.emergencyContact.relationship}
               onChange={(event) =>
                 updatePassport((current) => ({
@@ -513,8 +521,22 @@ export function HealthPassport() {
                 }))
               }
               className={inputClassName}
-              placeholder="z. B. Sohn"
-            />
+            >
+              <option value="">Bitte wählen</option>
+              {emergencyRelationships.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+              {passport.emergencyContact.relationship &&
+              !emergencyRelationships.includes(
+                passport.emergencyContact.relationship,
+              ) ? (
+                <option value={passport.emergencyContact.relationship}>
+                  {passport.emergencyContact.relationship}
+                </option>
+              ) : null}
+            </select>
           </FormField>
 
           <FormField label="Telefonnummer">
@@ -700,7 +722,7 @@ function AllergyRow({
               onChange({ ...allergy, reaction: event.target.value })
             }
             className={inputClassName}
-            placeholder="Reaktion"
+            placeholder="Reaktion hinzufügen..."
           />
         </div>
 

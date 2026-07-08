@@ -86,10 +86,20 @@ export function HealthPassportEmergencyView({
             {allergies.map((allergy) => (
               <li
                 key={allergy.id}
-                className="rounded-2xl bg-red-600 px-4 py-4 text-[28px] font-semibold leading-snug text-white"
+                className="rounded-2xl bg-red-600 px-4 py-4 leading-snug text-white"
               >
-                {allergy.allergen}
-                {allergy.reaction ? ` — ${allergy.reaction}` : ""}
+                <span className="block text-[28px] font-semibold">
+                  {allergy.allergen}
+                </span>
+                {allergy.reaction ? (
+                  <span className="mt-1 block text-xl text-white/90">
+                    {allergy.reaction}
+                  </span>
+                ) : (
+                  <span className="mt-1 block text-xl italic text-white/70">
+                    Reaktion hinzufügen...
+                  </span>
+                )}
               </li>
             ))}
           </ul>
