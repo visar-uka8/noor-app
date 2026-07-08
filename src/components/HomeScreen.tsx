@@ -1,5 +1,6 @@
 "use client";
 
+import { FlaskConical, Pill, ShieldPlus, Users } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { AppBottomNav } from "@/components/AppBottomNav";
@@ -22,25 +23,25 @@ import {
 const featureCards = [
   {
     href: "/medication",
-    emoji: "💊",
+    icon: Pill,
     titleKey: "home.medications" as const,
     subtitleKey: "medication" as const,
   },
   {
     href: "/lab-results",
-    emoji: "🧪",
+    icon: FlaskConical,
     titleKey: "home.labResults" as const,
     subtitleKey: "lab" as const,
   },
   {
     href: "/dashboard",
-    emoji: "👨‍👩‍👦",
+    icon: Users,
     titleKey: "home.family" as const,
     subtitleKey: "family" as const,
   },
   {
     href: "/health-passport",
-    emoji: "🏥",
+    icon: ShieldPlus,
     titleKey: "home.healthPassport" as const,
     subtitleKey: "passport" as const,
   },
@@ -167,8 +168,11 @@ export function HomeScreen() {
                 href={card.href}
                 className="noor-card flex min-h-[120px] flex-col p-4 transition-colors hover:border-primary/30 active:scale-[0.98]"
               >
-                <span className="text-3xl" aria-hidden="true">
-                  {card.emoji}
+                <span
+                  className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#E1F5EE] text-[#1D9E75]"
+                  aria-hidden="true"
+                >
+                  <card.icon size={26} strokeWidth={2.2} />
                 </span>
                 <h2 className="heading-lg mt-3 leading-tight">{t(card.titleKey)}</h2>
                 <p className="text-body mt-1 text-muted">
