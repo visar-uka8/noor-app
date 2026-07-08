@@ -250,8 +250,8 @@ export function MedicationConfirmation() {
           pendingCount={pendingCount}
         />
 
-        <p className="text-body mb-6 text-muted">
-          Tippen Sie auf jede Einnahme, wenn Sie Ihr Medikament genommen haben.
+        <p className="mb-6 text-[17px] leading-relaxed text-[#555555]">
+          Tippen Sie wenn Sie Ihr Medikament genommen haben 💚
         </p>
 
         {isSaving && isSlow ? (
