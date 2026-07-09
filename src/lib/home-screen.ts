@@ -1,6 +1,7 @@
 import type { HealthPassportData } from "@/types/health-passport";
-import { medicationDoses } from "@/types/medication";
+import type { StoredConfirmation, StoredMedication } from "@/types/medication";
 import { buildMedicationItems } from "@/lib/family-dashboard-status";
+import { getProfileInitials } from "@/lib/profile-display";
 import { formatLabResultDate } from "@/types/lab-results";
 
 export type HomeMedicationStatus = "green" | "amber" | "red";
@@ -38,10 +39,7 @@ export function getTimeGreeting(date: Date) {
 }
 
 export function getInitials(firstName: string, lastName = "") {
-  const first = firstName.trim().charAt(0);
-  const last = lastName.trim().charAt(0);
-
-  return `${first}${last}`.toUpperCase() || "N";
+  return getProfileInitials(firstName, lastName);
 }
 
 export function isHealthPassportComplete(passport: HealthPassportData | null) {
@@ -61,14 +59,10 @@ export function isHealthPassportComplete(passport: HealthPassportData | null) {
 }
 
 export function buildHomeMedicationSummary(
-  confirmations: Array<{
-    dose_time: "morning" | "midday" | "evening";
-    medication_name: string;
-    confirmed_at: string | null;
-    missed: boolean;
-  }>,
+  medications: StoredMedication[],
+  confirmations: StoredConfirmation[],
 ) {
-  const items = buildMedicationItems(confirmations);
+  const items = buildMedicationItems(medications, confirmations);
   const confirmed = items.filter((item) => item.status === "confirmed").length;
   const pending = items.filter((item) => item.status === "pending").length;
   const missed = items.filter((item) => item.status === "missed").length;
@@ -79,7 +73,7 @@ export function buildHomeMedicationSummary(
   else if (pending > 0) status = "amber";
 
   return {
-    total: medicationDoses.length,
+    total: items.length,
     confirmed,
     pending,
     missed,
@@ -97,8 +91,8 @@ export const demoHomeScreenData: HomeScreenData = {
   firstName: "Renate",
   initials: "RL",
   medication: {
-    total: 3,
-    confirmed: 3,
+    total: 1,
+    confirmed: 1,
     pending: 0,
     missed: 0,
     status: "green",

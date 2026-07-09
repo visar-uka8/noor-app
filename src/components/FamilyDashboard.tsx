@@ -1,22 +1,19 @@
 "use client";
 
 import { UsersRound } from "lucide-react";
-import { AppBottomNav } from "@/components/AppBottomNav";
+import { memo } from "react";
 import { FamilyDashboardPanel } from "@/components/FamilyDashboardPanel";
 
 export function FamilyDashboard() {
   return (
-    <>
-      <main className="content-bottom-nav mx-auto flex min-h-full w-full max-w-app flex-1 flex-col px-5 py-6">
-        <DashboardHeader />
-        <FamilyDashboardPanel />
-      </main>
-      <AppBottomNav />
-    </>
+    <div className="mx-auto flex w-full max-w-app flex-col px-5 py-6">
+      <DashboardHeader />
+      <FamilyDashboardPanel />
+    </div>
   );
 }
 
-function DashboardHeader() {
+const DashboardHeader = memo(function DashboardHeader() {
   return (
     <header>
       <div className="flex items-center gap-3">
@@ -32,4 +29,4 @@ function DashboardHeader() {
       </div>
     </header>
   );
-}
+});

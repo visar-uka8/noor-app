@@ -30,14 +30,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="de" suppressHydrationWarning className={`${inter.variable} h-full overflow-x-hidden`}>
-      <body className="flex min-h-full flex-col overflow-x-hidden">
+    <html lang="de" suppressHydrationWarning className={inter.variable}>
+      <body>
         <LanguageProvider>
           <ElderModeProvider>
             <OfflineBanner />
-            <div className="page-fade flex min-h-full flex-1 flex-col overflow-x-hidden">
-              {children}
-            </div>
+            <div className="app-root page-fade">{children}</div>
           </ElderModeProvider>
         </LanguageProvider>
       </body>

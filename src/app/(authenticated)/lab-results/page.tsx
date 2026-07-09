@@ -4,7 +4,7 @@ import { LabResultsPageTitle } from "@/components/LabResultsPageTitle";
 
 export default function LabResultsPage() {
   return (
-    <div className="flex min-h-full flex-1 flex-col">
+    <div className="flex flex-col">
       <LabResultsPageTitle />
       <LabResultsFlow />
     </div>

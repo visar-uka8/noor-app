@@ -61,6 +61,35 @@ Zum Beispiel nicht 'essen Sie gesünder' sondern
 und Vollfettmilchprodukte — da Ihr Cholesterin erhöht ist']
 
 ---
+IHR PERSÖNLICHER LEBENSSTIL-PLAN
+
+Basierend auf Ihren Laborwerten empfehle ich folgendes:
+
+ERNÄHRUNG 🥗
+[2-3 specific foods to eat more of based on their results]
+[2-3 specific foods to reduce based on their results]
+Not generic advice. Specific to their actual values.
+Example: "Da Ihr Cholesterin erhöht ist, essen Sie mehr 
+Haferflocken, Lachs und Avocados. Reduzieren Sie rotes 
+Fleisch und Vollfettmilchprodukte."
+
+BEWEGUNG 🚶
+[One specific, achievable exercise recommendation]
+Appropriate for elderly users.
+Example: "30 Minuten Spazierengehen täglich kann Ihren 
+Cholesterinwert in 3 Monaten um bis zu 10% senken."
+
+TRINKEN 💧
+[Specific hydration advice if relevant to their values]
+Example: "Trinken Sie mindestens 1,5 Liter Wasser täglich.
+Bei erhöhter Harnsäure hilft viel Wasser beim Abbau."
+
+NÄCHSTE KONTROLLE 📅
+[When they should get their next lab test]
+Example: "Lassen Sie Ihren Cholesterinwert in 
+3 Monaten erneut kontrollieren."
+
+---
 WANN ZUM ARZT
 [Sage klar ob diese Werte einen baldigen Arzttermin erfordern,
 oder ob die nächste reguläre Kontrolle ausreicht.

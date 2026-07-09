@@ -29,6 +29,7 @@ export async function GET() {
       profile,
       healthPassport,
       labResults,
+      medications,
       medicationConfirmations,
       familyLinks,
       pushSubscriptions,
@@ -37,6 +38,7 @@ export async function GET() {
       supabase.from("profiles").select("*").eq("id", userId).maybeSingle(),
       supabase.from("health_passports").select("*").eq("user_id", userId).maybeSingle(),
       supabase.from("lab_results").select("*").eq("user_id", userId),
+      supabase.from("medications").select("*").eq("user_id", userId),
       supabase.from("medication_confirmations").select("*").eq("user_id", userId),
       supabase
         .from("family_links")
@@ -55,6 +57,7 @@ export async function GET() {
       profile: profile.data,
       healthPassport: healthPassport.data,
       labResults: labResults.data ?? [],
+      medications: medications.data ?? [],
       medicationConfirmations: medicationConfirmations.data ?? [],
       familyLinks: familyLinks.data ?? [],
       pushSubscriptions: pushSubscriptions.data ?? [],

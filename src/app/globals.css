@@ -48,8 +48,52 @@
   --max-width-app: var(--app-max-width);
 }
 
-html {
+html,
+body {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+}
+
+.app-root {
+  height: 100%;
+  overflow: hidden;
+}
+
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  left: 50%;
+  width: 100%;
+  max-width: var(--app-max-width);
+  height: 100dvh;
+  overflow: hidden;
+  transform: translateX(-50%);
+}
+
+.app-scroll-main {
+  flex: 1;
+  overflow-y: auto;
   overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: none;
+}
+
+::-webkit-scrollbar {
+  width: 0;
+  background: transparent;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-inter), system-ui, sans-serif;
+  font-size: var(--body-size);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
 }
 
 .analysis-markdown {
@@ -104,16 +148,6 @@ html {
   border: none;
   border-top: 1px solid #e4e2db;
   margin: 16px 0;
-}
-
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-inter), system-ui, sans-serif;
-  font-size: var(--body-size);
-  line-height: 1.6;
-  -webkit-font-smoothing: antialiased;
-  overflow-x: hidden;
 }
 
 h1,

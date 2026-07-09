@@ -19,18 +19,14 @@ export function useHomeViewMode(
   const [mode, setMode] = useState<HomeViewMode>("self");
 
   useEffect(() => {
-    if (!hasFamilyConnection) {
-      setMode("self");
-      return;
-    }
+    const nextMode = (() => {
+      if (!hasFamilyConnection) return "self" as const;
+      const stored = readStoredMode();
+      if (stored) return stored;
+      return role === "family_member" ? ("family" as const) : ("self" as const);
+    })();
 
-    const stored = readStoredMode();
-    if (stored) {
-      setMode(stored);
-      return;
-    }
-
-    setMode(role === "family_member" ? "family" : "self");
+    setMode((current) => (current === nextMode ? current : nextMode));
   }, [hasFamilyConnection, role]);
 
   function setViewMode(next: HomeViewMode) {

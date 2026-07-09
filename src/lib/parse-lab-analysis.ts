@@ -1,5 +1,7 @@
 export type LabValueLevel = "green" | "amber" | "red";
 
+export type LabValueStatusKey = "high" | "low" | "watch" | "normal" | "unknown";
+
 export type ParsedLabValue = {
   level: LabValueLevel;
   name: string;
@@ -10,11 +12,19 @@ export type ParsedLabValue = {
   tip?: string;
 };
 
+export type LifestylePlan = {
+  nutrition: string;
+  exercise: string;
+  hydration: string;
+  nextCheckup: string;
+};
+
 export type ParsedLabAnalysis = {
   structured: boolean;
   summary: string;
   values: ParsedLabValue[];
   nextSteps: string[];
+  lifestylePlan: LifestylePlan | null;
   doctorVisit: string;
   disclaimer: string;
   counts: {
@@ -29,7 +39,15 @@ const SECTION_MARKERS = [
   "IHRE LABORWERTE IM DETAIL",
   "LABORWERTE IM DETAIL",
   "NÄCHSTE SCHRITTE",
+  "IHR PERSÖNLICHER LEBENSSTIL-PLAN",
   "WANN ZUM ARZT",
+] as const;
+
+const LIFESTYLE_SUBSECTION_MARKERS = [
+  "ERNÄHRUNG",
+  "BEWEGUNG",
+  "TRINKEN",
+  "NÄCHSTE KONTROLLE",
 ] as const;
 
 const EMOJI_LEVEL: Record<string, LabValueLevel> = {
@@ -37,6 +55,45 @@ const EMOJI_LEVEL: Record<string, LabValueLevel> = {
   "🟡": "amber",
   "🔴": "red",
 };
+
+const priorityOrder: Record<LabValueStatusKey, number> = {
+  high: 0,
+  low: 0,
+  watch: 1,
+  normal: 2,
+  unknown: 3,
+};
+
+export function getLabValueStatusKey(value: ParsedLabValue): LabValueStatusKey {
+  const normalized = value.status.toLowerCase();
+
+  if (
+    value.level === "red" ||
+    (/erniedrigt|erhöht/.test(normalized) && !/leicht/.test(normalized))
+  ) {
+    if (/erniedrigt/.test(normalized)) return "low";
+    if (/erhöht/.test(normalized)) return "high";
+    return "high";
+  }
+
+  if (value.level === "amber" || /leicht|beacht/.test(normalized)) {
+    return "watch";
+  }
+
+  if (value.level === "green" || /normal/.test(normalized)) {
+    return "normal";
+  }
+
+  return "unknown";
+}
+
+export function sortLabValuesByPriority(values: ParsedLabValue[]) {
+  return [...values].sort(
+    (left, right) =>
+      (priorityOrder[getLabValueStatusKey(left)] ?? 3) -
+      (priorityOrder[getLabValueStatusKey(right)] ?? 3),
+  );
+}
 
 /** Removes inline markdown symbols (**bold**, *italic*, `code`, leading bullets). */
 export function stripInlineMarkdown(text: string) {
@@ -55,9 +112,12 @@ export function parseLabAnalysis(text: string): ParsedLabAnalysis {
   const valuesSection =
     extractSection(sections, "IHRE LABORWERTE IM DETAIL") ||
     extractSection(sections, "LABORWERTE IM DETAIL");
-  const values = parseLabValues(valuesSection);
+  const values = sortLabValuesByPriority(parseLabValues(valuesSection));
   const nextSteps = parseListItems(
     extractSection(sections, "NÄCHSTE SCHRITTE"),
+  );
+  const lifestylePlan = parseLifestylePlan(
+    extractSection(sections, "IHR PERSÖNLICHER LEBENSSTIL-PLAN"),
   );
   const doctorVisit = extractSection(sections, "WANN ZUM ARZT");
   const disclaimer =
@@ -81,6 +141,7 @@ export function parseLabAnalysis(text: string): ParsedLabAnalysis {
     summary: summary || text.trim(),
     values,
     nextSteps,
+    lifestylePlan,
     doctorVisit,
     disclaimer,
     counts,
@@ -239,6 +300,35 @@ function parseListItems(section: string) {
       ),
     )
     .filter(Boolean);
+}
+
+function parseLifestylePlan(section: string): LifestylePlan | null {
+  if (!section.trim()) return null;
+
+  const plan = {
+    nutrition: extractLifestyleSubsection(section, "ERNÄHRUNG"),
+    exercise: extractLifestyleSubsection(section, "BEWEGUNG"),
+    hydration: extractLifestyleSubsection(section, "TRINKEN"),
+    nextCheckup: extractLifestyleSubsection(section, "NÄCHSTE KONTROLLE"),
+  };
+
+  if (!plan.nutrition && !plan.exercise && !plan.hydration && !plan.nextCheckup) {
+    return null;
+  }
+
+  return plan;
+}
+
+function extractLifestyleSubsection(section: string, marker: string) {
+  const pattern = new RegExp(
+    `(?:^|\\n)${marker}[^\\n]*\\n([\\s\\S]*?)(?=\\n(?:${LIFESTYLE_SUBSECTION_MARKERS.join("|")})\\b|$)`,
+    "i",
+  );
+  const match = section.match(pattern);
+
+  if (!match?.[1]) return "";
+
+  return stripInlineMarkdown(match[1].trim());
 }
 
 export function statusBadgeClass(status: string, level: LabValueLevel) {

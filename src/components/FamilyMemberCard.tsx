@@ -1,11 +1,15 @@
 "use client";
 
-import { Clock3, FileText, Phone, X } from "lucide-react";
-import { useState } from "react";
-import { LabResultAnalysis } from "@/components/LabResultAnalysis";
+import { Clock3, FileText, Phone } from "lucide-react";
+import { memo, useState } from "react";
+import {
+  FamilyLabAnalysisSheet,
+  type FamilyLabAnalysisResult,
+} from "@/components/FamilyLabAnalysisSheet";
 import {
   overallStatusCopy,
   type FamilyDashboardData,
+  type FamilyLatestLabResult,
   type FamilyMedicationItem,
 } from "@/lib/family-dashboard-status";
 
@@ -31,12 +35,91 @@ const medicationStatusStyles = {
   },
 } as const;
 
-export function FamilyMemberCard({ data }: FamilyMemberCardProps) {
-  const [showLabAnalysis, setShowLabAnalysis] = useState(false);
+function toSheetLabResult(
+  labResult: FamilyLatestLabResult,
+): FamilyLabAnalysisResult {
+  return {
+    id: labResult.id,
+    date: labResult.date,
+    ai_analysis: labResult.analysis,
+  };
+}
+
+export const FamilyMemberCard = memo(function FamilyMemberCard({
+  data,
+}: FamilyMemberCardProps) {
+  const [showAnalysis, setShowAnalysis] = useState(false);
+  const [selectedLabResult, setSelectedLabResult] =
+    useState<FamilyLabAnalysisResult | null>(null);
+  const [isLoadingAnalysis, setIsLoadingAnalysis] = useState(false);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
 
   if (!data.member) return null;
 
   const status = overallStatusCopy[data.overallStatus];
+  const labResult = data.latestLabResult;
+
+  async function openLabAnalysis() {
+    console.log("Lab result ID:", labResult?.id);
+    console.log("Lab result data:", labResult);
+    console.log("Connected patient ID:", data.member?.patientId);
+
+    setShowAnalysis(true);
+    setAnalysisError(null);
+
+    if (labResult) {
+      setSelectedLabResult(toSheetLabResult(labResult));
+    }
+
+    setIsLoadingAnalysis(true);
+
+    try {
+      const response = await fetch("/api/family-dashboard/lab-result", {
+        credentials: "include",
+      });
+
+      const body = (await response.json().catch(() => null)) as {
+        labResult?: {
+          id: string;
+          ai_analysis: string;
+          date: string;
+        } | null;
+        patientId?: string;
+        error?: string;
+      } | null;
+
+      if (!response.ok) {
+        throw new Error(body?.error ?? "Laboranalyse konnte nicht geladen werden.");
+      }
+
+      if (body?.labResult) {
+        console.log("Fetched patient lab result:", body.labResult);
+        console.log("Fetched for patient ID:", body.patientId);
+        setSelectedLabResult({
+          id: body.labResult.id,
+          date: body.labResult.date,
+          ai_analysis: body.labResult.ai_analysis,
+        });
+      } else if (!labResult) {
+        setSelectedLabResult(null);
+        setAnalysisError("Kein Laborbefund für den verbundenen Angehörigen gefunden.");
+      }
+    } catch (error) {
+      console.error("Failed to load patient lab result", error);
+      setAnalysisError(
+        error instanceof Error
+          ? error.message
+          : "Laboranalyse konnte gerade nicht geladen werden.",
+      );
+    } finally {
+      setIsLoadingAnalysis(false);
+    }
+  }
+
+  function closeLabAnalysis() {
+    setShowAnalysis(false);
+    setAnalysisError(null);
+  }
 
   return (
     <>
@@ -62,11 +145,17 @@ export function FamilyMemberCard({ data }: FamilyMemberCardProps) {
 
         <section className="px-5 py-5" aria-label="Medikamente heute">
           <h2 className="heading-lg">Medikamente heute</h2>
-          <ul className="mt-4 flex flex-col gap-3">
-            {data.medications.map((medication) => (
-              <MedicationStatusRow key={medication.id} medication={medication} />
-            ))}
-          </ul>
+          {data.medications.length === 0 ? (
+            <p className="text-body mt-4 text-muted">
+              Noch keine Medikamente hinterlegt.
+            </p>
+          ) : (
+            <ul className="mt-4 flex flex-col gap-3">
+              {data.medications.map((medication) => (
+                <MedicationStatusRow key={medication.id} medication={medication} />
+              ))}
+            </ul>
+          )}
         </section>
 
         <section className="border-t border-border px-5 py-5">
@@ -86,7 +175,7 @@ export function FamilyMemberCard({ data }: FamilyMemberCardProps) {
           </div>
         </section>
 
-        {data.latestLabResult ? (
+        {labResult ? (
           <section className="border-t border-border px-5 py-5">
             <div className="flex items-start gap-3">
               <div
@@ -97,14 +186,14 @@ export function FamilyMemberCard({ data }: FamilyMemberCardProps) {
               </div>
               <div className="min-w-0 flex-1">
                 <h2 className="text-lg font-bold text-foreground">
-                  Letzter Befund: {data.latestLabResult.date}
+                  Letzter Befund: {labResult.date}
                 </h2>
                 <p className="mt-2 text-base leading-relaxed text-muted">
-                  {data.latestLabResult.preview}
+                  {labResult.preview}
                 </p>
                 <button
                   type="button"
-                  onClick={() => setShowLabAnalysis(true)}
+                  onClick={() => void openLabAnalysis()}
                   className="btn-touch mt-4 w-full rounded-2xl border-2 border-primary bg-surface px-5 py-3 text-base font-semibold text-primary transition-colors hover:bg-primary-light"
                 >
                   Vollständige Analyse ansehen
@@ -125,27 +214,16 @@ export function FamilyMemberCard({ data }: FamilyMemberCardProps) {
         </div>
       </article>
 
-      {showLabAnalysis && data.latestLabResult ? (
-        <div className="fixed inset-0 z-50 flex flex-col bg-background">
-          <div className="mx-auto flex w-full max-w-app items-center justify-between px-5 py-4">
-            <h2 className="text-xl font-bold text-foreground">Laboranalyse</h2>
-            <button
-              type="button"
-              onClick={() => setShowLabAnalysis(false)}
-              className="flex min-h-12 min-w-12 items-center justify-center rounded-xl text-muted transition-colors hover:bg-primary-light hover:text-primary"
-              aria-label="Schließen"
-            >
-              <X size={24} strokeWidth={2.4} />
-            </button>
-          </div>
-          <LabResultAnalysis
-            result={{ analysis: data.latestLabResult.analysis }}
-          />
-        </div>
-      ) : null}
+      <FamilyLabAnalysisSheet
+        open={showAnalysis}
+        labResult={selectedLabResult}
+        isLoading={isLoadingAnalysis}
+        errorMessage={analysisError}
+        onClose={closeLabAnalysis}
+      />
     </>
   );
-}
+});
 
 function MedicationStatusRow({
   medication,

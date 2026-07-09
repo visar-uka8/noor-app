@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { createClient as createServerSupabaseClient } from "@/lib/supabase/server";
 import type { Profile, UserRole } from "@/types/profiles";
 
 export const runtime = "nodejs";
@@ -55,28 +56,70 @@ export async function POST(request: Request) {
   try {
     const payload = (await request.json()) as ProfilePayload;
     const profile = normalizeProfile(payload);
-    const supabase = createSupabaseAdminClient();
+    const adminClient = createSupabaseAdminClient();
+    const authClient = await createServerSupabaseClient();
+    const {
+      data: { user },
+    } = await authClient.auth.getUser();
 
-    if (!supabase) {
-      return Response.json({
-        stored: false,
-        reason: "Supabase ist lokal noch nicht konfiguriert.",
-        profile,
-      });
+    if (!adminClient) {
+      if (!user || user.id !== profile.id) {
+        return Response.json(
+          { error: "Nicht angemeldet oder Profil-ID stimmt nicht überein." },
+          { status: 401 },
+        );
+      }
+    } else if (user && user.id !== profile.id) {
+      return Response.json(
+        { error: "Profil-ID stimmt nicht mit dem angemeldeten Konto überein." },
+        { status: 403 },
+      );
     }
+
+    const supabase = adminClient ?? authClient;
+
+    console.log("[profiles POST] saving profile", {
+      id: profile.id,
+      role: profile.role,
+      usingServiceRole: Boolean(adminClient),
+      hasAuthSession: Boolean(user),
+    });
 
     const { error } = await supabase
       .from("profiles")
       .upsert(profile, { onConflict: "id" });
 
-    if (error) throw error;
+    if (error) {
+      console.error("[profiles POST] Supabase error:", {
+        message: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint,
+      });
+
+      return Response.json(
+        {
+          error: "Profil konnte gerade nicht gespeichert werden.",
+          supabaseError: {
+            message: error.message,
+            code: error.code,
+            details: error.details,
+            hint: error.hint,
+          },
+        },
+        { status: 500 },
+      );
+    }
 
     return Response.json({ stored: true, profile });
   } catch (error) {
-    console.error("Profile save failed", error);
+    console.error("[profiles POST] Profile save failed", error);
 
     return Response.json(
-      { error: "Profil konnte gerade nicht gespeichert werden." },
+      {
+        error: "Profil konnte gerade nicht gespeichert werden.",
+        details: error instanceof Error ? error.message : String(error),
+      },
       { status: 500 },
     );
   }
@@ -141,6 +184,8 @@ function normalizeProfile(payload: ProfilePayload) {
     throw new Error("Profile payload is incomplete.");
   }
 
+  const role = normalizeRole(payload.role);
+
   return {
     id: payload.id,
     first_name: payload.first_name.trim(),
@@ -149,10 +194,9 @@ function normalizeProfile(payload: ProfilePayload) {
       typeof payload.date_of_birth === "string" && payload.date_of_birth
         ? payload.date_of_birth
         : null,
-    role: normalizeRole(payload.role),
+    role,
     elder_mode: false,
     language: "de",
-    created_at: new Date().toISOString(),
   };
 }
 

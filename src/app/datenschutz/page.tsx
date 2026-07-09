@@ -1,5 +1,6 @@
 import { AppHeader } from "@/components/AppHeader";
 import { contactEmail } from "@/lib/app-info";
+import { PublicPageShell } from "@/components/PublicPageShell";
 
 function Section({
   title,
@@ -18,9 +19,10 @@ function Section({
 
 export default function PrivacyPage() {
   return (
-    <div className="flex min-h-full flex-1 flex-col">
+    <PublicPageShell>
+      <div className="flex flex-col">
       <AppHeader showBack backHref="/settings" title="Datenschutz" />
-      <main className="mx-auto flex w-full max-w-app flex-1 flex-col gap-4 px-5 py-6">
+      <main className="mx-auto flex w-full max-w-app flex-col gap-4 px-5 py-6">
         <section className="noor-card p-5">
           <h1 className="heading-lg">Datenschutzerklärung</h1>
           <p className="text-body mt-3 text-muted">
@@ -147,6 +149,7 @@ export default function PrivacyPage() {
           </p>
         </Section>
       </main>
-    </div>
+      </div>
+    </PublicPageShell>
   );
 }

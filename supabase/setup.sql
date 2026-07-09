@@ -22,7 +22,24 @@ alter table public.profiles
   add column if not exists last_check_in_at timestamptz;
 
 alter table public.profiles
-  add column if not exists notification_preferences jsonb not null default '{"medications": true, "labResults": true, "family": true}'::jsonb;
+  add column if not exists notification_preferences jsonb not null default '{"emailNotifications": true}'::jsonb;
+
+-- >>> medications.sql
+create table if not exists public.medications (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  name text not null,
+  dosage text not null,
+  times jsonb not null default '[]'::jsonb,
+  frequency text not null default 'ONCE_DAILY',
+  start_date timestamptz not null default now(),
+  is_active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists medications_user_active_idx
+  on public.medications (user_id, is_active, created_at);
 
 -- >>> medication_confirmations.sql
 create table if not exists public.medication_confirmations (
@@ -45,6 +62,13 @@ alter table public.medication_confirmations
 
 create index if not exists medication_confirmations_user_scheduled_idx
   on public.medication_confirmations (user_id, scheduled_at desc);
+
+alter table public.medication_confirmations
+  add column if not exists medication_id uuid references public.medications(id) on delete set null;
+
+create unique index if not exists medication_confirmations_user_med_scheduled_idx
+  on public.medication_confirmations (user_id, medication_id, scheduled_at)
+  where medication_id is not null;
 
 -- >>> notifications.sql
 create table if not exists public.notifications (
@@ -219,3 +243,30 @@ create table if not exists public.appointments (
 
 create index if not exists appointments_patient_id_scheduled_at_idx
   on public.appointments (patient_id, scheduled_at desc);
+
+-- Auto-create profile rows when a new auth user signs up.
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.profiles (id, first_name, last_name, role)
+  values (
+    new.id,
+    coalesce(new.raw_user_meta_data->>'first_name', ''),
+    coalesce(new.raw_user_meta_data->>'last_name', ''),
+    'patient'
+  )
+  on conflict (id) do nothing;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists on_auth_user_created on auth.users;
+
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute function public.handle_new_user();

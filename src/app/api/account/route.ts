@@ -36,6 +36,7 @@ export async function DELETE() {
       supabase.from("family_links").delete().eq("patient_id", userId),
       supabase.from("family_links").delete().eq("family_member_id", userId),
       supabase.from("medication_confirmations").delete().eq("user_id", userId),
+      supabase.from("medications").delete().eq("user_id", userId),
       supabase.from("lab_results").delete().eq("user_id", userId),
       supabase.from("health_passports").delete().eq("user_id", userId),
       supabase.from("appointments").delete().eq("patient_id", userId),

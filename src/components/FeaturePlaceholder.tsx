@@ -10,7 +10,7 @@ export function FeaturePlaceholder({
   description,
 }: FeaturePlaceholderProps) {
   return (
-    <div className="flex min-h-full flex-1 flex-col">
+    <div className="flex flex-col">
       <AppHeader showBack title={title} />
 
       <main className="mx-auto flex w-full max-w-app flex-1 flex-col items-center justify-center px-5 py-12 text-center">

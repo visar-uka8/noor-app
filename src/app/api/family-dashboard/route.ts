@@ -1,14 +1,17 @@
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import {
+  loadActiveMedications,
+  loadTodayConfirmations,
+  syncMissedDoses,
+} from "@/lib/medication-data";
+import {
   buildFamilyDashboardData,
   getAnalysisFirstSentence,
   getCaretakerLabel,
   getPatientRelationshipLabel,
 } from "@/lib/family-dashboard-status";
 import { formatLabResultDate } from "@/types/lab-results";
-import type { MedicationTime } from "@/types/medication";
-import { medicationDoses } from "@/types/medication";
 import type { FamilyDashboardData } from "@/lib/family-dashboard-status";
 
 export const runtime = "nodejs";
@@ -23,13 +26,6 @@ type PatientProfile = {
   last_name: string;
   phone: string | null;
   last_check_in_at: string | null;
-};
-
-type StoredConfirmation = {
-  dose_time: MedicationTime;
-  medication_name: string;
-  confirmed_at: string | null;
-  missed: boolean;
 };
 
 type StoredLabResult = {
@@ -77,28 +73,23 @@ export async function GET() {
 
     if (profileError) throw profileError;
 
-    const { start, end } = getTodayRange();
-    const { data: confirmations, error: confirmationsError } = await supabase
-      .from("medication_confirmations")
-      .select("dose_time, medication_name, confirmed_at, missed")
-      .eq("user_id", familyLink.patient_id)
-      .gte("scheduled_at", start.toISOString())
-      .lt("scheduled_at", end.toISOString())
-      .returns<StoredConfirmation[]>();
+    const medications = await loadActiveMedications(familyLink.patient_id, supabase);
+    const confirmations = await loadTodayConfirmations(
+      familyLink.patient_id,
+      supabase,
+    );
 
-    if (confirmationsError) throw confirmationsError;
+    await syncMissedDoses(
+      familyLink.patient_id,
+      supabase,
+      medications,
+      confirmations,
+    );
 
-    await syncMissedDoses(familyLink.patient_id, supabase, confirmations ?? []);
-
-    const { data: refreshedConfirmations, error: refreshedError } = await supabase
-      .from("medication_confirmations")
-      .select("dose_time, medication_name, confirmed_at, missed")
-      .eq("user_id", familyLink.patient_id)
-      .gte("scheduled_at", start.toISOString())
-      .lt("scheduled_at", end.toISOString())
-      .returns<StoredConfirmation[]>();
-
-    if (refreshedError) throw refreshedError;
+    const refreshedConfirmations = await loadTodayConfirmations(
+      familyLink.patient_id,
+      supabase,
+    );
 
     const { data: labResult, error: labError } = await supabase
       .from("lab_results")
@@ -114,13 +105,15 @@ export async function GET() {
     const lastName = profile?.last_name?.trim() || "";
     const dashboard = buildFamilyDashboardData({
       member: {
+        firstName,
         patientId: familyLink.patient_id,
         displayLabel: getCaretakerLabel(firstName),
         name: `${firstName}${lastName ? ` ${lastName}` : ""}`.trim(),
         relationship: getPatientRelationshipLabel(familyLink.relationship),
         phone: profile?.phone?.trim() || "+493012345678",
       },
-      confirmations: refreshedConfirmations ?? [],
+      medications,
+      confirmations: refreshedConfirmations,
       lastCheckIn: profile?.last_check_in_at ?? null,
       latestLabResult: labResult
         ? {
@@ -154,81 +147,6 @@ function createSupabaseDataClient() {
   return createAdminClient(supabaseUrl, supabaseKey, {
     auth: { persistSession: false },
   });
-}
-
-function getTodayRange() {
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
-  const end = new Date(start);
-  end.setDate(end.getDate() + 1);
-
-  return { start, end };
-}
-
-const doseSchedule: Record<MedicationTime, { hour: number; minute: number }> = {
-  morning: { hour: 8, minute: 0 },
-  midday: { hour: 12, minute: 0 },
-  evening: { hour: 20, minute: 0 },
-};
-
-async function syncMissedDoses(
-  userId: string,
-  supabase: NonNullable<ReturnType<typeof createSupabaseDataClient>>,
-  confirmations: StoredConfirmation[],
-) {
-  const missedRows = medicationDoses
-    .filter((dose) => isMissed(dose.time))
-    .map((dose) => {
-      const medicationName = `${dose.name}${dose.dose ? ` ${dose.dose}` : ""}`.trim();
-      const scheduledAt = getScheduledAt(dose.time).toISOString();
-      const existing = confirmations.find(
-        (confirmation) =>
-          confirmation.medication_name.startsWith(dose.name) &&
-          confirmation.dose_time === dose.time,
-      );
-
-      return {
-        existing,
-        record: {
-          user_id: userId,
-          medication_name: medicationName,
-          dose_time: dose.time,
-          scheduled_at: scheduledAt,
-          confirmed_at: existing?.confirmed_at ?? null,
-          missed: true,
-        },
-      };
-    })
-    .filter(({ existing }) => !existing?.confirmed_at);
-
-  await Promise.all(
-    missedRows.map(({ existing, record }) => {
-      if (existing) {
-        return supabase
-          .from("medication_confirmations")
-          .update({ missed: true })
-          .eq("user_id", userId)
-          .eq("dose_time", record.dose_time)
-          .gte("scheduled_at", getTodayRange().start.toISOString());
-      }
-
-      return supabase.from("medication_confirmations").insert(record);
-    }),
-  );
-}
-
-function getScheduledAt(doseTime: MedicationTime) {
-  const scheduledAt = new Date();
-  const schedule = doseSchedule[doseTime];
-  scheduledAt.setHours(schedule.hour, schedule.minute, 0, 0);
-  return scheduledAt;
-}
-
-function isMissed(doseTime: MedicationTime) {
-  const missedAfter = getScheduledAt(doseTime);
-  missedAfter.setMinutes(missedAfter.getMinutes() + 90);
-
-  return Date.now() > missedAfter.getTime();
 }
 
 function emptyDashboardResponse(): FamilyDashboardData {

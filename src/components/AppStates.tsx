@@ -57,7 +57,7 @@ export function SkeletonBlock({ className }: { className: string }) {
 export function PageSkeleton() {
   return (
     <main
-      className="content-bottom-nav mx-auto flex w-full max-w-app flex-1 flex-col px-5 py-6"
+      className="mx-auto flex w-full max-w-app flex-col px-5 py-6"
       aria-busy="true"
       aria-label="Inhalt wird geladen"
     >

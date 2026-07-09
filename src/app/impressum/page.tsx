@@ -1,12 +1,14 @@
 import { AppHeader } from "@/components/AppHeader";
 import { contactEmail } from "@/lib/app-info";
+import { PublicPageShell } from "@/components/PublicPageShell";
 
 // TODO: Vor dem Start mit echten Nutzern die Platzhalter
 // (Adresse, Telefonnummer) mit echten Angaben ersetzen — §5 TMG.
 
 export default function ImpressumPage() {
   return (
-    <div className="flex min-h-full flex-1 flex-col">
+    <PublicPageShell>
+      <div className="flex flex-col">
       <AppHeader showBack backHref="/settings" title="Impressum" />
       <main className="mx-auto w-full max-w-app flex-1 px-5 py-6">
         <section className="noor-card p-5">
@@ -73,6 +75,7 @@ export default function ImpressumPage() {
           </div>
         </section>
       </main>
-    </div>
+      </div>
+    </PublicPageShell>
   );
 }

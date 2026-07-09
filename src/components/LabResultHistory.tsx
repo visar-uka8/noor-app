@@ -12,9 +12,14 @@ import {
 type LabResultHistoryProps = {
   onSelect: (result: LabResultRecord) => void;
   refreshKey?: number;
+  resultsEndpoint?: string;
 };
 
-export function LabResultHistory({ onSelect, refreshKey = 0 }: LabResultHistoryProps) {
+export function LabResultHistory({
+  onSelect,
+  refreshKey = 0,
+  resultsEndpoint = "/api/lab-results",
+}: LabResultHistoryProps) {
   const { language, t } = useLanguage();
   const [results, setResults] = useState<LabResultRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -26,7 +31,7 @@ export function LabResultHistory({ onSelect, refreshKey = 0 }: LabResultHistoryP
       setIsLoading(true);
 
       try {
-        const response = await fetch("/api/lab-results");
+        const response = await fetch(resultsEndpoint);
 
         if (!response.ok) {
           if (!cancelled) setResults([]);
@@ -50,7 +55,7 @@ export function LabResultHistory({ onSelect, refreshKey = 0 }: LabResultHistoryP
     return () => {
       cancelled = true;
     };
-  }, [refreshKey]);
+  }, [refreshKey, resultsEndpoint]);
 
   return (
     <section className="mt-8" aria-label={t("lab.historyTitle")}>

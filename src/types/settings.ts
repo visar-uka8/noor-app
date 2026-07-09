@@ -1,7 +1,5 @@
 export type NotificationPreferences = {
-  medications: boolean;
-  labResults: boolean;
-  family: boolean;
+  emailNotifications: boolean;
 };
 
 export type FamilyConnection = {
@@ -26,9 +24,7 @@ export type SettingsData = {
 };
 
 export const defaultNotificationPreferences: NotificationPreferences = {
-  medications: true,
-  labResults: true,
-  family: true,
+  emailNotifications: true,
 };
 
 export function formatConnectionDate(dateString: string) {

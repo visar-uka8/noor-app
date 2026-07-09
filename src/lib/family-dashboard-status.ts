@@ -1,5 +1,16 @@
-import type { MedicationTime } from "@/types/medication";
-import { medicationDoses } from "@/types/medication";
+import type {
+  MedicationTimeSlot,
+  StoredConfirmation,
+  StoredMedication,
+} from "@/types/medication";
+import { formatLabResultDate } from "@/types/lab-results";
+import {
+  expandMedicationsToDailyDoses,
+  findConfirmationForDose,
+  formatConfirmationTime,
+  isDoseMissed,
+  makeDoseSlotId,
+} from "@/lib/medication-schedule";
 
 export type FamilyOverallStatus = "green" | "amber" | "red";
 
@@ -7,13 +18,17 @@ export type FamilyMedicationStatus = "confirmed" | "pending" | "missed";
 
 export type FamilyMedicationItem = {
   id: string;
+  medicationId: string;
   name: string;
+  dosage: string;
   timeLabel: string;
+  time: string;
   status: FamilyMedicationStatus;
   statusText: string;
 };
 
 export type FamilyDashboardMember = {
+  firstName: string;
   patientId: string;
   displayLabel: string;
   name: string;
@@ -37,19 +52,6 @@ export type FamilyDashboardData = {
   lastCheckIn: string | null;
   lastCheckInText: string;
   latestLabResult: FamilyLatestLabResult | null;
-};
-
-type StoredConfirmation = {
-  dose_time: MedicationTime;
-  medication_name: string;
-  confirmed_at: string | null;
-  missed: boolean;
-};
-
-const doseSchedule: Record<MedicationTime, { hour: number; minute: number }> = {
-  morning: { hour: 8, minute: 0 },
-  midday: { hour: 12, minute: 0 },
-  evening: { hour: 20, minute: 0 },
 };
 
 export const overallStatusCopy: Record<
@@ -84,13 +86,97 @@ export function buildOverallStatusText(
   return overallStatusCopy[status].text;
 }
 
+export function applyMedicationConfirmationChange(
+  dashboard: FamilyDashboardData,
+  confirmation: StoredConfirmation,
+): FamilyDashboardData {
+  if (!dashboard.member) return dashboard;
+
+  const itemId = confirmation.medication_id
+    ? makeDoseSlotId(
+        confirmation.medication_id,
+        confirmation.dose_time,
+        formatConfirmationTime(confirmation.scheduled_at),
+      )
+    : confirmation.dose_time;
+
+  const medications = dashboard.medications.map((medication) => {
+    if (medication.id !== itemId) return medication;
+
+    if (confirmation.confirmed_at) {
+      return {
+        ...medication,
+        status: "confirmed" as const,
+        statusText: `${formatConfirmationTime(confirmation.confirmed_at)} Uhr bestätigt`,
+      };
+    }
+
+    if (confirmation.missed || isDoseMissed(confirmation.scheduled_at)) {
+      return {
+        ...medication,
+        status: "missed" as const,
+        statusText: "vergessen",
+      };
+    }
+
+    return {
+      ...medication,
+      status: "pending" as const,
+      statusText: "noch ausstehend",
+    };
+  });
+
+  const overallStatus = getOverallStatus(medications);
+
+  return {
+    ...dashboard,
+    medications,
+    overallStatus,
+    overallStatusText: buildOverallStatusText(
+      overallStatus,
+      dashboard.member.displayLabel,
+    ),
+  };
+}
+
+export function applyProfileCheckInChange(
+  dashboard: FamilyDashboardData,
+  lastCheckIn: string | null,
+): FamilyDashboardData {
+  return {
+    ...dashboard,
+    lastCheckIn,
+    lastCheckInText: formatCheckInText(lastCheckIn),
+  };
+}
+
+export function applyLatestLabResultChange(
+  dashboard: FamilyDashboardData,
+  labResult: {
+    id: string;
+    ai_analysis: string;
+    created_at: string;
+  },
+): FamilyDashboardData {
+  return {
+    ...dashboard,
+    latestLabResult: {
+      id: labResult.id,
+      date: formatLabResultDate(labResult.created_at),
+      preview: getAnalysisFirstSentence(labResult.ai_analysis),
+      analysis: labResult.ai_analysis,
+    },
+  };
+}
+
 export function buildFamilyDashboardData(input: {
   member: FamilyDashboardMember;
+  medications: StoredMedication[];
   confirmations: StoredConfirmation[];
   lastCheckIn: string | null;
   latestLabResult: FamilyLatestLabResult | null;
 }): FamilyDashboardData {
-  const medications = buildMedicationItems(input.confirmations);
+  const medications = buildMedicationItems(input.medications, input.confirmations);
   const overallStatus = getOverallStatus(medications);
 
   return {
@@ -109,40 +195,47 @@ export function buildFamilyDashboardData(input: {
 }
 
 export function buildMedicationItems(
+  medications: StoredMedication[],
   confirmations: StoredConfirmation[],
 ): FamilyMedicationItem[] {
-  return medicationDoses.map((dose) => {
-    const medicationName = `${dose.name}${dose.dose ? ` ${dose.dose}` : ""}`.trim();
-    const confirmation = confirmations.find(
-      (entry) =>
-        entry.dose_time === dose.time &&
-        entry.medication_name.startsWith(dose.name),
-    );
+  const doses = expandMedicationsToDailyDoses(medications);
+
+  return doses.map((dose) => {
+    const confirmation = findConfirmationForDose(confirmations, dose);
 
     if (confirmation?.confirmed_at) {
       return {
-        id: dose.time,
+        id: dose.id,
+        medicationId: dose.medicationId,
         name: dose.name,
-        timeLabel: dose.label,
+        dosage: dose.dosage,
+        timeLabel: dose.slotLabel,
+        time: dose.time,
         status: "confirmed",
-        statusText: `${formatTime(confirmation.confirmed_at)} Uhr bestätigt`,
+        statusText: `${formatConfirmationTime(confirmation.confirmed_at)} Uhr bestätigt`,
       };
     }
 
-    if (confirmation?.missed || isMissed(dose.time)) {
+    if (confirmation?.missed || isDoseMissed(dose.scheduledAt)) {
       return {
-        id: dose.time,
+        id: dose.id,
+        medicationId: dose.medicationId,
         name: dose.name,
-        timeLabel: dose.label,
+        dosage: dose.dosage,
+        timeLabel: dose.slotLabel,
+        time: dose.time,
         status: "missed",
         statusText: "vergessen",
       };
     }
 
     return {
-      id: dose.time,
+      id: dose.id,
+      medicationId: dose.medicationId,
       name: dose.name,
-      timeLabel: dose.label,
+      dosage: dose.dosage,
+      timeLabel: dose.slotLabel,
+      time: dose.time,
       status: "pending",
       statusText: "noch ausstehend",
     };
@@ -152,6 +245,8 @@ export function buildMedicationItems(
 export function getOverallStatus(
   medications: FamilyMedicationItem[],
 ): FamilyOverallStatus {
+  if (medications.length === 0) return "green";
+
   if (medications.some((item) => item.status === "missed")) {
     return "red";
   }
@@ -208,51 +303,46 @@ export function formatCheckInText(timestamp: string | null) {
     date.getFullYear() === now.getFullYear();
 
   if (isToday) {
-    return `Heute um ${formatTime(timestamp)} Uhr`;
+    return `Heute um ${formatConfirmationTime(timestamp)} Uhr`;
   }
 
   return `${date.toLocaleDateString("de-DE", {
     day: "numeric",
     month: "long",
-  })} um ${formatTime(timestamp)} Uhr`;
-}
-
-function formatTime(value: string) {
-  return new Intl.DateTimeFormat("de-DE", {
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(value));
-}
-
-function isMissed(doseTime: MedicationTime) {
-  const missedAfter = getScheduledAt(doseTime);
-  missedAfter.setMinutes(missedAfter.getMinutes() + 90);
-
-  return Date.now() > missedAfter.getTime();
-}
-
-function getScheduledAt(doseTime: MedicationTime) {
-  const scheduledAt = new Date();
-  const schedule = doseSchedule[doseTime];
-  scheduledAt.setHours(schedule.hour, schedule.minute, 0, 0);
-  return scheduledAt;
+  })} um ${formatConfirmationTime(timestamp)} Uhr`;
 }
 
 export const demoFamilyDashboard = buildFamilyDashboardData({
   member: {
+    firstName: "Renate",
     patientId: "demo-patient",
     displayLabel: "Mama",
     name: "Renate Leka",
     relationship: "Mutter",
     phone: "+493012345678",
   },
+  medications: [
+    {
+      id: "demo-med",
+      user_id: "demo-patient",
+      name: "Omega-3",
+      dosage: "1000mg",
+      times: [{ slot: "morning", time: "08:00" }],
+      frequency: "ONCE_DAILY",
+      start_date: new Date().toISOString(),
+      is_active: true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    },
+  ],
   confirmations: [
     {
+      id: "demo-confirmation",
+      medication_id: "demo-med",
       dose_time: "morning",
       medication_name: "Omega-3 1000mg",
-      confirmed_at: new Date(
-        new Date().setHours(8, 12, 0, 0),
-      ).toISOString(),
+      scheduled_at: getScheduledAtForDemoMorning(),
+      confirmed_at: new Date(new Date().setHours(8, 12, 0, 0)).toISOString(),
       missed: false,
     },
   ],
@@ -260,9 +350,14 @@ export const demoFamilyDashboard = buildFamilyDashboardData({
   latestLabResult: {
     id: "demo-lab",
     date: "5. Juni 2026",
-    preview:
-      "Die meisten Werte sehen gut aus und Sie können beruhigt sein.",
+    preview: "Die meisten Werte sehen gut aus und Sie können beruhigt sein.",
     analysis:
       "Die meisten Werte sehen gut aus und Sie können beruhigt sein. Ein Wert sollte mit Ihrem Arzt besprochen werden.",
   },
 });
+
+function getScheduledAtForDemoMorning() {
+  const scheduledAt = new Date();
+  scheduledAt.setHours(8, 0, 0, 0);
+  return scheduledAt.toISOString();
+}

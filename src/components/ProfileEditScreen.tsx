@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { ErrorBanner, ErrorState, PageSkeleton } from "@/components/AppStates";
+import { resolveProfileNames } from "@/lib/profile-display";
+import { createClient } from "@/lib/supabase/client";
 
 type ProfileForm = {
   id: string;
@@ -10,15 +12,15 @@ type ProfileForm = {
   email: string;
 };
 
-const fallbackProfile: ProfileForm = {
-  id: "local-demo",
-  firstName: "Hans",
-  lastName: "Leka",
-  email: "hans@example.de",
+const emptyProfile: ProfileForm = {
+  id: "",
+  firstName: "",
+  lastName: "",
+  email: "",
 };
 
 export function ProfileEditScreen() {
-  const [profile, setProfile] = useState<ProfileForm>(fallbackProfile);
+  const [profile, setProfile] = useState<ProfileForm>(emptyProfile);
   const [isLoading, setIsLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -30,32 +32,46 @@ export function ProfileEditScreen() {
     setLoadFailed(false);
 
     try {
-      const response = await fetch("/api/settings");
+      const supabase = createClient();
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
 
-      if (!response.ok) {
-        throw new Error("Profile request failed.");
+      if (userError || !user) {
+        throw new Error("User not authenticated.");
       }
 
-      const data = (await response.json()) as {
-        profile: {
-          id: string;
-          firstName: string;
-          lastName: string;
-          email: string;
-        };
-      };
+      const { data: profileData, error: profileError } = await supabase
+        .from("profiles")
+        .select("first_name, last_name, role")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      console.log("Profile data:", profileData);
+      console.log("Current user:", user);
+
+      if (profileError) {
+        throw profileError;
+      }
+
+      const metadata = user.user_metadata as
+        | { first_name?: string; last_name?: string }
+        | undefined;
+      const { firstName, lastName } = resolveProfileNames(
+        profileData,
+        metadata,
+      );
 
       setProfile({
-        id: data.profile.id,
-        firstName: data.profile.firstName,
-        lastName: data.profile.lastName,
-        email: data.profile.email,
+        id: user.id,
+        firstName,
+        lastName,
+        email: user.email ?? "",
       });
     } catch {
       if (process.env.NEXT_PUBLIC_SUPABASE_URL) {
         setLoadFailed(true);
-      } else {
-        setProfile(fallbackProfile);
       }
     } finally {
       setIsLoading(false);
@@ -63,19 +79,13 @@ export function ProfileEditScreen() {
   }
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void loadProfile();
-    }, 0);
-
-    return () => window.clearTimeout(timer);
+    void loadProfile();
   }, []);
 
   async function saveProfile(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (profile.id === fallbackProfile.id) {
-      setSaved(true);
-      window.setTimeout(() => setSaved(false), 1800);
+    if (!profile.id) {
       return;
     }
 
@@ -86,6 +96,7 @@ export function ProfileEditScreen() {
       const response = await fetch("/api/profiles", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           id: profile.id,
           first_name: profile.firstName,
@@ -134,72 +145,75 @@ export function ProfileEditScreen() {
 
       <main className="mx-auto flex w-full max-w-app flex-1 flex-col px-5 py-6">
         <form onSubmit={saveProfile} className="space-y-5">
-        <label className="block">
-          <span className="mb-2 block text-base font-semibold text-foreground">
-            Vorname
-          </span>
-          <input
-            type="text"
-            required
-            value={profile.firstName}
-            onChange={(event) =>
-              setProfile((current) => ({
-                ...current,
-                firstName: event.target.value,
-              }))
-            }
-            className="min-h-12 w-full rounded-2xl border border-border bg-surface px-4 text-base text-foreground outline-none focus:border-primary"
-          />
-        </label>
+          <label className="block">
+            <span className="mb-2 block text-base font-semibold text-foreground">
+              Vorname
+            </span>
+            <input
+              type="text"
+              required
+              value={profile.firstName}
+              onChange={(event) =>
+                setProfile((current) => ({
+                  ...current,
+                  firstName: event.target.value,
+                }))
+              }
+              className="min-h-12 w-full rounded-2xl border border-border bg-surface px-4 text-base text-foreground outline-none focus:border-primary"
+            />
+          </label>
 
-        <label className="block">
-          <span className="mb-2 block text-base font-semibold text-foreground">
-            Nachname
-          </span>
-          <input
-            type="text"
-            required
-            value={profile.lastName}
-            onChange={(event) =>
-              setProfile((current) => ({
-                ...current,
-                lastName: event.target.value,
-              }))
-            }
-            className="min-h-12 w-full rounded-2xl border border-border bg-surface px-4 text-base text-foreground outline-none focus:border-primary"
-          />
-        </label>
+          <label className="block">
+            <span className="mb-2 block text-base font-semibold text-foreground">
+              Nachname
+            </span>
+            <input
+              type="text"
+              required
+              value={profile.lastName}
+              onChange={(event) =>
+                setProfile((current) => ({
+                  ...current,
+                  lastName: event.target.value,
+                }))
+              }
+              className="min-h-12 w-full rounded-2xl border border-border bg-surface px-4 text-base text-foreground outline-none focus:border-primary"
+            />
+          </label>
 
-        <label className="block">
-          <span className="mb-2 block text-base font-semibold text-foreground">
-            E-Mail
-          </span>
-          <input
-            type="email"
-            readOnly
-            value={profile.email}
-            className="min-h-12 w-full rounded-2xl border border-border bg-background px-4 text-base text-muted"
-          />
-          <span className="mt-2 block text-sm text-muted">
-            Die E-Mail-Adresse kann hier nicht geändert werden.
-          </span>
-        </label>
+          <label className="block">
+            <span className="mb-2 block text-base font-semibold text-foreground">
+              E-Mail
+            </span>
+            <input
+              type="email"
+              readOnly
+              value={profile.email}
+              className="min-h-12 w-full rounded-2xl border border-border bg-background px-4 text-base text-muted"
+            />
+            <span className="mt-2 block text-sm text-muted">
+              Die E-Mail-Adresse kann hier nicht geändert werden.
+            </span>
+          </label>
 
-        <button
-          type="submit"
-          disabled={isSaving}
-          className="btn-primary w-full disabled:opacity-60"
-        >
-          {isSaving ? "Wird gespeichert…" : "Speichern"}
-        </button>
+          <button
+            type="submit"
+            disabled={isSaving}
+            className="btn-primary w-full disabled:opacity-60"
+          >
+            {isSaving ? "Wird gespeichert…" : "Speichern"}
+          </button>
 
-        {saved && (
-          <p className="text-center text-base font-semibold text-primary" role="status">
-            Profil gespeichert ✓
-          </p>
-        )}
-      </form>
-    </main>
+          {saved && (
+            <p
+              className="text-center text-base font-semibold text-primary"
+              role="status"
+            >
+              Profil gespeichert ✓
+            </p>
+          )}
+        </form>
+      </main>
     </>
   );
 }

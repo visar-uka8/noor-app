@@ -2,13 +2,15 @@
 
 import { Check, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
-import type { MedicationDose } from "@/types/medication";
+import { formatConfirmationTime } from "@/lib/medication-schedule";
+import type { DailyDoseSlot } from "@/types/medication";
 
 type MedicationDoseButtonProps = {
-  dose: MedicationDose;
+  dose: DailyDoseSlot;
   confirmed: boolean;
   missed?: boolean;
   pending?: boolean;
+  confirmedAt?: string | null;
   onConfirm: () => void;
 };
 
@@ -17,6 +19,7 @@ export function MedicationDoseButton({
   confirmed,
   missed = false,
   pending = false,
+  confirmedAt,
   onConfirm,
 }: MedicationDoseButtonProps) {
   const [justConfirmed, setJustConfirmed] = useState(false);
@@ -27,63 +30,96 @@ export function MedicationDoseButton({
     setJustConfirmed(true);
     const timer = window.setTimeout(() => setJustConfirmed(false), 550);
     return () => window.clearTimeout(timer);
-  }, [confirmed]);
+  }, [confirmed, confirmedAt]);
+
+  const timeLabel =
+    missed && !confirmed ? "Vergessen — jetzt nehmen" : dose.slotLabel;
 
   return (
-    <button
-      type="button"
-      onClick={onConfirm}
-      disabled={confirmed || pending}
-      aria-pressed={confirmed}
-      aria-busy={pending}
-      aria-label={
-        confirmed
-          ? `${dose.label}: ${dose.name} ${dose.dose} eingenommen`
-          : `${dose.label}: ${dose.name} ${dose.dose} als eingenommen bestätigen`
-      }
-      className={`flex min-h-[120px] w-full items-center gap-5 rounded-2xl border-2 px-6 py-5 text-left transition-all active:scale-[0.98] disabled:active:scale-100 ${
+    <div
+      className={`flex min-h-[100px] w-full items-center justify-between gap-4 rounded-2xl px-5 py-4 transition-all ${
         justConfirmed ? "animate-confirm-bounce" : ""
       } ${
         confirmed
-          ? "border-primary bg-primary text-white shadow-md"
+          ? "bg-[#1D9E75] text-white shadow-md"
           : missed
-            ? "border-warning bg-warning-light text-foreground shadow-[var(--warm-shadow)] hover:bg-warning-light/80"
-            : "noor-card border-2 hover:border-primary/40"
+            ? "bg-[#FAEEDA] text-[#633806] shadow-[var(--warm-shadow)]"
+            : "noor-card border-2 border-border shadow-[var(--warm-shadow)]"
       }`}
     >
       <div className="min-w-0 flex-1">
         <p
-          className={`text-stat ${
+          className={`text-base font-semibold ${
             confirmed
               ? "text-white/90"
               : missed
-                ? "text-warning"
-                : "text-primary"
+                ? "text-[#BA7517]"
+                : "text-[#1D9E75]"
           }`}
         >
-          {missed && !confirmed ? "Vergessen — bitte jetzt nehmen" : dose.label}
+          {timeLabel}
         </p>
-        <p className="text-stat mt-1 leading-tight">
-          {dose.name} {dose.dose}
+        <p
+          className={`mt-1 text-lg font-bold leading-tight ${
+            confirmed
+              ? "text-white"
+              : missed
+                ? "text-[#633806]"
+                : "text-foreground"
+          }`}
+        >
+          {dose.name}
+        </p>
+        <p
+          className={`mt-1 text-base ${
+            confirmed
+              ? "text-white/85"
+              : missed
+                ? "text-[#633806]/80"
+                : "text-muted"
+          }`}
+        >
+          {confirmed && confirmedAt
+            ? `Bestätigt um ${formatConfirmationTime(confirmedAt)} Uhr`
+            : `${dose.dosage ? `${dose.dosage} · ` : ""}${dose.time} Uhr`}
         </p>
       </div>
 
-      <div
-        className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-full ${
-          confirmed
-            ? "bg-white/20"
-            : missed
-              ? "border-2 border-warning/30 bg-warning-light text-warning"
-              : "border-2 border-dashed border-primary/30 bg-primary-light"
-        }`}
-        aria-hidden="true"
-      >
-        {pending ? (
-          <Loader2 size={30} className="animate-spin" strokeWidth={2.5} />
-        ) : (
-          confirmed && <Check size={32} strokeWidth={3} />
-        )}
-      </div>
-    </button>
+      {confirmed ? (
+        <div
+          className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-[#1D9E75] ring-2 ring-white/30"
+          aria-hidden="true"
+        >
+          <Check size={30} className="text-white" strokeWidth={3} />
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={onConfirm}
+          disabled={pending}
+          aria-busy={pending}
+          aria-label={`${dose.displayLabel} als eingenommen bestätigen`}
+          className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-full border-2 border-dashed transition-transform active:scale-95 disabled:opacity-70 ${
+            missed
+              ? "border-[#BA7517] bg-[#FAEEDA]"
+              : "border-[#1D9E75] bg-[#E1F5EE]"
+          }`}
+        >
+          {pending ? (
+            <Loader2
+              size={28}
+              className={`animate-spin ${missed ? "text-[#BA7517]" : "text-[#1D9E75]"}`}
+              strokeWidth={2.5}
+            />
+          ) : (
+            <Check
+              size={28}
+              className={missed ? "text-[#BA7517]/80" : "text-[#1D9E75]/60"}
+              strokeWidth={2.8}
+            />
+          )}
+        </button>
+      )}
+    </div>
   );
 }

@@ -62,21 +62,46 @@ export function RegisterForm() {
     setErrorMessage(null);
 
     try {
+      const payload = {
+        id: pendingProfile.id,
+        first_name: pendingProfile.firstName,
+        last_name: pendingProfile.lastName,
+        role,
+      };
+
+      console.log("[finishOnboarding] saving profile", payload);
+
       const response = await fetch("/api/profiles", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: pendingProfile.id,
-          first_name: pendingProfile.firstName,
-          last_name: pendingProfile.lastName,
-          role,
-        }),
+        credentials: "include",
+        body: JSON.stringify(payload),
       });
 
-      if (!response.ok) throw new Error("Profile save failed.");
+      const body = (await response.json().catch(() => null)) as {
+        error?: string;
+        details?: string;
+        supabaseError?: {
+          message?: string;
+          code?: string;
+          details?: string;
+          hint?: string;
+        };
+      } | null;
+
+      if (!response.ok) {
+        console.error("[finishOnboarding] profile save failed", {
+          status: response.status,
+          body,
+        });
+        throw new Error(
+          body?.supabaseError?.message ?? body?.details ?? body?.error,
+        );
+      }
 
       if (role === "family_member") {
-        window.localStorage.setItem("noor-home-view-mode", "family");
+        router.push("/family/connect");
+        return;
       }
 
       router.push("/");

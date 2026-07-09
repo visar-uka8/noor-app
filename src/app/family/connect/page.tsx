@@ -1,11 +1,14 @@
 import { AppHeader } from "@/components/AppHeader";
 import { FamilyConnectFlow } from "@/components/FamilyConnectFlow";
+import { PublicPageShell } from "@/components/PublicPageShell";
 
 export default function FamilyConnectPage() {
   return (
-    <div className="mx-auto flex min-h-full w-full max-w-app flex-1 flex-col">
-      <AppHeader showBack title="Familie verbinden" />
-      <FamilyConnectFlow />
-    </div>
+    <PublicPageShell>
+      <div className="mx-auto flex w-full max-w-app flex-col">
+        <AppHeader showBack title="Familie verbinden" />
+        <FamilyConnectFlow />
+      </div>
+    </PublicPageShell>
   );
 }

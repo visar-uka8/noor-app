@@ -3,7 +3,6 @@
 import { FlaskConical, Pill, ShieldPlus, Users } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { AppBottomNav } from "@/components/AppBottomNav";
 import {
   CardListSkeleton,
   ConnectionErrorState,
@@ -11,20 +10,20 @@ import {
 } from "@/components/AppStates";
 import { FamilyDashboardPanel } from "@/components/FamilyDashboardPanel";
 import { HomeModeSwitcher } from "@/components/HomeModeSwitcher";
-import { HomeViewModeProvider } from "@/components/HomeViewModeContext";
+import { useHomeViewModeContext } from "@/components/HomeViewModeContext";
 import { useLanguage } from "@/components/LanguageProvider";
 import { SlowConnectionNotice } from "@/components/SlowConnectionNotice";
+import { useAuthUser } from "@/hooks/useAuthUser";
 import { useFamilyConnection } from "@/hooks/useFamilyConnection";
-import { useHomeViewMode } from "@/hooks/useHomeViewMode";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { useSlowConnection } from "@/hooks/useSlowConnection";
-import { useUserRole } from "@/hooks/useUserRole";
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 import { getTimeGreeting } from "@/lib/i18n/messages";
 import {
   demoHomeScreenData,
   type HomeScreenData,
 } from "@/lib/home-screen";
+import type { HomeScreenResponse, HomeSectionKey } from "@/lib/home-data";
 
 const featureCards = [
   {
@@ -55,24 +54,28 @@ const featureCards = [
 
 export function HomeScreen() {
   const { language, t } = useLanguage();
-  const role = useUserRole();
+  const { user, isLoading: isAuthLoading } = useAuthUser();
   const { connection, isLoading: isConnectionLoading } = useFamilyConnection();
-  const { mode, setViewMode } = useHomeViewMode(
-    connection.connected,
-    role,
-  );
+  const { mode, setViewMode } = useHomeViewModeContext();
   const isOnline = useOnlineStatus();
   const [now, setNow] = useState(new Date());
   const [homeData, setHomeData] = useState<HomeScreenData | null>(null);
+  const [sectionErrors, setSectionErrors] = useState<
+    Partial<Record<HomeSectionKey, string>>
+  >({});
   const [isLoading, setIsLoading] = useState(true);
   const [hasLoadError, setHasLoadError] = useState(false);
   const isSlow = useSlowConnection(isLoading);
   const useDemoFallback = !process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const showSwitcher = connection.connected;
+  const isFamilyView = showSwitcher && mode === "family";
 
   useEffect(() => {
+    if (isFamilyView) return;
+
     const timer = window.setInterval(() => setNow(new Date()), 60_000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [isFamilyView]);
 
   useEffect(() => {
     void fetch("/api/check-in", { method: "POST" });
@@ -81,16 +84,37 @@ export function HomeScreen() {
   async function loadHomeData() {
     setIsLoading(true);
     setHasLoadError(false);
+    setSectionErrors({});
 
     try {
       const response = await fetchWithTimeout("/api/home");
 
-      if (!response.ok) {
-        throw new Error("Home request failed.");
+      if (response.status === 401) {
+        console.log("Home page request unauthorized");
+        setHomeData(null);
+        setHasLoadError(true);
+        return;
       }
 
-      setHomeData((await response.json()) as HomeScreenData);
-    } catch {
+      const payload = (await response.json()) as HomeScreenResponse | { error?: string };
+
+      console.log("Home page response status:", response.status);
+      console.log("Home page response payload:", payload);
+
+      if (!response.ok) {
+        throw new Error(
+          "error" in payload && payload.error
+            ? payload.error
+            : "Home request failed.",
+        );
+      }
+
+      const { sectionErrors: nextSectionErrors, ...data } = payload as HomeScreenResponse;
+      setHomeData(data);
+      setSectionErrors(nextSectionErrors ?? {});
+    } catch (error) {
+      console.error("Home page client load failed:", error);
+
       if (useDemoFallback) {
         setHomeData(demoHomeScreenData);
       } else {
@@ -103,37 +127,43 @@ export function HomeScreen() {
   }
 
   useEffect(() => {
+    if (isAuthLoading) return;
     void loadHomeData();
-  }, []);
+  }, [isAuthLoading]);
 
   const greeting = useMemo(
     () => getTimeGreeting(language, now),
     [language, now],
   );
 
-  const showSwitcher = connection.connected;
-  const isFamilyView = showSwitcher && mode === "family";
-
   const shell = (header: React.ReactNode, main: React.ReactNode) => (
-    <HomeViewModeProvider
-      mode={mode}
-      hasFamilyConnection={connection.connected}
-    >
-      <div className="mx-auto flex min-h-full w-full max-w-app flex-1 flex-col overflow-x-hidden bg-background">
-        {header}
-        {main}
-        <AppBottomNav />
-      </div>
-    </HomeViewModeProvider>
+    <div className="mx-auto flex w-full max-w-app flex-col bg-background">
+      {header}
+      {main}
+    </div>
   );
 
-  if (isLoading || (showSwitcher && isConnectionLoading)) {
+  if (!isAuthLoading && !user && !useDemoFallback) {
+    return shell(
+      <header className="rounded-b-[2rem] bg-primary px-5 pb-6 pt-6 text-white shadow-[var(--warm-shadow)]">
+        <h1 className="text-[1.75rem] font-bold leading-tight">{greeting} 👋</h1>
+      </header>,
+      <main className="flex-1 px-5 pt-5">
+        <ConnectionErrorState
+          isOffline={!isOnline}
+          onRetry={() => window.location.assign("/login")}
+        />
+      </main>,
+    );
+  }
+
+  if (isAuthLoading || isLoading || (showSwitcher && isConnectionLoading)) {
     return shell(
       <header className="rounded-b-[2rem] bg-primary px-5 pb-6 pt-6 text-white shadow-[var(--warm-shadow)]">
         <h1 className="text-[1.75rem] font-bold leading-tight">{greeting} 👋</h1>
         <p className="text-body mt-2 text-white/90">{t("common.oneMoment")}</p>
       </header>,
-      <main className="content-bottom-nav flex-1 px-5 pt-5">
+      <main className="flex-1 px-5 pt-5">
         <CardListSkeleton />
         {isSlow ? (
           <SlowConnectionNotice message={t("common.slowConnection")} />
@@ -147,7 +177,7 @@ export function HomeScreen() {
       <header className="rounded-b-[2rem] bg-primary px-5 pb-6 pt-6 text-white shadow-[var(--warm-shadow)]">
         <h1 className="text-[1.75rem] font-bold leading-tight">{greeting} 👋</h1>
       </header>,
-      <main className="content-bottom-nav flex-1 px-5 pt-5">
+      <main className="flex-1 px-5 pt-5">
         <ConnectionErrorState
           isOffline={!isOnline}
           onRetry={loadHomeData}
@@ -188,12 +218,24 @@ export function HomeScreen() {
         </Link>
       </div>
     </header>,
-    <main className="content-bottom-nav flex-1 px-5 pt-5">
+    <main className="flex-1 px-5 pt-5">
       {isFamilyView ? (
         <FamilyDashboardPanel className="mt-2" showConnectLink={false} />
       ) : (
         <>
-          <StatusBanner data={homeData} t={t} />
+          {sectionErrors.profile ? (
+            <SectionErrorNotice message="Profil konnte gerade nicht geladen werden." />
+          ) : null}
+
+          <StatusBanner
+            data={homeData}
+            t={t}
+            hasError={Boolean(sectionErrors.medication)}
+          />
+
+          {sectionErrors.medication ? (
+            <SectionErrorNotice message="Medikamentenstatus ist gerade nicht verfügbar." />
+          ) : null}
 
           <section className="mt-6">
             <div className="grid grid-cols-2 gap-3">
@@ -209,11 +251,11 @@ export function HomeScreen() {
                   >
                     <card.icon size={26} strokeWidth={2.2} />
                   </span>
-                  <h2 className="heading-lg mt-3 leading-tight">
+                  <h2 className="mt-3 min-w-0 truncate text-[17px] font-bold text-[#085041]">
                     {t(card.titleKey)}
                   </h2>
                   <p className="text-body mt-1 text-muted">
-                    {getCardSubtitle(card.subtitleKey, homeData, t)}
+                    {getCardSubtitle(card.subtitleKey, homeData, t, sectionErrors)}
                   </p>
                 </Link>
               ))}
@@ -257,11 +299,25 @@ function getGreetingSubtitle(data: HomeScreenData, now: Date) {
 function StatusBanner({
   data,
   t,
+  hasError = false,
 }: {
   data: HomeScreenData;
   t: ReturnType<typeof useLanguage>["t"];
+  hasError?: boolean;
 }) {
   const { medication } = data;
+
+  if (hasError) {
+    return null;
+  }
+
+  if (medication.total === 0) {
+    return (
+      <NoorStatusBanner level="success">
+        Noch keine Medikamente hinterlegt
+      </NoorStatusBanner>
+    );
+  }
 
   if (medication.status === "red") {
     return (
@@ -297,8 +353,17 @@ function getCardSubtitle(
   key: (typeof featureCards)[number]["subtitleKey"],
   data: HomeScreenData,
   t: ReturnType<typeof useLanguage>["t"],
+  sectionErrors: Partial<Record<HomeSectionKey, string>> = {},
 ) {
   if (key === "medication") {
+    if (sectionErrors.medication) {
+      return "Status gerade nicht verfügbar";
+    }
+
+    if (data.medication.total === 0) {
+      return "Noch keine Medikamente";
+    }
+
     if (data.medication.confirmed === data.medication.total) {
       return t("home.allConfirmed");
     }
@@ -310,6 +375,10 @@ function getCardSubtitle(
   }
 
   if (key === "lab") {
+    if (sectionErrors.labResult) {
+      return "Laborwerte gerade nicht verfügbar";
+    }
+
     if (data.labResult.hasResult && data.labResult.lastDate) {
       return t("home.lastLab", { date: data.labResult.lastDate });
     }
@@ -318,6 +387,10 @@ function getCardSubtitle(
   }
 
   if (key === "family") {
+    if (sectionErrors.family) {
+      return "Familienstatus gerade nicht verfügbar";
+    }
+
     if (data.family.connectedCount === 0) {
       return t("home.noFamily");
     }
@@ -331,5 +404,18 @@ function getCardSubtitle(
 
   return data.healthPassport.complete
     ? t("home.passportComplete")
-    : t("home.passportIncomplete");
+    : sectionErrors.healthPassport
+      ? "Status gerade nicht verfügbar"
+      : t("home.passportIncomplete");
+}
+
+function SectionErrorNotice({ message }: { message: string }) {
+  return (
+    <p
+      className="mb-4 rounded-2xl border border-warning/30 bg-warning-light px-4 py-3 text-base text-warning"
+      role="status"
+    >
+      {message}
+    </p>
+  );
 }

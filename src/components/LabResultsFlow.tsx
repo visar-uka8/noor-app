@@ -8,6 +8,7 @@ import { LabResultHistory } from "@/components/LabResultHistory";
 import { useLanguage } from "@/components/LanguageProvider";
 import { SlowConnectionNotice } from "@/components/SlowConnectionNotice";
 import { useSlowConnection } from "@/hooks/useSlowConnection";
+import { useUserRole } from "@/hooks/useUserRole";
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 import {
   fileWithResolvedType,
@@ -30,6 +31,11 @@ type AnalyzeLabErrorResponse = {
 
 export function LabResultsFlow() {
   const { t } = useLanguage();
+  const role = useUserRole();
+  const isFamilyMember = role === "family_member";
+  const historyEndpoint = isFamilyMember
+    ? "/api/family-dashboard/lab-results"
+    : "/api/lab-results";
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const generalInputRef = useRef<HTMLInputElement>(null);
@@ -222,115 +228,120 @@ export function LabResultsFlow() {
 
   return (
     <main className="mx-auto flex w-full max-w-app flex-1 flex-col px-5 py-6">
-      <input
-        ref={cameraInputRef}
-        type="file"
-        accept="image/jpeg,image/png,image/webp,image/gif,.pdf,application/pdf"
-        capture="environment"
-        className="sr-only"
-        onChange={handleFileSelect}
-        aria-hidden="true"
-        tabIndex={-1}
-      />
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/jpeg,image/png,image/webp,image/gif,.pdf,application/pdf"
-        className="sr-only"
-        onChange={handleFileSelect}
-        aria-hidden="true"
-        tabIndex={-1}
-      />
-      <input
-        ref={generalInputRef}
-        type="file"
-        accept="image/jpeg,image/png,image/webp,image/gif,.pdf,application/pdf"
-        className="sr-only"
-        onChange={handleFileSelect}
-        aria-hidden="true"
-        tabIndex={-1}
-      />
-
-      <button
-        type="button"
-        onClick={() => generalInputRef.current?.click()}
-        className="noor-card flex min-h-[200px] w-full flex-col items-center justify-center gap-3 px-6 py-8 text-center transition-colors hover:bg-primary-light active:scale-[0.99]"
-        aria-label={t("lab.uploadLabel")}
-      >
-        <div
-          className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary-light text-primary"
-          aria-hidden="true"
-        >
-          <FileText size={34} strokeWidth={2.2} />
-        </div>
-        <div>
-          <p className="heading-lg leading-tight">{t("lab.uploadTitle")}</p>
-          <p className="text-body mt-2 text-muted">{t("lab.uploadHint")}</p>
-        </div>
-      </button>
-
-      <div className="mt-4 grid grid-cols-2 gap-3">
-        <button
-          type="button"
-          onClick={() => cameraInputRef.current?.click()}
-          className="btn-touch noor-card flex flex-col items-center justify-center gap-2 px-3 py-4 text-base font-semibold text-foreground transition-colors hover:border-primary/30"
-        >
-          <Camera size={24} className="text-primary" aria-hidden="true" />
-          {t("lab.takePhoto")}
-        </button>
-
-        <button
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          className="btn-touch noor-card flex flex-col items-center justify-center gap-2 px-3 py-4 text-base font-semibold text-foreground transition-colors hover:border-primary/30"
-        >
-          <FileText size={24} className="text-primary" aria-hidden="true" />
-          {t("lab.chooseFile")}
-        </button>
-      </div>
-
-      {selectedFile && (
-        <section className="noor-card mt-6 p-4">
-          <div className="overflow-hidden rounded-2xl bg-background">
-            {previewUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={previewUrl}
-                alt={t("lab.previewAlt")}
-                className="h-56 w-full object-cover"
-              />
-            ) : (
-              <div className="flex h-56 flex-col items-center justify-center gap-3 text-primary">
-                <FileText size={56} strokeWidth={2} aria-hidden="true" />
-                <p className="text-lg font-bold text-foreground">
-                  {t("lab.pdfSelected")}
-                </p>
-              </div>
-            )}
-          </div>
-
-          <p className="mt-3 break-words text-base font-semibold text-foreground">
-            {selectedFile.name}
-          </p>
+      {!isFamilyMember ? (
+        <>
+          <input
+            ref={cameraInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp,image/gif,.pdf,application/pdf"
+            capture="environment"
+            className="sr-only"
+            onChange={handleFileSelect}
+            aria-hidden="true"
+            tabIndex={-1}
+          />
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp,image/gif,.pdf,application/pdf"
+            className="sr-only"
+            onChange={handleFileSelect}
+            aria-hidden="true"
+            tabIndex={-1}
+          />
+          <input
+            ref={generalInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp,image/gif,.pdf,application/pdf"
+            className="sr-only"
+            onChange={handleFileSelect}
+            aria-hidden="true"
+            tabIndex={-1}
+          />
 
           <button
             type="button"
-            onClick={() => analyzeFile(selectedFile)}
-            className="btn-primary mt-4 w-full"
+            onClick={() => generalInputRef.current?.click()}
+            className="noor-card flex min-h-[200px] w-full flex-col items-center justify-center gap-3 px-6 py-8 text-center transition-colors hover:bg-primary-light active:scale-[0.99]"
+            aria-label={t("lab.uploadLabel")}
           >
-            {t("lab.analyzeNow")}
+            <div
+              className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary-light text-primary"
+              aria-hidden="true"
+            >
+              <FileText size={34} strokeWidth={2.2} />
+            </div>
+            <div>
+              <p className="heading-lg leading-tight">{t("lab.uploadTitle")}</p>
+              <p className="text-body mt-2 text-muted">{t("lab.uploadHint")}</p>
+            </div>
           </button>
 
-          <p className="mt-4 flex items-center justify-center gap-2 text-center text-sm text-muted">
-            <Lock size={16} className="shrink-0 text-primary" aria-hidden="true" />
-            {t("lab.privacy")}
-          </p>
-        </section>
-      )}
+          <div className="mt-4 grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={() => cameraInputRef.current?.click()}
+              className="btn-touch noor-card flex flex-col items-center justify-center gap-2 px-3 py-4 text-base font-semibold text-foreground transition-colors hover:border-primary/30"
+            >
+              <Camera size={24} className="text-primary" aria-hidden="true" />
+              {t("lab.takePhoto")}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="btn-touch noor-card flex flex-col items-center justify-center gap-2 px-3 py-4 text-base font-semibold text-foreground transition-colors hover:border-primary/30"
+            >
+              <FileText size={24} className="text-primary" aria-hidden="true" />
+              {t("lab.chooseFile")}
+            </button>
+          </div>
+
+          {selectedFile && (
+            <section className="noor-card mt-6 p-4">
+              <div className="overflow-hidden rounded-2xl bg-background">
+                {previewUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={previewUrl}
+                    alt={t("lab.previewAlt")}
+                    className="h-56 w-full object-cover"
+                  />
+                ) : (
+                  <div className="flex h-56 flex-col items-center justify-center gap-3 text-primary">
+                    <FileText size={56} strokeWidth={2} aria-hidden="true" />
+                    <p className="text-lg font-bold text-foreground">
+                      {t("lab.pdfSelected")}
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              <p className="mt-3 break-words text-base font-semibold text-foreground">
+                {selectedFile.name}
+              </p>
+
+              <button
+                type="button"
+                onClick={() => analyzeFile(selectedFile)}
+                className="btn-primary mt-4 w-full"
+              >
+                {t("lab.analyzeNow")}
+              </button>
+
+              <p className="mt-4 flex items-center justify-center gap-2 text-center text-sm text-muted">
+                <Lock size={16} className="shrink-0 text-primary" aria-hidden="true" />
+                {t("lab.privacy")}
+              </p>
+            </section>
+          )}
+        </>
+      ) : null}
 
       <LabResultHistory
         refreshKey={historyRefreshKey}
         onSelect={openHistoryResult}
+        resultsEndpoint={historyEndpoint}
       />
     </main>
   );

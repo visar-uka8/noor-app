@@ -1,20 +1,26 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState, startTransition } from "react";
 import {
   CardListSkeleton,
   ConnectionErrorState,
   FeatureEmptyState,
 } from "@/components/AppStates";
 import { FamilyMemberCard } from "@/components/FamilyMemberCard";
-import { FamilyNotificationSettings } from "@/components/FamilyNotificationSettings";
+import { FamilyEmailNotifications } from "@/components/FamilyEmailNotifications";
 import { SlowConnectionNotice } from "@/components/SlowConnectionNotice";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { useSlowConnection } from "@/hooks/useSlowConnection";
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
-import type { FamilyDashboardData } from "@/lib/family-dashboard-status";
+import {
+  applyLatestLabResultChange,
+  applyMedicationConfirmationChange,
+  applyProfileCheckInChange,
+  type FamilyDashboardData,
+} from "@/lib/family-dashboard-status";
 import { createClient } from "@/lib/supabase/client";
+import type { StoredConfirmation } from "@/types/medication";
 
 const emptyDashboard: FamilyDashboardData = {
   connected: false,
@@ -32,7 +38,30 @@ type FamilyDashboardPanelProps = {
   className?: string;
 };
 
-export function FamilyDashboardPanel({
+type MedicationConfirmationRow = StoredConfirmation;
+
+type ProfileCheckInRow = {
+  last_check_in_at: string | null;
+};
+
+type LabResultRow = {
+  id: string;
+  ai_analysis: string;
+  created_at: string;
+};
+
+async function fetchDashboardData() {
+  const response = await fetchWithTimeout("/api/family-dashboard");
+
+  if (!response.ok) {
+    throw new Error("Family dashboard request failed.");
+  }
+
+  const data = (await response.json()) as FamilyDashboardData;
+  return data.connected ? data : emptyDashboard;
+}
+
+function FamilyDashboardPanelComponent({
   showConnectLink = true,
   className = "mt-6",
 }: FamilyDashboardPanelProps) {
@@ -40,89 +69,148 @@ export function FamilyDashboardPanel({
   const [dashboard, setDashboard] = useState<FamilyDashboardData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [hasLoadError, setHasLoadError] = useState(false);
+  const hasLoadedOnceRef = useRef(false);
   const isSlow = useSlowConnection(isLoading);
 
-  const loadDashboard = useCallback(async () => {
-    setIsLoading(true);
-    setHasLoadError(false);
+  const patchDashboard = useCallback(
+    (updater: (current: FamilyDashboardData) => FamilyDashboardData) => {
+      startTransition(() => {
+        setDashboard((current) => {
+          if (!current?.member) return current;
+          return updater(current);
+        });
+      });
+    },
+    [],
+  );
+
+  const loadDashboard = useCallback(async (showLoading = false) => {
+    if (showLoading) {
+      setIsLoading(true);
+      setHasLoadError(false);
+    }
 
     try {
-      const response = await fetchWithTimeout("/api/family-dashboard");
-
-      if (!response.ok) {
-        throw new Error("Family dashboard request failed.");
-      }
-
-      const data = (await response.json()) as FamilyDashboardData;
-      setDashboard(data.connected ? data : emptyDashboard);
+      const data = await fetchDashboardData();
+      setDashboard(data);
+      setHasLoadError(false);
+      hasLoadedOnceRef.current = true;
+      return data;
     } catch {
-      setDashboard(null);
-      setHasLoadError(true);
+      if (showLoading) {
+        setDashboard(null);
+        setHasLoadError(true);
+      }
+      return null;
     } finally {
-      setIsLoading(false);
+      if (showLoading) {
+        setIsLoading(false);
+      }
     }
   }, []);
 
   useEffect(() => {
-    void loadDashboard();
-  }, [loadDashboard]);
-
-  useEffect(() => {
-    if (!dashboard?.member?.patientId) return;
-
-    const patientId = dashboard.member.patientId;
     const supabase = createClient();
-    const pollTimer = window.setInterval(() => {
-      void loadDashboard();
-    }, 5000);
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    let cancelled = false;
 
-    const channel = supabase
-      .channel(`family-dashboard-${patientId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "medication_confirmations",
-          filter: `user_id=eq.${patientId}`,
-        },
-        () => {
-          void loadDashboard();
-        },
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "lab_results",
-          filter: `user_id=eq.${patientId}`,
-        },
-        () => {
-          void loadDashboard();
-        },
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "profiles",
-          filter: `id=eq.${patientId}`,
-        },
-        () => {
-          void loadDashboard();
-        },
-      )
-      .subscribe();
+    async function start() {
+      setIsLoading(true);
+      setHasLoadError(false);
+
+      let data: FamilyDashboardData | null = null;
+
+      try {
+        data = await fetchDashboardData();
+        if (!cancelled) {
+          setDashboard(data);
+          setHasLoadError(false);
+          hasLoadedOnceRef.current = true;
+        }
+      } catch {
+        if (!cancelled) {
+          setDashboard(null);
+          setHasLoadError(true);
+        }
+        return;
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      }
+
+      if (cancelled) return;
+
+      const patientId = data?.member?.patientId;
+      if (!patientId) return;
+
+      channel = supabase
+        .channel(`family-dashboard-${patientId}`)
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "medication_confirmations",
+            filter: `user_id=eq.${patientId}`,
+          },
+          (payload) => {
+            const row = payload.new as MedicationConfirmationRow | null;
+            if (!row?.dose_time) return;
+
+            patchDashboard((current) =>
+              applyMedicationConfirmationChange(current, row),
+            );
+          },
+        )
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "lab_results",
+            filter: `user_id=eq.${patientId}`,
+          },
+          (payload) => {
+            const row = payload.new as LabResultRow | null;
+            if (!row?.id) return;
+
+            patchDashboard((current) =>
+              applyLatestLabResultChange(current, row),
+            );
+          },
+        )
+        .on(
+          "postgres_changes",
+          {
+            event: "UPDATE",
+            schema: "public",
+            table: "profiles",
+            filter: `id=eq.${patientId}`,
+          },
+          (payload) => {
+            const row = payload.new as ProfileCheckInRow | null;
+            if (!row) return;
+
+            patchDashboard((current) =>
+              applyProfileCheckInChange(current, row.last_check_in_at),
+            );
+          },
+        )
+        .subscribe();
+    }
+
+    void start();
 
     return () => {
-      window.clearInterval(pollTimer);
-      void supabase.removeChannel(channel);
+      cancelled = true;
+      if (channel) {
+        void supabase.removeChannel(channel);
+      }
     };
-  }, [dashboard?.member?.patientId, loadDashboard]);
+  }, [patchDashboard]);
 
-  if (isLoading) {
+  if (isLoading && !hasLoadedOnceRef.current) {
     return (
       <div className={className}>
         <CardListSkeleton />
@@ -136,7 +224,10 @@ export function FamilyDashboardPanel({
   if (hasLoadError || !dashboard) {
     return (
       <div className={className}>
-        <ConnectionErrorState isOffline={!isOnline} onRetry={loadDashboard} />
+        <ConnectionErrorState
+          isOffline={!isOnline}
+          onRetry={() => void loadDashboard(true)}
+        />
       </div>
     );
   }
@@ -159,7 +250,10 @@ export function FamilyDashboardPanel({
     <div className={className}>
       <FamilyMemberCard data={dashboard} />
 
-      <FamilyNotificationSettings patientLabel={dashboard.member.displayLabel} />
+      <FamilyEmailNotifications
+        patientFirstName={dashboard.member.firstName}
+        patientLabel={dashboard.member.displayLabel}
+      />
 
       {showConnectLink ? (
         <Link
@@ -172,3 +266,5 @@ export function FamilyDashboardPanel({
     </div>
   );
 }
+
+export const FamilyDashboardPanel = memo(FamilyDashboardPanelComponent);

@@ -16,11 +16,11 @@ import {
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { AppBottomNav } from "@/components/AppBottomNav";
 import { ErrorBanner, ErrorState, PageSkeleton } from "@/components/AppStates";
 import { useElderMode } from "@/components/ElderModeProvider";
 import { useLanguage } from "@/components/LanguageProvider";
 import { appVersion, contactEmail } from "@/lib/app-info";
+import { getProfileInitials, resolveProfileNames } from "@/lib/profile-display";
 import { createClient } from "@/lib/supabase/client";
 import {
   defaultNotificationPreferences,
@@ -50,11 +50,9 @@ const demoSettings: SettingsData = {
   ],
 };
 
-const notificationLabels: Record<keyof NotificationPreferences, string> = {
-  medications: "Medikamente",
-  labResults: "Laborwerte",
-  family: "Familie",
-};
+const notificationLabels = {
+  emailNotifications: "Benachrichtigungen per E-Mail",
+} as const;
 
 export function SettingsScreen() {
   const router = useRouter();
@@ -78,14 +76,57 @@ export function SettingsScreen() {
     setLoadFailed(false);
 
     try {
-      const response = await fetch("/api/settings");
+      const supabase = createClient();
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+
+      if (userError || !user) {
+        throw new Error("User not authenticated.");
+      }
+
+      const { data: profileData, error: profileError } = await supabase
+        .from("profiles")
+        .select("first_name, last_name, role")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      console.log("Profile data:", profileData);
+      console.log("Current user:", user);
+
+      if (profileError) {
+        throw profileError;
+      }
+
+      const response = await fetch("/api/settings", {
+        credentials: "include",
+      });
 
       if (!response.ok) {
         throw new Error("Settings request failed.");
       }
 
       const data = (await response.json()) as SettingsData;
-      setSettings(data);
+      const metadata = user.user_metadata as
+        | { first_name?: string; last_name?: string }
+        | undefined;
+      const { firstName, lastName } = resolveProfileNames(
+        profileData,
+        metadata,
+      );
+
+      setSettings({
+        ...data,
+        profile: {
+          ...data.profile,
+          id: user.id,
+          firstName,
+          lastName,
+          email: user.email ?? data.profile.email,
+          initials: getProfileInitials(firstName, lastName),
+        },
+      });
       setElderMode(data.profile.elderMode);
     } catch {
       if (process.env.NEXT_PUBLIC_SUPABASE_URL) {
@@ -156,12 +197,11 @@ export function SettingsScreen() {
     }
   }
 
-  async function toggleNotification(key: keyof NotificationPreferences) {
+  async function toggleEmailNotifications() {
     if (!settings) return;
 
     const nextPreferences = {
-      ...settings.profile.notificationPreferences,
-      [key]: !settings.profile.notificationPreferences[key],
+      emailNotifications: !settings.profile.notificationPreferences.emailNotifications,
     };
 
     setSettings({
@@ -266,22 +306,14 @@ export function SettingsScreen() {
   }
 
   if (isLoading) {
-    return (
-      <>
-        <PageSkeleton />
-        <AppBottomNav />
-      </>
-    );
+    return <PageSkeleton />;
   }
 
   if (loadFailed || !settings) {
     return (
-      <>
-        <main className="content-bottom-nav mx-auto flex w-full max-w-app flex-1 flex-col px-5 py-6">
-          <ErrorState onRetry={loadSettings} />
-        </main>
-        <AppBottomNav />
-      </>
+      <main className="mx-auto flex w-full max-w-app flex-1 flex-col px-5 py-6">
+        <ErrorState onRetry={loadSettings} />
+      </main>
     );
   }
 
@@ -298,7 +330,7 @@ export function SettingsScreen() {
         />
       ) : null}
 
-      <main className="content-bottom-nav mx-auto flex w-full max-w-app flex-1 flex-col px-5 py-6">
+      <main className="mx-auto flex w-full max-w-app flex-1 flex-col px-5 py-6">
         {showElderToast && (
           <div
             className="fixed left-1/2 top-6 z-50 flex -translate-x-1/2 items-center gap-2 rounded-2xl bg-primary px-5 py-3 text-body font-semibold text-white shadow-xl"
@@ -360,28 +392,19 @@ export function SettingsScreen() {
               <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary-light text-primary">
                 <Bell size={24} aria-hidden="true" />
               </span>
-              <span className="text-base font-bold text-foreground">
-                Benachrichtigungen
-              </span>
-            </div>
-            <div className="mt-4 space-y-3">
-              {(Object.keys(notificationLabels) as Array<
-                keyof NotificationPreferences
-              >).map((key) => (
-                <div
-                  key={key}
-                  className="flex min-h-12 items-center justify-between gap-4 rounded-2xl bg-background px-4 py-3"
-                >
-                  <span className="text-base text-foreground">
-                    {notificationLabels[key]}
-                  </span>
-                  <ToggleSwitch
-                    checked={profile.notificationPreferences[key]}
-                    onChange={() => toggleNotification(key)}
-                    label={notificationLabels[key]}
-                  />
-                </div>
-              ))}
+              <div className="min-w-0 flex-1">
+                <p className="text-base font-bold text-foreground">
+                  {notificationLabels.emailNotifications}
+                </p>
+                <p className="mt-1 text-base text-muted">
+                  E-Mail: {profile.email || "—"}
+                </p>
+              </div>
+              <ToggleSwitch
+                checked={profile.notificationPreferences.emailNotifications}
+                onChange={() => void toggleEmailNotifications()}
+                label={notificationLabels.emailNotifications}
+              />
             </div>
           </div>
         </section>
@@ -499,7 +522,6 @@ export function SettingsScreen() {
         />
       )}
 
-      <AppBottomNav />
     </>
   );
 }
@@ -653,7 +675,7 @@ function ToggleSwitch({
       aria-checked={checked}
       aria-label={label}
       onClick={() => onChange(!checked)}
-      className={`relative h-8 min-h-8 w-14 shrink-0 rounded-full transition-colors ${
+      className={`relative h-8 min-h-8 min-w-[51px] w-14 shrink-0 rounded-full transition-colors ${
         checked ? "bg-primary" : "bg-zinc-300"
       }`}
     >

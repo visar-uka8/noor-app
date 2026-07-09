@@ -1,6 +1,9 @@
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
-import { getInitials } from "@/lib/home-screen";
+import {
+  getProfileInitials,
+  resolveProfileNames,
+} from "@/lib/profile-display";
 import {
   defaultNotificationPreferences,
   formatConnectionDate,
@@ -21,9 +24,15 @@ type ProfileRow = {
   id: string;
   first_name: string;
   last_name: string;
+  role?: string;
   language: "de" | "en";
   elder_mode: boolean;
   notification_preferences: NotificationPreferences | null;
+};
+
+type AuthMetadata = {
+  first_name?: string;
+  last_name?: string;
 };
 
 type FamilyLinkRow = {
@@ -55,14 +64,29 @@ export async function GET() {
 
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
-      .select("id, first_name, last_name, language, elder_mode, notification_preferences")
+      .select(
+        "id, first_name, last_name, role, language, elder_mode, notification_preferences",
+      )
       .eq("id", user.id)
       .maybeSingle<ProfileRow>();
 
     if (profileError) throw profileError;
 
-    const firstName = profile?.first_name?.trim() || "Noor";
-    const lastName = profile?.last_name?.trim() || "";
+    let resolvedProfile = profile;
+
+    if (!resolvedProfile) {
+      resolvedProfile = await ensureProfileFromMetadata(
+        supabase,
+        user.id,
+        user.user_metadata,
+      );
+    }
+
+    const metadata = user.user_metadata as AuthMetadata | undefined;
+    const { firstName, lastName } = resolveProfileNames(
+      resolvedProfile,
+      metadata,
+    );
 
     const { data: familyLinks, error: linksError } = await supabase
       .from("family_links")
@@ -110,11 +134,12 @@ export async function GET() {
         firstName,
         lastName,
         email: user.email ?? "",
-        initials: getInitials(firstName, lastName),
-        language: profile?.language ?? "de",
-        elderMode: profile?.elder_mode ?? false,
+        initials: getProfileInitials(firstName, lastName),
+        language: resolvedProfile?.language ?? "de",
+        elderMode: resolvedProfile?.elder_mode ?? false,
         notificationPreferences:
-          profile?.notification_preferences ?? defaultNotificationPreferences,
+          resolvedProfile?.notification_preferences ??
+          defaultNotificationPreferences,
       },
       familyConnections,
     };
@@ -182,18 +207,14 @@ export async function PATCH(request: Request) {
   }
 }
 
-function normalizeNotificationPreferences(value: unknown) {
+function normalizeNotificationPreferences(value: unknown): NotificationPreferences {
   const preferences = value as Record<string, unknown>;
 
-  return {
-    medications:
-      typeof preferences.medications === "boolean"
-        ? preferences.medications
-        : true,
-    labResults:
-      typeof preferences.labResults === "boolean" ? preferences.labResults : true,
-    family: typeof preferences.family === "boolean" ? preferences.family : true,
-  };
+  if (typeof preferences.emailNotifications === "boolean") {
+    return { emailNotifications: preferences.emailNotifications };
+  }
+
+  return defaultNotificationPreferences;
 }
 
 function createSupabaseDataClient() {
@@ -207,4 +228,43 @@ function createSupabaseDataClient() {
   return createAdminClient(supabaseUrl, supabaseKey, {
     auth: { persistSession: false },
   });
+}
+
+async function ensureProfileFromMetadata(
+  supabase: NonNullable<ReturnType<typeof createSupabaseDataClient>> | Awaited<
+    ReturnType<typeof createClient>
+  >,
+  userId: string,
+  metadata: AuthMetadata | undefined,
+) {
+  const firstName = metadata?.first_name?.trim() ?? "";
+  const lastName = metadata?.last_name?.trim() ?? "";
+
+  if (!firstName && !lastName) {
+    return null;
+  }
+
+  const record = {
+    id: userId,
+    first_name: firstName,
+    last_name: lastName,
+    role: "patient",
+    elder_mode: false,
+    language: "de" as const,
+  };
+
+  const { data, error } = await supabase
+    .from("profiles")
+    .upsert(record, { onConflict: "id" })
+    .select(
+      "id, first_name, last_name, role, language, elder_mode, notification_preferences",
+    )
+    .single<ProfileRow>();
+
+  if (error) {
+    console.error("Profile recovery upsert failed", error);
+    return null;
+  }
+
+  return data;
 }

@@ -10,6 +10,41 @@ alter table public.family_invites enable row level security;
 alter table public.notifications_sent enable row level security;
 alter table public.push_subscriptions enable row level security;
 alter table public.notifications enable row level security;
+alter table public.medications enable row level security;
+
+drop policy if exists "Users manage own medications" on public.medications;
+drop policy if exists "Users can insert own medications" on public.medications;
+drop policy if exists "Users can read own medications" on public.medications;
+drop policy if exists "Users can update own medications" on public.medications;
+drop policy if exists "Users can delete own medications" on public.medications;
+
+create policy "Users can insert own medications"
+  on public.medications for insert
+  with check (auth.uid() = user_id);
+
+create policy "Users can read own medications"
+  on public.medications for select
+  using (auth.uid() = user_id);
+
+create policy "Users can update own medications"
+  on public.medications for update
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+create policy "Users can delete own medications"
+  on public.medications for delete
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can read own profile" on public.profiles;
+create policy "Users can read own profile"
+  on public.profiles for select
+  using (auth.uid() = id);
+
+drop policy if exists "Users can update own profile" on public.profiles;
+create policy "Users can update own profile"
+  on public.profiles for update
+  using (auth.uid() = id)
+  with check (auth.uid() = id);
 
 drop policy if exists "Users manage own profile" on public.profiles;
 create policy "Users manage own profile"

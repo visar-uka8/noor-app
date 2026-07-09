@@ -14,8 +14,8 @@ export function AppBottomNav() {
   const { mode, hasFamilyConnection } = useHomeViewModeContext();
 
   const isFamilyNav =
-    (pathname === "/" && hasFamilyConnection && mode === "family") ||
-    (role === "family_member" && pathname.startsWith("/dashboard"));
+    role === "family_member" ||
+    (hasFamilyConnection && mode === "family");
 
   const items = isFamilyNav
     ? [
@@ -32,7 +32,7 @@ export function AppBottomNav() {
 
   return (
     <nav
-      className="safe-bottom fixed bottom-0 left-1/2 z-30 w-full max-w-app -translate-x-1/2 border-t border-border bg-surface/95 px-3 pt-2 backdrop-blur-sm"
+      className="safe-bottom shrink-0 w-full border-t border-border bg-surface/95 px-3 pt-2 backdrop-blur-sm"
       aria-label={t("nav.main")}
     >
       <div
@@ -44,7 +44,8 @@ export function AppBottomNav() {
           const Icon = item.icon;
           const isActive =
             item.href === "/"
-              ? pathname === "/" || pathname.startsWith("/dashboard")
+              ? pathname === "/" ||
+                pathname.startsWith("/dashboard")
               : pathname.startsWith(item.href);
 
           return (
