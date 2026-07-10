@@ -45,6 +45,11 @@ export function MedicationForm({ medicationId }: MedicationFormProps) {
     [name],
   );
 
+  const savePreview = useMemo(
+    () => buildMedicationSavePreview(name, dosage, slotStates),
+    [name, dosage, slotStates],
+  );
+
   useEffect(() => {
     if (!showSuggestions) return;
 
@@ -261,7 +266,8 @@ export function MedicationForm({ medicationId }: MedicationFormProps) {
                             },
                           }))
                         }
-                        className="min-h-12 rounded-2xl border border-border bg-background px-4 text-base text-foreground"
+                        className="w-full rounded-xl border border-[#E4E2DB] bg-[#F7F6F2] px-4 py-3 text-base font-medium text-[#085041] outline-none"
+                        style={{ borderWidth: "0.5px" }}
                       />
                     </label>
                   ) : null}
@@ -269,6 +275,16 @@ export function MedicationForm({ medicationId }: MedicationFormProps) {
               ))}
             </div>
           </section>
+
+          {savePreview ? (
+            <p
+              className="rounded-xl bg-[#E1F5EE] px-4 py-3 text-sm text-[#085041]"
+              role="status"
+              aria-live="polite"
+            >
+              {savePreview}
+            </p>
+          ) : null}
 
           <button
             type="submit"
@@ -298,16 +314,11 @@ function ToggleSwitch({
       role="switch"
       aria-checked={checked}
       aria-label={label}
+      data-checked={checked ? "true" : "false"}
       onClick={() => onChange(!checked)}
-      className={`relative h-8 min-h-8 w-14 shrink-0 rounded-full transition-colors ${
-        checked ? "bg-primary" : "bg-zinc-300"
-      }`}
+      className="toggle-track"
     >
-      <span
-        className={`absolute top-1 h-6 w-6 rounded-full bg-white shadow transition-transform ${
-          checked ? "translate-x-6" : "translate-x-1"
-        }`}
-      />
+      <span className="toggle-thumb" aria-hidden="true" />
     </button>
   );
 }
@@ -327,6 +338,31 @@ function createSlotStatesFromMedication(times: MedicationTimeEntry[]) {
   }
 
   return next;
+}
+
+function buildMedicationSavePreview(
+  name: string,
+  dosage: string,
+  slotStates: Record<MedicationTimeSlot, SlotState>,
+) {
+  const trimmedName = name.trim();
+  const trimmedDosage = dosage.trim();
+
+  if (!trimmedName || !trimmedDosage) {
+    return null;
+  }
+
+  const scheduleParts = slots
+    .filter((slot) => slotStates[slot].enabled)
+    .map((slot) => `${timeSlotLabels[slot]} ${slotStates[slot].time}`);
+
+  const parts = [trimmedName, trimmedDosage];
+
+  if (scheduleParts.length > 0) {
+    parts.push(scheduleParts.join(", "));
+  }
+
+  return parts.join(" · ");
 }
 
 function buildTimesFromSlotStates(

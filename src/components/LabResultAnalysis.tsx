@@ -1,7 +1,7 @@
 "use client";
 
 import { Share2 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import type { LabAnalysisResult } from "@/types/lab-results";
 import {
@@ -81,7 +81,8 @@ export function LabResultAnalysis({ result }: LabResultAnalysisProps) {
   }
 
   return (
-    <main className="mx-auto flex w-full max-w-app flex-1 flex-col px-5 py-6">
+    <>
+      <main className="mx-auto flex w-full max-w-app flex-1 flex-col px-5 py-6">
       <h2 className="text-2xl font-bold text-[#085041]">Ihre Analyse</h2>
 
       {parsed.structured ? (
@@ -120,7 +121,45 @@ export function LabResultAnalysis({ result }: LabResultAnalysisProps) {
           Mit Familie teilen
         </button>
       </div>
-    </main>
+      </main>
+      <ScrollToTopButton />
+    </>
+  );
+}
+
+function ScrollToTopButton() {
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const scrollContainer = document.querySelector(".app-scroll-main");
+    if (!scrollContainer) return;
+
+    function handleScroll() {
+      setVisible(scrollContainer.scrollTop > 300);
+    }
+
+    handleScroll();
+    scrollContainer.addEventListener("scroll", handleScroll, { passive: true });
+    return () => scrollContainer.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  if (!visible) return null;
+
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        document.querySelector(".app-scroll-main")?.scrollTo({
+          top: 0,
+          behavior: "smooth",
+        });
+      }}
+      aria-label="Nach oben scrollen"
+      className="fixed bottom-20 right-5 z-50 flex size-11 items-center justify-center rounded-full border-0 bg-[#1D9E75] text-xl text-white"
+      style={{ boxShadow: "0 4px 12px rgba(29,158,117,0.3)" }}
+    >
+      ↑
+    </button>
   );
 }
 

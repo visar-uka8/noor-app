@@ -3,26 +3,78 @@
 import { Check, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { formatConfirmationTime } from "@/lib/medication-schedule";
+import type { DoseVisualState } from "@/lib/medication-schedule";
 import type { DailyDoseSlot } from "@/types/medication";
 
 type MedicationDoseButtonProps = {
   dose: DailyDoseSlot;
-  confirmed: boolean;
-  missed?: boolean;
+  visualState: DoseVisualState;
   pending?: boolean;
   confirmedAt?: string | null;
   onConfirm: () => void;
 };
 
+const rowStyles: Record<
+  DoseVisualState,
+  { container: string; time: string; name: string; detail: string }
+> = {
+  confirmed: {
+    container: "bg-[#1D9E75] text-white shadow-md",
+    time: "text-white/90",
+    name: "text-white",
+    detail: "text-white/85",
+  },
+  due: {
+    container:
+      "noor-card border-2 border-[#1D9E75]/35 bg-[#E1F5EE] shadow-[var(--warm-shadow)]",
+    time: "text-[#157A5C]",
+    name: "text-foreground",
+    detail: "text-[#157A5C]",
+  },
+  missed: {
+    container: "bg-[#FAEEDA] text-[#633806] shadow-[var(--warm-shadow)]",
+    time: "text-[#BA7517]",
+    name: "text-[#633806]",
+    detail: "text-[#633806]/80",
+  },
+  upcoming: {
+    container: "noor-card border border-border bg-[#F7F6F2] shadow-[var(--warm-shadow)]",
+    time: "text-muted",
+    name: "text-foreground",
+    detail: "text-muted",
+  },
+};
+
+const circleStyles: Record<
+  Exclude<DoseVisualState, "confirmed">,
+  { button: string; icon: string }
+> = {
+  due: {
+    button:
+      "medication-dose-circle animate-dose-due-pulse border-2 border-[#157A5C] bg-[#1D9E75] shadow-md",
+    icon: "text-white",
+  },
+  missed: {
+    button: "medication-dose-circle border-2 border-[#BA7517] bg-[#FAEEDA]",
+    icon: "text-[#BA7517]",
+  },
+  upcoming: {
+    button:
+      "medication-dose-circle border-2 border-dashed border-[#C5C2BC] bg-[#F0EFE9]",
+    icon: "text-[#A8A49A]",
+  },
+};
+
 export function MedicationDoseButton({
   dose,
-  confirmed,
-  missed = false,
+  visualState,
   pending = false,
   confirmedAt,
   onConfirm,
 }: MedicationDoseButtonProps) {
   const [justConfirmed, setJustConfirmed] = useState(false);
+  const confirmed = visualState === "confirmed";
+  const styles = rowStyles[visualState];
 
   useEffect(() => {
     if (!confirmed) return;
@@ -33,52 +85,22 @@ export function MedicationDoseButton({
   }, [confirmed, confirmedAt]);
 
   const timeLabel =
-    missed && !confirmed ? "Vergessen — jetzt nehmen" : dose.slotLabel;
+    visualState === "missed" ? "Noch nicht bestätigt" : dose.slotLabel;
 
   return (
     <div
       className={`medication-dose-button flex w-full items-center justify-between gap-4 rounded-2xl px-5 py-4 transition-all ${
         justConfirmed ? "animate-confirm-bounce" : ""
-      } ${
-        confirmed
-          ? "bg-[#1D9E75] text-white shadow-md"
-          : missed
-            ? "bg-[#FAEEDA] text-[#633806] shadow-[var(--warm-shadow)]"
-            : "noor-card border-2 border-border shadow-[var(--warm-shadow)]"
-      }`}
+      } ${styles.container}`}
     >
       <div className="min-w-0 flex-1">
-        <p
-          className={`medication-button-time text-base font-semibold ${
-            confirmed
-              ? "text-white/90"
-              : missed
-                ? "text-[#BA7517]"
-                : "text-[#1D9E75]"
-          }`}
-        >
+        <p className={`medication-button-time text-base font-semibold ${styles.time}`}>
           {timeLabel}
         </p>
-        <p
-          className={`medication-button-name mt-1 font-bold leading-tight ${
-            confirmed
-              ? "text-white"
-              : missed
-                ? "text-[#633806]"
-                : "text-foreground"
-          }`}
-        >
+        <p className={`medication-button-name mt-1 font-bold leading-tight ${styles.name}`}>
           {dose.name}
         </p>
-        <p
-          className={`medication-button-time mt-1 ${
-            confirmed
-              ? "text-white/85"
-              : missed
-                ? "text-[#633806]/80"
-                : "text-muted"
-          }`}
-        >
+        <p className={`medication-button-time mt-1 ${styles.detail}`}>
           {confirmed && confirmedAt
             ? `Bestätigt um ${formatConfirmationTime(confirmedAt)} Uhr`
             : `${dose.dosage ? `${dose.dosage} · ` : ""}${dose.time} Uhr`}
@@ -87,7 +109,7 @@ export function MedicationDoseButton({
 
       {confirmed ? (
         <div
-          className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-[#1D9E75] ring-2 ring-white/30"
+          className="medication-dose-circle flex shrink-0 items-center justify-center rounded-full bg-[#1D9E75] ring-2 ring-white/30"
           aria-hidden="true"
         >
           <Check size={30} className="text-white" strokeWidth={3} />
@@ -99,23 +121,21 @@ export function MedicationDoseButton({
           disabled={pending}
           aria-busy={pending}
           aria-label={`${dose.displayLabel} als eingenommen bestätigen`}
-          className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-full border-2 border-dashed transition-transform active:scale-95 disabled:opacity-70 ${
-            missed
-              ? "border-[#BA7517] bg-[#FAEEDA]"
-              : "border-[#1D9E75] bg-[#E1F5EE]"
+          className={`flex shrink-0 items-center justify-center rounded-full transition-transform active:scale-95 disabled:opacity-70 ${
+            circleStyles[visualState].button
           }`}
         >
           {pending ? (
             <Loader2
               size={28}
-              className={`animate-spin ${missed ? "text-[#BA7517]" : "text-[#1D9E75]"}`}
+              className={`animate-spin ${circleStyles[visualState].icon}`}
               strokeWidth={2.5}
             />
           ) : (
             <Check
               size={28}
-              className={missed ? "text-[#BA7517]/80" : "text-[#1D9E75]/60"}
-              strokeWidth={2.8}
+              className={circleStyles[visualState].icon}
+              strokeWidth={visualState === "due" ? 3 : 2.8}
             />
           )}
         </button>

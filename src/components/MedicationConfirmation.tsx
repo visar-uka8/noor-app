@@ -7,7 +7,6 @@ import {
   ConnectionErrorState,
   ErrorBanner,
   FeatureEmptyState,
-  NoorStatusBanner,
   PageSkeleton,
 } from "@/components/AppStates";
 import { MedicationDoseButton } from "@/components/MedicationDoseButton";
@@ -18,6 +17,7 @@ import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 import {
   expandMedicationsToDailyDoses,
   findConfirmationForDose,
+  getDoseVisualState,
   normalizeMedicationTimes,
 } from "@/lib/medication-schedule";
 import { timeSlotLabels } from "@/types/medication";
@@ -47,7 +47,13 @@ export function MedicationConfirmation() {
     expiresAt: number;
   } | null>(null);
   const [isUndoing, setIsUndoing] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
   const isSlow = useSlowConnection(isLoading || pendingDoseIds.size > 0);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const doses = useMemo(
     () => expandMedicationsToDailyDoses(medications),
@@ -69,14 +75,33 @@ export function MedicationConfirmation() {
     const missed = new Set<string>();
 
     for (const dose of doses) {
-      const confirmation = findConfirmationForDose(confirmations, dose);
-      if (confirmation?.missed && !confirmation.confirmed_at) {
+      if (confirmedDoseIds.has(dose.id)) continue;
+
+      if (
+        getDoseVisualState(dose.scheduledAt, { now }) === "missed"
+      ) {
         missed.add(dose.id);
       }
     }
 
     return missed;
-  }, [confirmations, doses]);
+  }, [doses, confirmedDoseIds, now]);
+
+  const doseVisualStates = useMemo(() => {
+    const states = new Map<string, ReturnType<typeof getDoseVisualState>>();
+
+    for (const dose of doses) {
+      states.set(
+        dose.id,
+        getDoseVisualState(dose.scheduledAt, {
+          confirmed: confirmedDoseIds.has(dose.id),
+          now,
+        }),
+      );
+    }
+
+    return states;
+  }, [doses, confirmedDoseIds, now]);
 
   async function loadMedicationData() {
     setIsLoading(true);
@@ -295,8 +320,16 @@ export function MedicationConfirmation() {
 
   const allConfirmed =
     doses.length > 0 && confirmedDoseIds.size === doses.length;
-  const pendingCount =
-    doses.length - confirmedDoseIds.size - missedDoseIds.size;
+  const pendingCount = useMemo(() => {
+    let count = 0;
+
+    for (const dose of doses) {
+      const state = doseVisualStates.get(dose.id);
+      if (state === "due" || state === "upcoming") count += 1;
+    }
+
+    return count;
+  }, [doses, doseVisualStates]);
   const isSaving = pendingDoseIds.size > 0;
 
   return (
@@ -313,7 +346,7 @@ export function MedicationConfirmation() {
       <main className="mx-auto w-full max-w-app flex-1 px-5 py-6">
         <MedicationStatusBanner
           allConfirmed={allConfirmed}
-          hasMissed={missedDoseIds.size > 0}
+          missedCount={missedDoseIds.size}
           pendingCount={pendingCount}
         />
 
@@ -337,8 +370,7 @@ export function MedicationConfirmation() {
               <MedicationDoseButton
                 key={dose.id}
                 dose={dose}
-                confirmed={confirmedDoseIds.has(dose.id)}
-                missed={missedDoseIds.has(dose.id)}
+                visualState={doseVisualStates.get(dose.id) ?? "upcoming"}
                 pending={pendingDoseIds.has(dose.id)}
                 confirmedAt={confirmation?.confirmed_at}
                 onConfirm={() => setDoseToConfirm(dose)}
@@ -414,40 +446,50 @@ function MedicationManageSection({
   onDelete: (medication: StoredMedication) => void;
 }) {
   return (
-    <section className="mt-10 border-t border-border pt-8">
-      <h2 className="text-lg font-bold text-[#085041]">Medikamente verwalten</h2>
-      <p className="mt-2 text-base text-muted">
-        Bearbeiten oder entfernen Sie Ihre Medikamente hier — getrennt von der
-        täglichen Bestätigung.
-      </p>
+    <>
+      <div
+        className="h-px bg-[#E4E2DB]"
+        style={{ margin: "24px 0 20px 0" }}
+        aria-hidden="true"
+      />
+
+      <section>
+        <h2 className="text-lg font-bold text-[#085041]">Medikamente verwalten</h2>
+        <p className="mt-1 text-[13px] text-[#88856F]">
+          Bearbeiten oder entfernen Sie Ihre Medikamente
+        </p>
 
       <ul className="mt-4 flex flex-col gap-3">
         {medications.map((medication) => (
           <li
             key={medication.id}
-            className="noor-card flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"
+            className="flex items-center justify-between rounded-xl border border-[#E4E2DB] bg-white px-4 py-3.5"
+            style={{ borderWidth: "0.5px" }}
           >
-            <div className="min-w-0">
-              <p className="text-base font-bold text-foreground">
+            <div className="min-w-0 flex-1">
+              <p className="text-[15px] font-semibold text-[#085041]">
                 {medication.name}
               </p>
-              <p className="mt-1 text-base text-muted">
-                {medication.dosage}
-                {medication.dosage ? " · " : ""}
+              {medication.dosage ? (
+                <p className="mt-0.5 text-[13px] text-[#88856F]">
+                  {medication.dosage}
+                </p>
+              ) : null}
+              <p className="mt-0.5 text-[12px] text-[#AAA79A]">
                 {formatMedicationSchedule(medication)}
               </p>
             </div>
-            <div className="flex shrink-0 gap-2">
+            <div className="ml-3 flex shrink-0 flex-col gap-1.5">
               <Link
                 href={`/medication/${medication.id}/edit`}
-                className="btn-touch rounded-2xl border border-border px-4 py-3 text-base font-semibold text-foreground"
+                className="whitespace-nowrap rounded-lg border border-[#1D9E75] bg-transparent px-4 py-1.5 text-center text-[13px] font-semibold text-[#1D9E75]"
               >
                 Bearbeiten
               </Link>
               <button
                 type="button"
                 onClick={() => onDelete(medication)}
-                className="btn-touch rounded-2xl border border-red-200 px-4 py-3 text-base font-semibold text-red-600"
+                className="whitespace-nowrap rounded-lg border border-[#A32D2D] bg-transparent px-4 py-1.5 text-[13px] font-semibold text-[#A32D2D]"
               >
                 Löschen
               </button>
@@ -459,14 +501,15 @@ function MedicationManageSection({
       <Link href="/medication/add" className="btn-primary mt-4 min-h-[52px] w-full">
         + Medikament hinzufügen
       </Link>
-    </section>
+      </section>
+    </>
   );
 }
 
 function formatMedicationSchedule(medication: StoredMedication) {
   return normalizeMedicationTimes(medication.times)
     .map((entry) => `${timeSlotLabels[entry.slot]} ${entry.time}`)
-    .join(", ");
+    .join(" · ");
 }
 
 function MedicationConfirmDialog({
@@ -562,44 +605,42 @@ function DeleteMedicationDialog({
 
 function MedicationStatusBanner({
   allConfirmed,
-  hasMissed,
+  missedCount,
   pendingCount,
 }: {
   allConfirmed: boolean;
-  hasMissed: boolean;
+  missedCount: number;
   pendingCount: number;
 }) {
-  if (hasMissed) {
-    return (
-      <div className="mb-5">
-        <NoorStatusBanner level="danger">
-          Dosis vergessen — bitte jetzt nehmen
-        </NoorStatusBanner>
-      </div>
-    );
-  }
-
   if (allConfirmed) {
     return (
-      <div className="mb-5">
-        <NoorStatusBanner level="success">
-          Alle Medikamente heute genommen ✓
-        </NoorStatusBanner>
-      </div>
+      <section
+        className="mb-5 rounded-xl border border-[#1D9E75] bg-[#E1F5EE] px-4 py-3 text-base font-semibold text-[#085041]"
+        style={{ borderWidth: "0.5px" }}
+        aria-live="polite"
+      >
+        Alle Medikamente heute genommen ✓
+      </section>
     );
   }
 
-  if (pendingCount > 0) {
-    return (
-      <div className="mb-5">
-        <NoorStatusBanner level="warning">
-          {pendingCount === 1
-            ? "Eine Dosis noch ausstehend"
-            : `${pendingCount} Dosen noch ausstehend`}
-        </NoorStatusBanner>
-      </div>
-    );
+  const outstandingCount = missedCount + pendingCount;
+  if (outstandingCount === 0) {
+    return null;
   }
 
-  return null;
+  const message =
+    outstandingCount === 1
+      ? "Noch 1 Dosis ausstehend"
+      : `Noch ${outstandingCount} Dosen ausstehend`;
+
+  return (
+    <section
+      className="mb-5 rounded-xl border border-[#BA7517] bg-[#FAEEDA] px-4 py-3 text-base font-semibold text-[#633806]"
+      style={{ borderWidth: "0.5px" }}
+      aria-live="polite"
+    >
+      {message}
+    </section>
+  );
 }

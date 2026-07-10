@@ -267,7 +267,7 @@ export function HomeScreen() {
                   <p
                     className={`home-card-subtitle mt-1 ${
                       isFamilyCard && !familyCard?.subtitleColor ? "text-muted" : ""
-                    }`}
+                    } ${card.subtitleKey === "passport" || card.subtitleKey === "lab" ? "whitespace-nowrap" : ""}`}
                       style={{
                         color: isFamilyCard ? familyCard?.subtitleColor : undefined,
                       }}
@@ -316,6 +316,38 @@ function getGreetingSubtitle(data: HomeScreenData, now: Date) {
   });
 }
 
+function MedicationReminderBanner({
+  outstandingCount,
+  t,
+}: {
+  outstandingCount: number;
+  t: ReturnType<typeof useLanguage>["t"];
+}) {
+  const title =
+    outstandingCount === 1
+      ? t("home.dosesPending")
+      : t("home.dosesPendingPlural", { count: outstandingCount });
+
+  return (
+    <section
+      className="flex items-center justify-between rounded-2xl border border-[#BA7517] bg-[#FAEEDA] px-4 py-3.5"
+      style={{ borderWidth: "0.5px" }}
+      aria-live="polite"
+    >
+      <div>
+        <p className="text-sm font-semibold text-[#633806]">{title}</p>
+        <p className="mt-0.5 text-xs text-[#BA7517]">{t("home.confirmPrompt")}</p>
+      </div>
+      <Link
+        href="/medication"
+        className="shrink-0 rounded-[10px] bg-[#BA7517] px-4 py-2 text-[13px] font-semibold text-white"
+      >
+        {t("home.confirm")}
+      </Link>
+    </section>
+  );
+}
+
 function StatusBanner({
   data,
   t,
@@ -339,26 +371,11 @@ function StatusBanner({
     );
   }
 
-  if (medication.status === "red") {
-    return (
-      <NoorStatusBanner
-        level="danger"
-        action={
-          <Link href="/medication" className="btn-primary shrink-0 px-4 py-3">
-            {t("home.confirmNow")}
-          </Link>
-        }
-      >
-        {t("home.doseMissed")}
-      </NoorStatusBanner>
-    );
-  }
+  if (medication.status === "red" || medication.status === "amber") {
+    const outstanding = medication.pending + medication.missed;
 
-  if (medication.status === "amber") {
     return (
-      <NoorStatusBanner level="warning">
-        {t("home.dosesPending", { count: medication.pending })}
-      </NoorStatusBanner>
+      <MedicationReminderBanner outstandingCount={outstanding} t={t} />
     );
   }
 

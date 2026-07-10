@@ -8,7 +8,25 @@ import type {
 } from "@/types/medication";
 import { defaultTimeSlotValues, timeSlotLabels } from "@/types/medication";
 
-const MISSED_GRACE_MINUTES = 90;
+const DUE_WINDOW_MS = 2 * 60 * 60 * 1000;
+
+export type DoseVisualState = "confirmed" | "due" | "missed" | "upcoming";
+
+export function getDoseVisualState(
+  scheduledAt: Date | string,
+  options: { confirmed?: boolean; now?: number } = {},
+): DoseVisualState {
+  if (options.confirmed) return "confirmed";
+
+  const now = options.now ?? Date.now();
+  const scheduled = new Date(scheduledAt).getTime();
+  const dueStart = scheduled - DUE_WINDOW_MS;
+  const dueEnd = scheduled + DUE_WINDOW_MS;
+
+  if (now > dueEnd) return "missed";
+  if (now >= dueStart) return "due";
+  return "upcoming";
+}
 
 export function determineFrequency(count: number): MedicationFrequency {
   if (count >= 3) return "THREE_TIMES_DAILY";
@@ -95,10 +113,8 @@ export function getScheduledAtForTime(timeValue: string, baseDate = new Date()) 
   return scheduledAt;
 }
 
-export function isDoseMissed(scheduledAt: Date | string) {
-  const missedAfter = new Date(scheduledAt);
-  missedAfter.setMinutes(missedAfter.getMinutes() + MISSED_GRACE_MINUTES);
-  return Date.now() > missedAfter.getTime();
+export function isDoseMissed(scheduledAt: Date | string, now = Date.now()) {
+  return getDoseVisualState(scheduledAt, { now }) === "missed";
 }
 
 export function getTodayRange() {

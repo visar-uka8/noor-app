@@ -21,13 +21,20 @@ import {
   type LabAnalysisResult,
   type LabResultRecord,
 } from "@/types/lab-results";
-import { createClient } from "@/lib/supabase/client";
 
 type FlowStep = "upload" | "analyzing" | "results" | "error";
 
 type AnalyzeLabErrorResponse = {
   error?: string;
-  code?: "unreadable" | "unavailable" | "not_configured" | "unsupported" | "rate_limit";
+  code?:
+    | "unreadable"
+    | "unavailable"
+    | "not_configured"
+    | "unsupported"
+    | "rate_limit"
+    | "unauthorized"
+    | "save_failed";
+  details?: string;
 };
 
 export function LabResultsFlow() {
@@ -136,11 +143,9 @@ export function LabResultsFlow() {
 
     try {
       const normalized = fileWithResolvedType(file);
-      const filePath = await uploadLabResult(normalized);
 
       const formData = new FormData();
       formData.append("file", normalized);
-      formData.append("file_url", filePath);
       const mediaType = resolveLabFileType(normalized);
       if (mediaType) {
         formData.append("media_type", mediaType);
@@ -148,6 +153,7 @@ export function LabResultsFlow() {
 
       const response = await fetchWithTimeout("/api/analyze-lab", {
         method: "POST",
+        credentials: "include",
         body: formData,
         timeoutMs: 120_000,
       });
@@ -162,6 +168,8 @@ export function LabResultsFlow() {
           errorPayload.error ??
             (errorPayload.code === "not_configured"
               ? t("lab.notConfigured")
+              : errorPayload.code === "unauthorized"
+                ? t("lab.loginRequired")
               : errorPayload.code === "rate_limit"
                 ? errorPayload.error ?? t("lab.unavailable")
               : errorPayload.code === "unreadable"
@@ -365,39 +373,4 @@ export function LabResultsFlow() {
       />
     </main>
   );
-}
-
-async function uploadLabResult(file: File) {
-  const supabase = createClient();
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
-
-  if (userError || !user) {
-    throw new Error("User must be signed in to upload lab results.");
-  }
-
-  const today = new Date().toISOString().slice(0, 10);
-  const filePath = `${user.id}/${today}/${Date.now()}-${sanitizeFileName(file.name)}`;
-  const contentType = resolveLabFileType(file) ?? file.type ?? "application/octet-stream";
-  const { error } = await supabase.storage
-    .from("lab-results")
-    .upload(filePath, file, {
-      contentType,
-      upsert: false,
-    });
-
-  if (error) {
-    throw error;
-  }
-
-  return filePath;
-}
-
-function sanitizeFileName(fileName: string) {
-  return fileName
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-zA-Z0-9._-]/g, "-");
 }

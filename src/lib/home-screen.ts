@@ -2,7 +2,6 @@ import type { HealthPassportData } from "@/types/health-passport";
 import type { StoredConfirmation, StoredMedication } from "@/types/medication";
 import { buildMedicationItems } from "@/lib/family-dashboard-status";
 import { getProfileInitials } from "@/lib/profile-display";
-import { formatLabResultDate } from "@/types/lab-results";
 
 export type HomeMedicationStatus = "green" | "amber" | "red";
 
@@ -177,7 +176,10 @@ export function buildFamilyMemberFamilyCard(input: {
 export function formatHomeLabDate(dateString: string | null) {
   if (!dateString) return null;
 
-  return formatLabResultDate(dateString);
+  return new Date(dateString).toLocaleDateString("de-DE", {
+    day: "numeric",
+    month: "long",
+  });
 }
 
 export const demoHomeScreenData: HomeScreenData = {
@@ -192,7 +194,7 @@ export const demoHomeScreenData: HomeScreenData = {
   },
   labResult: {
     hasResult: true,
-    lastDate: "5. Juni 2026",
+    lastDate: "5. Juni",
   },
   family: {
     connectedCount: 1,

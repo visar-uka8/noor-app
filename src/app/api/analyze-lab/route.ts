@@ -1,7 +1,8 @@
 import { createClient } from "@/lib/supabase/server";
-import { getLabAnalysisCounts } from "@/lib/parse-lab-analysis";
 import { resolveLabFileType } from "@/lib/lab-file";
+import { uploadLabResultFile } from "@/lib/lab-storage";
 import { analyzeLabDocument, getLabAiProvider } from "@/lib/lab-analyze";
+import { getLabAnalysisCounts } from "@/lib/parse-lab-analysis";
 import type { LabAnalysisResult } from "@/types/lab-results";
 
 export const runtime = "nodejs";
@@ -53,6 +54,14 @@ function errorMessage(language: "de" | "en", key: string) {
       de: "Die KI-Analyse ist noch nicht eingerichtet. Ein kostenloser Google Gemini API-Schlüssel wird benötigt.",
       en: "AI analysis is not set up yet. A free Google Gemini API key is required.",
     },
+    auth: {
+      de: "Bitte melden Sie sich an, um Laborwerte zu speichern.",
+      en: "Please sign in to save lab results.",
+    },
+    saveFailed: {
+      de: "Die Analyse war erfolgreich, konnte aber nicht gespeichert werden. Bitte versuchen Sie es erneut.",
+      en: "Analysis succeeded but could not be saved. Please try again.",
+    },
   };
 
   return messages[key]?.[language] ?? messages[key]?.de ?? "";
@@ -62,11 +71,19 @@ export async function POST(request: Request) {
   const authSupabase = await createClient();
   const {
     data: { user },
+    error: authError,
   } = await authSupabase.auth.getUser();
 
   const language = await getUserLanguage();
 
   try {
+    if (authError || !user) {
+      return Response.json(
+        { error: errorMessage(language, "auth"), code: "unauthorized" },
+        { status: 401 },
+      );
+    }
+
     if (!getLabAiProvider()) {
       return Response.json(
         {
@@ -79,7 +96,7 @@ export async function POST(request: Request) {
 
     const formData = await request.formData();
     const file = formData.get("file");
-    const fileUrl = formData.get("file_url");
+    const fileUrlField = formData.get("file_url");
     const mediaTypeField = formData.get("media_type");
 
     if (!(file instanceof File)) {
@@ -124,26 +141,57 @@ export async function POST(request: Request) {
       );
     }
 
-    const storedFileUrl =
-      typeof fileUrl === "string" && fileUrl.length > 0 ? fileUrl : null;
+    let fileUrl =
+      typeof fileUrlField === "string" && fileUrlField.length > 0
+        ? fileUrlField
+        : null;
 
-    if (user && storedFileUrl) {
-      const counts = getLabAnalysisCounts(analysis);
-      const { error } = await authSupabase.from("lab_results").insert({
+    if (!fileUrl) {
+      fileUrl = await uploadLabResultFile(authSupabase, user.id, file);
+    }
+
+    const normalCount = (analysis.match(/🟢/g) || []).length;
+    const watchCount = (analysis.match(/🟡/g) || []).length;
+    const highCount = (analysis.match(/🔴/g) || []).length;
+    const parsedCounts = getLabAnalysisCounts(analysis);
+    const counts =
+      parsedCounts.normal + parsedCounts.watch + parsedCounts.high > 0
+        ? parsedCounts
+        : { normal: normalCount, watch: watchCount, high: highCount };
+
+    const now = new Date().toISOString();
+    const { data, error: saveError } = await authSupabase
+      .from("lab_results")
+      .insert({
         user_id: user.id,
-        file_url: storedFileUrl,
+        file_url: fileUrl,
         ai_analysis: analysis,
         normal_count: counts.normal,
         watch_count: counts.watch,
         high_count: counts.high,
-      });
+        created_at: now,
+      })
+      .select("id")
+      .single();
 
-      if (error) {
-        console.error("Lab result save failed", error);
-      }
+    console.log("Save result:", data, saveError);
+
+    if (saveError) {
+      console.error("Lab result save failed", saveError);
+      return Response.json(
+        {
+          error: errorMessage(language, "saveFailed"),
+          code: "save_failed",
+          details: saveError.message,
+        },
+        { status: 500 },
+      );
     }
 
-    return Response.json({ analysis } satisfies LabAnalysisResult);
+    return Response.json({
+      analysis,
+      labResultId: data.id,
+    } satisfies LabAnalysisResult);
   } catch (error) {
     console.error("Lab analysis failed", error);
 

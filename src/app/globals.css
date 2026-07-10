@@ -298,6 +298,28 @@ h4,
   font-size: 13px !important;
 }
 
+@keyframes dose-due-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(29, 158, 117, 0.45);
+  }
+
+  50% {
+    box-shadow: 0 0 0 10px rgba(29, 158, 117, 0);
+  }
+}
+
+.animate-dose-due-pulse {
+  animation: dose-due-pulse 2s ease-in-out infinite;
+}
+
+.medication-dose-circle {
+  width: 56px;
+  height: 56px;
+  min-width: 56px;
+  min-height: 56px;
+}
+
 .medication-dose-button {
   min-height: 100px;
 }
@@ -360,6 +382,42 @@ h4,
 
 .elder-mode .body-text {
   font-size: 17px;
+}
+
+.toggle-track {
+  position: relative;
+  width: 51px;
+  height: 31px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: 16px;
+  padding: 0;
+  cursor: pointer;
+  transition: background-color 200ms ease;
+}
+
+.toggle-track[data-checked="false"] {
+  background-color: #e4e2db;
+}
+
+.toggle-track[data-checked="true"] {
+  background-color: #1d9e75;
+}
+
+.toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 27px;
+  height: 27px;
+  border-radius: 50%;
+  background-color: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  transition: left 200ms ease;
+}
+
+.toggle-track[data-checked="true"] .toggle-thumb {
+  left: 22px;
 }
 
 .elder-mode .instruction-text {

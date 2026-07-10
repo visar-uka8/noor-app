@@ -1,5 +1,6 @@
 export type LabAnalysisResult = {
   analysis: string;
+  labResultId?: string;
 };
 
 export type LabResultRecord = {

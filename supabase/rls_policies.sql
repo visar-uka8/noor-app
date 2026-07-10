@@ -59,10 +59,25 @@ create policy "Users manage own medication confirmations"
   with check (auth.uid() = user_id);
 
 drop policy if exists "Users manage own lab results" on public.lab_results;
-create policy "Users manage own lab results"
-  on public.lab_results for all
+drop policy if exists "Users can insert own lab results" on public.lab_results;
+drop policy if exists "Users can read own lab results" on public.lab_results;
+
+create policy "Users can insert own lab results"
+  on public.lab_results for insert
+  with check (auth.uid() = user_id);
+
+create policy "Users can read own lab results"
+  on public.lab_results for select
+  using (auth.uid() = user_id);
+
+create policy "Users can update own lab results"
+  on public.lab_results for update
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
+
+create policy "Users can delete own lab results"
+  on public.lab_results for delete
+  using (auth.uid() = user_id);
 
 drop policy if exists "Users manage own health passport" on public.health_passports;
 create policy "Users manage own health passport"
