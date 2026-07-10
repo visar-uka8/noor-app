@@ -1,0 +1,16 @@
+{
+  "redirects": [
+    {
+      "source": "/:path*",
+      "has": [{ "type": "host", "value": "noorhealth.de" }],
+      "destination": "https://noorhealth.app/:path*",
+      "permanent": true
+    },
+    {
+      "source": "/:path*",
+      "has": [{ "type": "host", "value": "www.noorhealth.de" }],
+      "destination": "https://noorhealth.app/:path*",
+      "permanent": true
+    }
+  ]
+}
