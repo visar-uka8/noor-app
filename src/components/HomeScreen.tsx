@@ -239,26 +239,46 @@ export function HomeScreen() {
 
           <section className="mt-6">
             <div className="grid grid-cols-2 gap-3">
-              {featureCards.map((card) => (
-                <Link
-                  key={card.href}
-                  href={card.href}
-                  className="noor-card flex min-h-[120px] flex-col p-4 transition-colors hover:border-primary/30 active:scale-[0.98]"
-                >
-                  <span
-                    className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#E1F5EE] text-[#1D9E75]"
-                    aria-hidden="true"
+              {featureCards.map((card) => {
+                const isFamilyCard = card.subtitleKey === "family";
+                const familyCard = isFamilyCard ? homeData.family.card : null;
+
+                return (
+                  <Link
+                    key={card.href}
+                    href={card.href}
+                    className="noor-card flex min-h-[120px] flex-col p-4 transition-colors hover:border-primary/30 active:scale-[0.98]"
                   >
-                    <card.icon size={26} strokeWidth={2.2} />
-                  </span>
-                  <h2 className="mt-3 min-w-0 truncate text-[17px] font-bold text-[#085041]">
+                    <span
+                      className="flex h-12 w-12 items-center justify-center rounded-2xl"
+                      style={{
+                        backgroundColor: isFamilyCard
+                          ? familyCard?.iconBackground
+                          : "#E1F5EE",
+                        color: isFamilyCard ? familyCard?.iconColor : "#1D9E75",
+                      }}
+                      aria-hidden="true"
+                    >
+                      <card.icon size={26} strokeWidth={2.2} />
+                    </span>
+                  <h2 className="home-card-title mt-3 min-w-0 truncate font-bold text-[#085041]">
                     {t(card.titleKey)}
                   </h2>
-                  <p className="text-body mt-1 text-muted">
-                    {getCardSubtitle(card.subtitleKey, homeData, t, sectionErrors)}
-                  </p>
-                </Link>
-              ))}
+                  <p
+                    className={`home-card-subtitle mt-1 ${
+                      isFamilyCard && !familyCard?.subtitleColor ? "text-muted" : ""
+                    }`}
+                      style={{
+                        color: isFamilyCard ? familyCard?.subtitleColor : undefined,
+                      }}
+                    >
+                      {isFamilyCard
+                        ? getFamilyCardSubtitle(homeData, sectionErrors)
+                        : getCardSubtitle(card.subtitleKey, homeData, t, sectionErrors)}
+                    </p>
+                  </Link>
+                );
+              })}
             </div>
           </section>
         </>
@@ -349,6 +369,17 @@ function StatusBanner({
   );
 }
 
+function getFamilyCardSubtitle(
+  data: HomeScreenData,
+  sectionErrors: Partial<Record<HomeSectionKey, string>> = {},
+) {
+  if (sectionErrors.family) {
+    return "Familienstatus gerade nicht verfügbar";
+  }
+
+  return data.family.card.subtitle;
+}
+
 function getCardSubtitle(
   key: (typeof featureCards)[number]["subtitleKey"],
   data: HomeScreenData,
@@ -387,19 +418,7 @@ function getCardSubtitle(
   }
 
   if (key === "family") {
-    if (sectionErrors.family) {
-      return "Familienstatus gerade nicht verfügbar";
-    }
-
-    if (data.family.connectedCount === 0) {
-      return t("home.noFamily");
-    }
-
-    if (data.family.connectedCount === 1) {
-      return t("home.oneFamily");
-    }
-
-    return t("home.familyCount", { count: data.family.connectedCount });
+    return getFamilyCardSubtitle(data, sectionErrors);
   }
 
   return data.healthPassport.complete

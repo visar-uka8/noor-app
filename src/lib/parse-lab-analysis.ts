@@ -148,6 +148,52 @@ export function parseLabAnalysis(text: string): ParsedLabAnalysis {
   };
 }
 
+export type LabAnalysisCounts = {
+  normal: number;
+  watch: number;
+  high: number;
+};
+
+export function getLabAnalysisCounts(
+  text: string,
+  stored?: {
+    normal_count?: number | null;
+    watch_count?: number | null;
+    high_count?: number | null;
+  },
+): LabAnalysisCounts {
+  const hasStoredCounts =
+    typeof stored?.normal_count === "number" &&
+    typeof stored?.watch_count === "number" &&
+    typeof stored?.high_count === "number";
+
+  if (hasStoredCounts) {
+    const normal = stored!.normal_count!;
+    const watch = stored!.watch_count!;
+    const high = stored!.high_count!;
+
+    if (normal + watch + high > 0) {
+      return { normal, watch, high };
+    }
+  }
+
+  const parsed = parseLabAnalysis(text);
+
+  if (parsed.structured && parsed.values.length > 0) {
+    return {
+      normal: parsed.counts.green,
+      watch: parsed.counts.amber,
+      high: parsed.counts.red,
+    };
+  }
+
+  return {
+    normal: (text.match(/🟢/g) || []).length,
+    watch: (text.match(/🟡/g) || []).length,
+    high: (text.match(/🔴/g) || []).length,
+  };
+}
+
 export function isDoctorVisitUrgent(text: string) {
   const normalized = text.toLowerCase();
 

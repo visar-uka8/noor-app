@@ -7,6 +7,9 @@ export type LabResultRecord = {
   file_url: string;
   ai_analysis: string;
   created_at: string;
+  normal_count?: number | null;
+  watch_count?: number | null;
+  high_count?: number | null;
 };
 
 export function formatLabResultDate(dateString: string) {

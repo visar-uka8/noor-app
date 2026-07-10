@@ -22,7 +22,7 @@ export async function GET() {
     const supabase = createSupabaseDataClient() ?? authSupabase;
     const { data, error } = await supabase
       .from("lab_results")
-      .select("id, file_url, ai_analysis, created_at")
+      .select("id, file_url, ai_analysis, created_at, normal_count, watch_count, high_count")
       .eq("user_id", user.id)
       .order("created_at", { ascending: false })
       .limit(5)

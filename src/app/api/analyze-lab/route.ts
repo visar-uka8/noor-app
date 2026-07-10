@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { getLabAnalysisCounts } from "@/lib/parse-lab-analysis";
 import { resolveLabFileType } from "@/lib/lab-file";
 import { analyzeLabDocument, getLabAiProvider } from "@/lib/lab-analyze";
 import type { LabAnalysisResult } from "@/types/lab-results";
@@ -127,10 +128,14 @@ export async function POST(request: Request) {
       typeof fileUrl === "string" && fileUrl.length > 0 ? fileUrl : null;
 
     if (user && storedFileUrl) {
+      const counts = getLabAnalysisCounts(analysis);
       const { error } = await authSupabase.from("lab_results").insert({
         user_id: user.id,
         file_url: storedFileUrl,
         ai_analysis: analysis,
+        normal_count: counts.normal,
+        watch_count: counts.watch,
+        high_count: counts.high,
       });
 
       if (error) {

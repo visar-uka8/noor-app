@@ -37,7 +37,7 @@ export function MedicationDoseButton({
 
   return (
     <div
-      className={`flex min-h-[100px] w-full items-center justify-between gap-4 rounded-2xl px-5 py-4 transition-all ${
+      className={`medication-dose-button flex w-full items-center justify-between gap-4 rounded-2xl px-5 py-4 transition-all ${
         justConfirmed ? "animate-confirm-bounce" : ""
       } ${
         confirmed
@@ -49,7 +49,7 @@ export function MedicationDoseButton({
     >
       <div className="min-w-0 flex-1">
         <p
-          className={`text-base font-semibold ${
+          className={`medication-button-time text-base font-semibold ${
             confirmed
               ? "text-white/90"
               : missed
@@ -60,7 +60,7 @@ export function MedicationDoseButton({
           {timeLabel}
         </p>
         <p
-          className={`mt-1 text-lg font-bold leading-tight ${
+          className={`medication-button-name mt-1 font-bold leading-tight ${
             confirmed
               ? "text-white"
               : missed
@@ -71,7 +71,7 @@ export function MedicationDoseButton({
           {dose.name}
         </p>
         <p
-          className={`mt-1 text-base ${
+          className={`medication-button-time mt-1 ${
             confirmed
               ? "text-white/85"
               : missed

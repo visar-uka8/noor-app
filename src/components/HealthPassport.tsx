@@ -24,7 +24,7 @@ import {
 type SaveMode = "manual" | "auto";
 
 const inputClassName =
-  "min-h-12 w-full rounded-2xl border border-border bg-background px-4 py-3 text-base outline-none focus:border-primary";
+  "health-passport-input min-h-12 w-full rounded-2xl border border-border bg-background px-4 py-3 outline-none focus:border-primary";
 
 const emergencyRelationships = [
   "Mutter",
@@ -613,7 +613,7 @@ function FormField({
   children: React.ReactNode;
 }) {
   return (
-    <label className="flex flex-col gap-2 text-base font-semibold text-foreground">
+    <label className="health-passport-label flex flex-col gap-2 font-semibold text-foreground">
       {label}
       <span className="font-normal">{children}</span>
     </label>

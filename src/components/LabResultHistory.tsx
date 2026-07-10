@@ -2,12 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { CardListSkeleton, FeatureEmptyState } from "@/components/AppStates";
+import { LabResultStatusSummary } from "@/components/LabResultStatusSummary";
 import { useLanguage } from "@/components/LanguageProvider";
 import { formatLocalizedDate } from "@/lib/i18n/messages";
-import {
-  getAnalysisPreview,
-  type LabResultRecord,
-} from "@/types/lab-results";
+import type { LabResultRecord } from "@/types/lab-results";
 
 type LabResultHistoryProps = {
   onSelect: (result: LabResultRecord) => void;
@@ -86,9 +84,7 @@ export function LabResultHistory({
                   {t("lab.analyzed")}
                 </span>
               </div>
-              <p className="text-body mt-3 line-clamp-2 whitespace-pre-wrap text-muted">
-                {getAnalysisPreview(result.ai_analysis)}
-              </p>
+              <LabResultStatusSummary result={result} />
             </button>
           ))}
         </div>

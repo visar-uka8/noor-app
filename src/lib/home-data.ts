@@ -5,12 +5,16 @@ import {
   syncMissedDoses,
 } from "@/lib/medication-data";
 import {
+  buildDisconnectedFamilyCard,
+  buildFamilyMemberFamilyCard,
   buildHomeMedicationSummary,
+  buildPatientFamilyCard,
   formatHomeLabDate,
   getInitials,
   isHealthPassportComplete,
   type HomeScreenData,
 } from "@/lib/home-screen";
+import { getCaretakerLabel } from "@/lib/family-dashboard-status";
 import { resolveProfileNames } from "@/lib/profile-display";
 import type { HealthPassportData } from "@/types/health-passport";
 import type { StoredConfirmation, StoredMedication } from "@/types/medication";
@@ -79,7 +83,7 @@ export async function buildHomeScreenResponse(
       });
 
   const labResult = await loadLabResultSafe(user.id, supabase, sectionErrors);
-  const familyCount = await loadFamilyCountSafe(user.id, supabase, sectionErrors);
+  const family = await loadFamilyCardSafe(user.id, supabase, sectionErrors);
   const passport = await loadPassportSafe(user.id, supabase, sectionErrors);
 
   const { firstName, lastName } = resolveProfileNames(
@@ -97,9 +101,7 @@ export async function buildHomeScreenResponse(
     initials: getInitials(displayFirstName, lastName) || "?",
     medication: buildHomeMedicationSummary(medications, refreshedConfirmations),
     labResult,
-    family: {
-      connectedCount: familyCount,
-    },
+    family,
     healthPassport: {
       complete: isHealthPassportComplete(passport),
     },
@@ -202,27 +204,137 @@ async function loadLabResultSafe(
   };
 }
 
-async function loadFamilyCountSafe(
+async function loadFamilyCardSafe(
   userId: string,
   supabase: SupabaseClient,
   sectionErrors: Partial<Record<HomeSectionKey, string>>,
 ) {
-  const { count, error } = await supabase
+  try {
+    const asFamilyMember = await loadFamilyMemberLinkSafe(userId, supabase);
+
+    if (asFamilyMember) {
+      const medications = await loadActiveMedications(
+        asFamilyMember.patientId,
+        supabase,
+      );
+      const confirmations = await loadTodayConfirmations(
+        asFamilyMember.patientId,
+        supabase,
+      );
+
+      try {
+        await syncMissedDoses(
+          asFamilyMember.patientId,
+          supabase,
+          medications,
+          confirmations,
+        );
+      } catch (error) {
+        console.error("Home family patient medication sync failed:", error);
+      }
+
+      const refreshedConfirmations = await loadTodayConfirmations(
+        asFamilyMember.patientId,
+        supabase,
+      );
+      const medicationSummary = buildHomeMedicationSummary(
+        medications,
+        refreshedConfirmations,
+      );
+
+      return {
+        connectedCount: 1,
+        card: buildFamilyMemberFamilyCard({
+          patientLabel: asFamilyMember.patientLabel,
+          medication: medicationSummary,
+        }),
+      };
+    }
+
+    const watchers = await loadPatientWatchersSafe(userId, supabase);
+
+    if (watchers.length > 0) {
+      return {
+        connectedCount: watchers.length,
+        card: buildPatientFamilyCard({
+          watcherCount: watchers.length,
+          watcherFirstName: watchers[0]?.firstName,
+        }),
+      };
+    }
+
+    return {
+      connectedCount: 0,
+      card: buildDisconnectedFamilyCard(),
+    };
+  } catch (error) {
+    sectionErrors.family = formatQueryError(error);
+    console.error("Home family card query failed:", error);
+    return {
+      connectedCount: 0,
+      card: buildDisconnectedFamilyCard(),
+    };
+  }
+}
+
+async function loadFamilyMemberLinkSafe(
+  userId: string,
+  supabase: SupabaseClient,
+) {
+  const { data: familyLink, error: linkError } = await supabase
     .from("family_links")
-    .select("id", { count: "exact", head: true })
+    .select("patient_id")
+    .eq("family_member_id", userId)
+    .eq("active", true)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle<{ patient_id: string }>();
+
+  if (linkError) throw linkError;
+  if (!familyLink) return null;
+
+  const { data: profile, error: profileError } = await supabase
+    .from("profiles")
+    .select("first_name")
+    .eq("id", familyLink.patient_id)
+    .maybeSingle<{ first_name: string | null }>();
+
+  if (profileError) throw profileError;
+
+  const firstName = profile?.first_name?.trim() || "Mama";
+
+  return {
+    patientId: familyLink.patient_id,
+    patientLabel: getCaretakerLabel(firstName),
+  };
+}
+
+async function loadPatientWatchersSafe(userId: string, supabase: SupabaseClient) {
+  const { data: links, error: linksError } = await supabase
+    .from("family_links")
+    .select("family_member_id")
     .eq("patient_id", userId)
     .eq("active", true);
 
-  console.log("Home page family count:", count);
-  console.log("Home page family error:", error);
+  if (linksError) throw linksError;
+  if (!links?.length) return [];
 
-  if (error) {
-    sectionErrors.family = error.message;
-    console.error("Home family query failed:", error);
-    return 0;
+  const watchers: Array<{ firstName: string }> = [];
+
+  for (const link of links) {
+    const { data: profile, error: profileError } = await supabase
+      .from("profiles")
+      .select("first_name")
+      .eq("id", link.family_member_id)
+      .maybeSingle<{ first_name: string | null }>();
+
+    if (profileError) throw profileError;
+
+    const firstName = profile?.first_name?.trim();
+    if (firstName) watchers.push({ firstName });
   }
 
-  return count ?? 0;
+  return watchers;
 }
 
 async function loadPassportSafe(

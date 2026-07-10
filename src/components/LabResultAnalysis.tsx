@@ -20,18 +20,6 @@ type LabResultAnalysisProps = {
 
 type LabValueFilterKey = "all" | "red" | "amber" | "green";
 
-const LAB_VALUE_FILTER_TABS: Array<{
-  key: LabValueFilterKey;
-  label: string;
-  color: string;
-  bg?: string;
-}> = [
-  { key: "all", label: "Alle", color: "#085041", bg: "#E1F5EE" },
-  { key: "red", label: "🔴 Erhöht", color: "#A32D2D", bg: "#FCEBEB" },
-  { key: "amber", label: "🟡 Beachten", color: "#BA7517", bg: "#FAEEDA" },
-  { key: "green", label: "🟢 Normal", color: "#27500A", bg: "#EAF3DE" },
-];
-
 function matchesLabValueFilter(
   value: ParsedLabValue,
   activeFilter: LabValueFilterKey,
@@ -53,27 +41,6 @@ function matchesLabValueFilter(
   }
 
   return true;
-}
-
-function getLabValueFilterCounts(values: ParsedLabValue[]) {
-  return values.reduce(
-    (counts, value) => {
-      counts.all += 1;
-
-      const statusKey = getLabValueStatusKey(value);
-
-      if (statusKey === "high" || statusKey === "low") {
-        counts.red += 1;
-      } else if (statusKey === "watch") {
-        counts.amber += 1;
-      } else if (statusKey === "normal") {
-        counts.green += 1;
-      }
-
-      return counts;
-    },
-    { all: 0, red: 0, amber: 0, green: 0 },
-  );
 }
 
 const BORDER_BY_LEVEL: Record<LabValueLevel, string> = {
@@ -165,10 +132,11 @@ function StructuredAnalysisView({
   const urgent = isDoctorVisitUrgent(parsed.doctorVisit);
   const [activeFilter, setActiveFilter] = useState<LabValueFilterKey>("all");
   const sortedValues = parsed.values;
-  const filterCounts = useMemo(
-    () => getLabValueFilterCounts(sortedValues),
-    [sortedValues],
-  );
+
+  function handleFilterChange(filter: LabValueFilterKey) {
+    setActiveFilter((current) => (current === filter ? "all" : filter));
+  }
+
   const filteredValues = useMemo(() => {
     if (activeFilter === "all") return sortedValues;
 
@@ -179,12 +147,6 @@ function StructuredAnalysisView({
 
   return (
     <div className="mt-4 flex flex-col gap-4">
-      <SummaryBar
-        activeFilter={activeFilter}
-        counts={parsed.counts}
-        onFilterChange={setActiveFilter}
-      />
-
       {parsed.summary ? (
         <section className="rounded-2xl border border-border border-l-4 border-l-[#1D9E75] bg-[#E1F5EE] p-5 shadow-[var(--warm-shadow)]">
           <h3 className="text-lg font-bold text-[#085041]">Zusammenfassung</h3>
@@ -195,15 +157,27 @@ function StructuredAnalysisView({
       ) : null}
 
       {sortedValues.length > 0 ? (
-        <section className="noor-card overflow-hidden">
+        <section className="noor-card">
           <h3 className="px-4 pt-4 text-lg font-bold text-[#085041]">
             Ihre Laborwerte im Detail
           </h3>
-          <LabValueFilterTabs
-            activeFilter={activeFilter}
-            counts={filterCounts}
-            onChange={setActiveFilter}
-          />
+          <div
+            className="sticky top-0 z-10 border-b-[0.5px] border-[#E4E2DB] bg-white px-4 py-3"
+            style={{
+              position: "sticky",
+              top: 0,
+              backgroundColor: "#FFFFFF",
+              zIndex: 10,
+              padding: "12px 16px",
+              borderBottom: "0.5px solid #E4E2DB",
+            }}
+          >
+            <SummaryBar
+              activeFilter={activeFilter}
+              counts={parsed.counts}
+              onFilterChange={handleFilterChange}
+            />
+          </div>
           <div className="flex flex-col gap-3 p-4 pt-3">
             {filteredValues.length > 0 ? (
               filteredValues.map((value) => (
@@ -263,46 +237,6 @@ function StructuredAnalysisView({
   );
 }
 
-function LabValueFilterTabs({
-  activeFilter,
-  counts,
-  onChange,
-}: {
-  activeFilter: LabValueFilterKey;
-  counts: Record<LabValueFilterKey, number>;
-  onChange: (filter: LabValueFilterKey) => void;
-}) {
-  return (
-    <div
-      className="flex gap-2 overflow-x-auto border-b-[0.5px] border-[#E4E2DB] px-4 py-3"
-      role="tablist"
-      aria-label="Laborwerte filtern"
-    >
-      {LAB_VALUE_FILTER_TABS.map((tab) => {
-        const isActive = activeFilter === tab.key;
-        const count = counts[tab.key];
-
-        return (
-          <button
-            key={tab.key}
-            type="button"
-            role="tab"
-            aria-selected={isActive}
-            onClick={() => onChange(tab.key)}
-            className="cursor-pointer whitespace-nowrap rounded-full border-0 px-3.5 py-1.5 text-[13px] font-semibold transition-all duration-150"
-            style={{
-              backgroundColor: isActive ? (tab.bg ?? "#E1F5EE") : "#F7F6F2",
-              color: isActive ? tab.color : "#88856F",
-            }}
-          >
-            {tab.label} ({count})
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
 function LabValueFilterEmptyState({ filter }: { filter: LabValueFilterKey }) {
   const messages: Record<
     Exclude<LabValueFilterKey, "all">,
@@ -351,7 +285,6 @@ function SummaryBar({
     count: number;
     label: string;
     color: string;
-    activeBg: string;
   }> = [
     {
       filter: "green",
@@ -359,7 +292,6 @@ function SummaryBar({
       count: counts.green,
       label: "Normal",
       color: "text-[#1D9E75]",
-      activeBg: "bg-[#EAF3DE]",
     },
     {
       filter: "amber",
@@ -367,7 +299,6 @@ function SummaryBar({
       count: counts.amber,
       label: "Beachten",
       color: "text-[#BA7517]",
-      activeBg: "bg-[#FAEEDA]",
     },
     {
       filter: "red",
@@ -375,14 +306,14 @@ function SummaryBar({
       count: counts.red,
       label: "Erhöht",
       color: "text-[#A32D2D]",
-      activeBg: "bg-[#FCEBEB]",
     },
   ];
 
   return (
-    <section
-      className="noor-card flex items-center justify-between gap-2 px-4 py-4"
-      aria-label="Übersicht der Laborwerte"
+    <div
+      className="flex items-center justify-between gap-2"
+      role="group"
+      aria-label="Laborwerte filtern"
     >
       {items.map((item) => {
         const isActive = activeFilter === item.filter;
@@ -394,11 +325,16 @@ function SummaryBar({
             onClick={() => onFilterChange(item.filter)}
             aria-pressed={isActive}
             aria-label={`${item.label} anzeigen (${item.count})`}
-            className={`flex min-w-0 flex-1 flex-col items-center gap-1 rounded-2xl px-2 py-2 text-center transition-colors duration-150 ${
-              isActive ? item.activeBg : "hover:bg-background/70"
-            }`}
+            className="flex min-w-0 flex-1 flex-col items-center gap-1 rounded-2xl px-2 py-1 text-center transition-all duration-150 ease-in-out hover:bg-background/70"
           >
-            <span className="text-2xl" aria-hidden="true">
+            <span
+              className="inline-flex items-center justify-center rounded-full text-2xl transition-all duration-150 ease-in-out"
+              style={{
+                border: isActive ? "3px solid #085041" : "3px solid transparent",
+                transform: isActive ? "scale(1.15)" : "scale(1)",
+              }}
+              aria-hidden="true"
+            >
               {item.emoji}
             </span>
             <span className={`text-xl font-bold ${item.color}`}>{item.count}</span>
@@ -406,7 +342,7 @@ function SummaryBar({
           </button>
         );
       })}
-    </section>
+    </div>
   );
 }
 
@@ -453,7 +389,7 @@ function LabValueCard({ value }: { value: ParsedLabValue }) {
     <article
       className={`noor-card border-l-4 bg-surface p-4 ${BORDER_BY_LEVEL[value.level]}`}
     >
-      <h4 className="text-lg font-bold text-[#085041]">{value.name}</h4>
+      <h4 className="lab-value-name font-bold text-[#085041]">{value.name}</h4>
 
       {(value.patientValue || value.referenceRange) && (
         <p className="mt-2 text-sm text-muted">
@@ -475,7 +411,7 @@ function LabValueCard({ value }: { value: ParsedLabValue }) {
       )}
 
       {value.meaning ? (
-        <p className="mt-3 text-[17px] leading-relaxed text-foreground">
+        <p className="lab-value-explanation mt-3 text-foreground">
           <span className="font-semibold text-heading">Was bedeutet das: </span>
           {value.meaning}
         </p>
@@ -490,7 +426,7 @@ function LabValueCard({ value }: { value: ParsedLabValue }) {
       ) : null}
 
       {value.tip ? (
-        <p className="mt-3 flex gap-2 text-[17px] leading-relaxed text-foreground">
+        <p className="lab-value-explanation mt-3 flex gap-2 text-foreground">
           <span aria-hidden="true">💡</span>
           <span>{value.tip}</span>
         </p>

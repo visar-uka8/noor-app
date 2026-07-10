@@ -373,27 +373,19 @@ export function SettingsScreen() {
 
         <SectionHeading title={t("settings.personal")} />
         <section className="noor-card overflow-hidden">
-          <SettingsRow
-            icon={<Type size={24} aria-hidden="true" />}
+          <TextSizeSettingsRow
             title={t("settings.textSize")}
-            subtitle={t("settings.textSizeSubtitle")}
-            action={
-              <SegmentedToggle
-                leftLabel={t("settings.normal")}
-                rightLabel={t("settings.large")}
-                checked={elderMode}
-                onChange={setTextSize}
-                label={t("settings.textSize")}
-              />
-            }
+            normalLabel={t("settings.normal")}
+            largeLabel={t("settings.large")}
+            elderMode={elderMode}
+            onChange={setTextSize}
           />
-          <div className="border-t border-border px-5 py-4">
-            <div className="flex items-center gap-4">
+          <div className="flex items-center justify-between gap-3 border-t border-border px-5 py-4">
               <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary-light text-primary">
                 <Bell size={24} aria-hidden="true" />
               </span>
               <div className="min-w-0 flex-1">
-                <p className="text-base font-bold text-foreground">
+                <p className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-base font-bold text-foreground">
                   {notificationLabels.emailNotifications}
                 </p>
                 <p className="mt-1 text-base text-muted">
@@ -405,7 +397,6 @@ export function SettingsScreen() {
                 onChange={() => void toggleEmailNotifications()}
                 label={notificationLabels.emailNotifications}
               />
-            </div>
           </div>
         </section>
 
@@ -569,6 +560,74 @@ function FamilyConnectionCard({
   );
 }
 
+function TextSizeSettingsRow({
+  title,
+  normalLabel,
+  largeLabel,
+  elderMode,
+  onChange,
+}: {
+  title: string;
+  normalLabel: string;
+  largeLabel: string;
+  elderMode: boolean;
+  onChange: (enabled: boolean) => void;
+}) {
+  return (
+    <div
+      className="flex flex-col gap-2.5 border-b border-border px-4 py-3.5"
+      style={{ padding: "14px 16px", gap: "10px" }}
+    >
+      <div className="flex items-center gap-2.5" style={{ gap: "10px" }}>
+        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary-light text-primary">
+          <Type size={24} aria-hidden="true" />
+        </span>
+        <span className="text-[15px] font-semibold text-foreground">{title}</span>
+      </div>
+
+      <div
+        role="group"
+        aria-label={title}
+        className="flex gap-2"
+        style={{ gap: "8px" }}
+      >
+        <button
+          type="button"
+          onClick={() => onChange(false)}
+          aria-pressed={!elderMode}
+          className="flex-1 cursor-pointer rounded-[10px] border-0 py-2.5 text-sm font-semibold"
+          style={{
+            padding: "10px",
+            borderRadius: "10px",
+            fontWeight: "600",
+            fontSize: "14px",
+            backgroundColor: !elderMode ? "#1D9E75" : "#F0EFE9",
+            color: !elderMode ? "#FFFFFF" : "#6B685A",
+          }}
+        >
+          {normalLabel}
+        </button>
+        <button
+          type="button"
+          onClick={() => onChange(true)}
+          aria-pressed={elderMode}
+          className="flex-1 cursor-pointer rounded-[10px] border-0 py-2.5 text-sm font-semibold"
+          style={{
+            padding: "10px",
+            borderRadius: "10px",
+            fontWeight: "600",
+            fontSize: "14px",
+            backgroundColor: elderMode ? "#1D9E75" : "#F0EFE9",
+            color: elderMode ? "#FFFFFF" : "#6B685A",
+          }}
+        >
+          {largeLabel}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function SettingsRow({
   icon,
   title,
@@ -581,17 +640,15 @@ function SettingsRow({
   action?: React.ReactNode;
 }) {
   return (
-    <div className="flex min-h-12 items-center gap-4 border-b border-border px-5 py-4 last:border-b-0">
+    <div className="flex min-h-12 items-center justify-between gap-3 border-b border-border px-5 py-4 last:border-b-0">
       <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary-light text-primary">
         {icon}
       </span>
       <span className="min-w-0 flex-1">
         <span className="block text-base font-bold text-foreground">{title}</span>
-        <span className="mt-1 block text-base leading-snug text-muted">
-          {subtitle}
-        </span>
+        <span className="mt-1 block text-base leading-snug text-muted">{subtitle}</span>
       </span>
-      {action}
+      {action ? <span className="shrink-0">{action}</span> : null}
     </div>
   );
 }
@@ -615,47 +672,6 @@ function LinkRow({
       </span>
       <span className="text-base font-bold text-foreground">{title}</span>
     </Link>
-  );
-}
-
-function SegmentedToggle({
-  leftLabel,
-  rightLabel,
-  checked,
-  onChange,
-  label,
-}: {
-  leftLabel: string;
-  rightLabel: string;
-  checked: boolean;
-  onChange: (checked: boolean) => void;
-  label: string;
-}) {
-  return (
-    <div
-      role="group"
-      aria-label={label}
-      className="grid shrink-0 grid-cols-2 rounded-2xl bg-background p-1"
-    >
-      <button
-        type="button"
-        onClick={() => onChange(false)}
-        className={`min-h-10 rounded-xl px-3 text-sm font-semibold transition-colors ${
-          !checked ? "bg-primary text-white" : "text-muted"
-        }`}
-      >
-        {leftLabel}
-      </button>
-      <button
-        type="button"
-        onClick={() => onChange(true)}
-        className={`min-h-10 rounded-xl px-3 text-sm font-semibold transition-colors ${
-          checked ? "bg-primary text-white" : "text-muted"
-        }`}
-      >
-        {rightLabel}
-      </button>
-    </div>
   );
 }
 

@@ -103,6 +103,9 @@ create table if not exists public.lab_results (
   user_id uuid not null references auth.users(id) on delete cascade,
   file_url text not null,
   ai_analysis text not null,
+  normal_count integer not null default 0,
+  watch_count integer not null default 0,
+  high_count integer not null default 0,
   created_at timestamptz not null default now()
 );
 

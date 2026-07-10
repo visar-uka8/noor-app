@@ -289,15 +289,87 @@ h4,
   padding-bottom: calc(7rem + env(safe-area-inset-bottom, 0px));
 }
 
-html.elder-mode {
-  font-size: 140%;
+/* Elder mode — targeted readability, not global scaling */
+.home-card-title {
+  font-size: 17px !important;
 }
 
-html.elder-mode button:not([role="switch"]),
-html.elder-mode input,
-html.elder-mode select,
-html.elder-mode textarea,
-html.elder-mode .btn-touch,
-html.elder-mode .btn-primary {
-  min-height: 64px;
+.home-card-subtitle {
+  font-size: 13px !important;
+}
+
+.medication-dose-button {
+  min-height: 100px;
+}
+
+.medication-button-name {
+  font-size: 18px;
+}
+
+.medication-button-time {
+  font-size: 15px;
+}
+
+.lab-value-name {
+  font-size: 16px;
+}
+
+.lab-value-explanation {
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.body-text {
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.instruction-text {
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.health-passport-label {
+  font-size: 14px;
+}
+
+.health-passport-input {
+  font-size: 16px;
+}
+
+.elder-mode .medication-dose-button {
+  min-height: 130px;
+}
+
+.elder-mode .medication-button-name {
+  font-size: 22px;
+}
+
+.elder-mode .medication-button-time {
+  font-size: 17px;
+}
+
+.elder-mode .lab-value-name {
+  font-size: 18px;
+}
+
+.elder-mode .lab-value-explanation {
+  font-size: 17px;
+  line-height: 1.8;
+}
+
+.elder-mode .body-text {
+  font-size: 17px;
+}
+
+.elder-mode .instruction-text {
+  font-size: 16px;
+}
+
+.elder-mode .health-passport-label {
+  font-size: 16px;
+}
+
+.elder-mode .health-passport-input {
+  font-size: 18px;
 }

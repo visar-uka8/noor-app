@@ -5,10 +5,11 @@ import { useEffect, useRef, useState } from "react";
 import { ErrorBanner, ErrorState } from "@/components/AppStates";
 import { LabResultAnalysis } from "@/components/LabResultAnalysis";
 import { LabResultHistory } from "@/components/LabResultHistory";
+import { useHomeViewModeContext } from "@/components/HomeViewModeContext";
 import { useLanguage } from "@/components/LanguageProvider";
 import { SlowConnectionNotice } from "@/components/SlowConnectionNotice";
+import { useFamilyConnection } from "@/hooks/useFamilyConnection";
 import { useSlowConnection } from "@/hooks/useSlowConnection";
-import { useUserRole } from "@/hooks/useUserRole";
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 import {
   fileWithResolvedType,
@@ -31,9 +32,11 @@ type AnalyzeLabErrorResponse = {
 
 export function LabResultsFlow() {
   const { t } = useLanguage();
-  const role = useUserRole();
-  const isFamilyMember = role === "family_member";
-  const historyEndpoint = isFamilyMember
+  const { mode, hasFamilyConnection } = useHomeViewModeContext();
+  const { connection } = useFamilyConnection();
+  const isFamilyView =
+    mode === "family" && hasFamilyConnection && connection.connected;
+  const historyEndpoint = isFamilyView
     ? "/api/family-dashboard/lab-results"
     : "/api/lab-results";
   const cameraInputRef = useRef<HTMLInputElement>(null);
@@ -49,6 +52,19 @@ export function LabResultsFlow() {
   const [errorMessage, setErrorMessage] = useState("");
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
   const isAnalyzingSlow = useSlowConnection(step === "analyzing");
+
+  useEffect(() => {
+    setStep("upload");
+    setAnalysisResult(null);
+    setSelectedFile(null);
+    setPreviewUrl(null);
+    setErrorMessage("");
+    if (previewUrlRef.current) {
+      URL.revokeObjectURL(previewUrlRef.current);
+      previewUrlRef.current = null;
+    }
+    setHistoryRefreshKey((current) => current + 1);
+  }, [isFamilyView]);
 
   useEffect(() => {
     return () => {
@@ -228,7 +244,7 @@ export function LabResultsFlow() {
 
   return (
     <main className="mx-auto flex w-full max-w-app flex-1 flex-col px-5 py-6">
-      {!isFamilyMember ? (
+      {!isFamilyView ? (
         <>
           <input
             ref={cameraInputRef}
@@ -336,7 +352,11 @@ export function LabResultsFlow() {
             </section>
           )}
         </>
-      ) : null}
+      ) : (
+        <p className="rounded-2xl border border-border bg-background px-4 py-3 text-base text-muted">
+          {connection.displayLabel} kann ihre Befunde selbst hochladen
+        </p>
+      )}
 
       <LabResultHistory
         refreshKey={historyRefreshKey}

@@ -317,7 +317,7 @@ export function MedicationConfirmation() {
           pendingCount={pendingCount}
         />
 
-        <p className="mb-6 text-[17px] leading-relaxed text-[#555555]">
+        <p className="instruction-text mb-6 text-[#555555]">
           Tippen Sie wenn Sie Ihr Medikament genommen haben 💚
         </p>
 
