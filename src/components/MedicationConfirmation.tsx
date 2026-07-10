@@ -37,6 +37,7 @@ export function MedicationConfirmation() {
   const [pendingDoseIds, setPendingDoseIds] = useState<Set<string>>(new Set());
   const [isLoading, setIsLoading] = useState(true);
   const [hasLoadError, setHasLoadError] = useState(false);
+  const [loadErrorDetail, setLoadErrorDetail] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [doseToConfirm, setDoseToConfirm] = useState<DailyDoseSlot | null>(null);
   const [medicationToDelete, setMedicationToDelete] =
@@ -103,9 +104,21 @@ export function MedicationConfirmation() {
     return states;
   }, [doses, confirmedDoseIds, now]);
 
+  const pendingCount = useMemo(() => {
+    let count = 0;
+
+    for (const dose of doses) {
+      const state = doseVisualStates.get(dose.id);
+      if (state === "due" || state === "upcoming") count += 1;
+    }
+
+    return count;
+  }, [doses, doseVisualStates]);
+
   async function loadMedicationData() {
     setIsLoading(true);
     setHasLoadError(false);
+    setLoadErrorDetail(null);
 
     try {
       const [medicationsResponse, confirmationsResponse] = await Promise.all([
@@ -114,20 +127,36 @@ export function MedicationConfirmation() {
       ]);
 
       if (!medicationsResponse.ok || !confirmationsResponse.ok) {
-        throw new Error("Medication data failed.");
+        const medicationsBody = medicationsResponse.ok
+          ? null
+          : await medicationsResponse.text();
+        const confirmationsBody = confirmationsResponse.ok
+          ? null
+          : await confirmationsResponse.text();
+        throw new Error(
+          `Medication data failed (medications: ${medicationsResponse.status}${medicationsBody ? ` — ${medicationsBody}` : ""}, confirmations: ${confirmationsResponse.status}${confirmationsBody ? ` — ${confirmationsBody}` : ""})`,
+        );
       }
 
       const medicationsData = (await medicationsResponse.json()) as {
-        medications: StoredMedication[];
+        medications?: StoredMedication[];
       };
       const confirmationsData = (await confirmationsResponse.json()) as {
-        confirmations: StoredConfirmation[];
+        confirmations?: StoredConfirmation[];
       };
 
-      setMedications(medicationsData.medications ?? []);
-      setConfirmations(confirmationsData.confirmations ?? []);
-    } catch {
+      setMedications(medicationsData?.medications ?? []);
+      setConfirmations(confirmationsData?.confirmations ?? []);
+    } catch (error) {
+      console.error("Medications fetch error:", error);
       setHasLoadError(true);
+      setMedications([]);
+      setConfirmations([]);
+      setLoadErrorDetail(
+        error instanceof Error
+          ? error.message
+          : "Medikamente konnten nicht geladen werden.",
+      );
     } finally {
       setIsLoading(false);
     }
@@ -194,6 +223,14 @@ export function MedicationConfirmation() {
           isOffline={!isOnline}
           onRetry={loadMedicationData}
         />
+        {loadErrorDetail ? (
+          <p
+            className="mt-4 rounded-2xl border border-danger/20 bg-danger-light px-4 py-3 text-sm text-danger"
+            role="alert"
+          >
+            {loadErrorDetail}
+          </p>
+        ) : null}
       </main>
     );
   }
@@ -320,16 +357,6 @@ export function MedicationConfirmation() {
 
   const allConfirmed =
     doses.length > 0 && confirmedDoseIds.size === doses.length;
-  const pendingCount = useMemo(() => {
-    let count = 0;
-
-    for (const dose of doses) {
-      const state = doseVisualStates.get(dose.id);
-      if (state === "due" || state === "upcoming") count += 1;
-    }
-
-    return count;
-  }, [doses, doseVisualStates]);
   const isSaving = pendingDoseIds.size > 0;
 
   return (
@@ -507,7 +534,7 @@ function MedicationManageSection({
 }
 
 function formatMedicationSchedule(medication: StoredMedication) {
-  return normalizeMedicationTimes(medication.times)
+  return normalizeMedicationTimes(medication?.times)
     .map((entry) => `${timeSlotLabels[entry.slot]} ${entry.time}`)
     .join(" · ");
 }

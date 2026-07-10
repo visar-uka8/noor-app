@@ -13,19 +13,26 @@ const DUE_WINDOW_MS = 2 * 60 * 60 * 1000;
 export type DoseVisualState = "confirmed" | "due" | "missed" | "upcoming";
 
 export function getDoseVisualState(
-  scheduledAt: Date | string,
+  scheduledAt: Date | string | null | undefined,
   options: { confirmed?: boolean; now?: number } = {},
 ): DoseVisualState {
-  if (options.confirmed) return "confirmed";
+  try {
+    if (options.confirmed) return "confirmed";
+    if (!scheduledAt) return "upcoming";
 
-  const now = options.now ?? Date.now();
-  const scheduled = new Date(scheduledAt).getTime();
-  const dueStart = scheduled - DUE_WINDOW_MS;
-  const dueEnd = scheduled + DUE_WINDOW_MS;
+    const now = options.now ?? Date.now();
+    const scheduled = new Date(scheduledAt).getTime();
+    if (Number.isNaN(scheduled)) return "upcoming";
 
-  if (now > dueEnd) return "missed";
-  if (now >= dueStart) return "due";
-  return "upcoming";
+    const dueStart = scheduled - DUE_WINDOW_MS;
+    const dueEnd = scheduled + DUE_WINDOW_MS;
+
+    if (now > dueEnd) return "missed";
+    if (now >= dueStart) return "due";
+    return "upcoming";
+  } catch {
+    return "upcoming";
+  }
 }
 
 export function determineFrequency(count: number): MedicationFrequency {
@@ -70,9 +77,9 @@ export function normalizeMedicationTimes(value: unknown): MedicationTimeEntry[] 
 }
 
 export function expandMedicationsToDailyDoses(
-  medications: StoredMedication[],
+  medications: StoredMedication[] | null | undefined,
 ): DailyDoseSlot[] {
-  return medications.flatMap((medication) =>
+  return (medications ?? []).flatMap((medication) =>
     normalizeMedicationTimes(medication.times).map((entry) => {
       const scheduledAt = getScheduledAtForTime(entry.time).toISOString();
 
