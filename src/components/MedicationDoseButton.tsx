@@ -2,7 +2,7 @@
 
 import { Check, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { formatConfirmationTime } from "@/lib/medication-schedule";
+import { formatConfirmationTime, getDoseTimeLabel } from "@/lib/medication-schedule";
 import type { DoseVisualState } from "@/lib/medication-schedule";
 import type { DailyDoseSlot } from "@/types/medication";
 
@@ -11,6 +11,7 @@ type MedicationDoseButtonProps = {
   visualState: DoseVisualState;
   pending?: boolean;
   confirmedAt?: string | null;
+  now?: number;
   onConfirm: () => void;
 };
 
@@ -26,14 +27,14 @@ const rowStyles: Record<
   },
   due: {
     container:
-      "noor-card border-2 border-[#1D9E75]/35 bg-[#E1F5EE] shadow-[var(--warm-shadow)]",
-    time: "text-[#157A5C]",
+      "noor-card border border-border border-l-4 border-l-[#1D9E75] bg-white shadow-[var(--warm-shadow)]",
+    time: "text-[#1D9E75]",
     name: "text-foreground",
-    detail: "text-[#157A5C]",
+    detail: "text-muted",
   },
   missed: {
     container: "bg-[#FAEEDA] text-[#633806] shadow-[var(--warm-shadow)]",
-    time: "text-[#BA7517]",
+    time: "text-[#633806]",
     name: "text-[#633806]",
     detail: "text-[#633806]/80",
   },
@@ -70,6 +71,7 @@ export function MedicationDoseButton({
   visualState,
   pending = false,
   confirmedAt,
+  now = Date.now(),
   onConfirm,
 }: MedicationDoseButtonProps) {
   const [justConfirmed, setJustConfirmed] = useState(false);
@@ -84,8 +86,12 @@ export function MedicationDoseButton({
     return () => window.clearTimeout(timer);
   }, [confirmed, confirmedAt]);
 
-  const timeLabel =
-    visualState === "missed" ? "Noch nicht bestätigt" : dose.slotLabel;
+  const timeLabel = getDoseTimeLabel(
+    visualState,
+    dose.time,
+    dose.slotLabel,
+    now,
+  );
 
   return (
     <div

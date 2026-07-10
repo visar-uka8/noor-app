@@ -1,5 +1,5 @@
-import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
+import { createSupabaseDataClient } from "@/lib/supabase-data";
 import type { LabResultRecord } from "@/types/lab-results";
 
 export const runtime = "nodejs";
@@ -12,7 +12,8 @@ export async function GET() {
       error: authError,
     } = await authSupabase.auth.getUser();
 
-    if (authError || !user) {
+    if (authError || !user?.id) {
+      console.log("Lab results fetch: No user ID available", authError?.message);
       return Response.json(
         { error: "Bitte melden Sie sich an, um Laborwerte zu laden." },
         { status: 401 },
@@ -22,11 +23,19 @@ export async function GET() {
     const supabase = createSupabaseDataClient() ?? authSupabase;
     const { data, error } = await supabase
       .from("lab_results")
-      .select("id, file_url, ai_analysis, created_at, normal_count, watch_count, high_count")
+      .select(
+        "id, file_url, ai_analysis, created_at, normal_count, watch_count, high_count",
+      )
       .eq("user_id", user.id)
       .order("created_at", { ascending: false })
-      .limit(5)
+      .limit(20)
       .returns<LabResultRecord[]>();
+
+    console.log("Lab results fetch:", {
+      userId: user.id,
+      count: data?.length ?? 0,
+      error,
+    });
 
     if (error) throw error;
 
@@ -39,17 +48,4 @@ export async function GET() {
       { status: 500 },
     );
   }
-}
-
-function createSupabaseDataClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseKey =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ??
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-  if (!supabaseUrl || !supabaseKey) return null;
-
-  return createAdminClient(supabaseUrl, supabaseKey, {
-    auth: { persistSession: false },
-  });
 }

@@ -170,6 +170,8 @@ export function LabResultsFlow() {
               ? t("lab.notConfigured")
               : errorPayload.code === "unauthorized"
                 ? t("lab.loginRequired")
+              : errorPayload.code === "save_failed"
+                ? `${errorPayload.error ?? t("lab.unavailable")}${errorPayload.details ? ` (${errorPayload.details})` : ""}`
               : errorPayload.code === "rate_limit"
                 ? errorPayload.error ?? t("lab.unavailable")
               : errorPayload.code === "unreadable"

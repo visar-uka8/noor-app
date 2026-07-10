@@ -17,8 +17,9 @@ export async function uploadLabResultFile(
   const filePath = `${userId}/${today}/${Date.now()}-${sanitizeLabFileName(file.name)}`;
   const contentType =
     resolveLabFileType(file) ?? file.type ?? "application/octet-stream";
+  const fileBody = await file.arrayBuffer();
 
-  const { error } = await supabase.storage.from("lab-results").upload(filePath, file, {
+  const { error } = await supabase.storage.from("lab-results").upload(filePath, fileBody, {
     contentType,
     upsert: false,
   });

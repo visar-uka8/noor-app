@@ -79,7 +79,7 @@ export function MedicationConfirmation() {
       if (confirmedDoseIds.has(dose.id)) continue;
 
       if (
-        getDoseVisualState(dose.scheduledAt, { now }) === "missed"
+        getDoseVisualState(dose.time, { now }) === "missed"
       ) {
         missed.add(dose.id);
       }
@@ -94,7 +94,7 @@ export function MedicationConfirmation() {
     for (const dose of doses) {
       states.set(
         dose.id,
-        getDoseVisualState(dose.scheduledAt, {
+        getDoseVisualState(dose.time, {
           confirmed: confirmedDoseIds.has(dose.id),
           now,
         }),
@@ -400,6 +400,7 @@ export function MedicationConfirmation() {
                 visualState={doseVisualStates.get(dose.id) ?? "upcoming"}
                 pending={pendingDoseIds.has(dose.id)}
                 confirmedAt={confirmation?.confirmed_at}
+                now={now}
                 onConfirm={() => setDoseToConfirm(dose)}
               />
             );
@@ -642,7 +643,7 @@ function MedicationStatusBanner({
   if (allConfirmed) {
     return (
       <section
-        className="mb-5 rounded-xl border border-[#1D9E75] bg-[#E1F5EE] px-4 py-3 text-base font-semibold text-[#085041]"
+        className="mb-5 rounded-xl border border-[#1D9E75] bg-[#E1F5EE] px-4 py-3 text-[14px] font-semibold text-[#085041]"
         style={{ borderWidth: "0.5px" }}
         aria-live="polite"
       >
@@ -663,7 +664,7 @@ function MedicationStatusBanner({
 
   return (
     <section
-      className="mb-5 rounded-xl border border-[#BA7517] bg-[#FAEEDA] px-4 py-3 text-base font-semibold text-[#633806]"
+      className="mb-5 rounded-xl border border-[#BA7517] bg-[#FAEEDA] px-4 py-3 text-[14px] font-semibold text-[#633806]"
       style={{ borderWidth: "0.5px" }}
       aria-live="polite"
     >

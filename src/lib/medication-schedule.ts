@@ -8,31 +8,54 @@ import type {
 } from "@/types/medication";
 import { defaultTimeSlotValues, timeSlotLabels } from "@/types/medication";
 
-const DUE_WINDOW_MS = 2 * 60 * 60 * 1000;
+const UPCOMING_LEAD_MINUTES = 30;
+const MISSED_GRACE_MINUTES = 90;
 
 export type DoseVisualState = "confirmed" | "due" | "missed" | "upcoming";
 
+export function getDoseDiffMinutes(
+  scheduledTime: string,
+  now: Date | number = Date.now(),
+) {
+  const current = typeof now === "number" ? new Date(now) : now;
+  const [hours, minutes] = normalizeTimeValue(scheduledTime).split(":").map(Number);
+  const scheduled = new Date(current);
+  scheduled.setHours(hours, minutes, 0, 0);
+
+  return (scheduled.getTime() - current.getTime()) / (1000 * 60);
+}
+
 export function getDoseVisualState(
-  scheduledAt: Date | string | null | undefined,
+  scheduledTime: string | null | undefined,
   options: { confirmed?: boolean; now?: number } = {},
 ): DoseVisualState {
   try {
     if (options.confirmed) return "confirmed";
-    if (!scheduledAt) return "upcoming";
+    if (!scheduledTime) return "upcoming";
 
-    const now = options.now ?? Date.now();
-    const scheduled = new Date(scheduledAt).getTime();
-    if (Number.isNaN(scheduled)) return "upcoming";
+    const diffMinutes = getDoseDiffMinutes(scheduledTime, options.now ?? Date.now());
 
-    const dueStart = scheduled - DUE_WINDOW_MS;
-    const dueEnd = scheduled + DUE_WINDOW_MS;
-
-    if (now > dueEnd) return "missed";
-    if (now >= dueStart) return "due";
-    return "upcoming";
+    if (diffMinutes > UPCOMING_LEAD_MINUTES) return "upcoming";
+    if (diffMinutes > -MISSED_GRACE_MINUTES) return "due";
+    return "missed";
   } catch {
     return "upcoming";
   }
+}
+
+export function getDoseTimeLabel(
+  visualState: DoseVisualState,
+  scheduledTime: string,
+  slotLabel: string,
+  now: number = Date.now(),
+) {
+  if (visualState === "missed") return "Vergessen";
+  if (visualState === "due") {
+    const diffMinutes = getDoseDiffMinutes(scheduledTime, now);
+    return diffMinutes >= -30 ? "Jetzt einnehmen" : "Fällig";
+  }
+  if (visualState === "confirmed") return slotLabel;
+  return slotLabel;
 }
 
 export function determineFrequency(count: number): MedicationFrequency {
@@ -120,8 +143,15 @@ export function getScheduledAtForTime(timeValue: string, baseDate = new Date()) 
   return scheduledAt;
 }
 
-export function isDoseMissed(scheduledAt: Date | string, now = Date.now()) {
-  return getDoseVisualState(scheduledAt, { now }) === "missed";
+export function isDoseMissed(
+  scheduledAt: Date | string,
+  now = Date.now(),
+) {
+  const scheduled = new Date(scheduledAt);
+  if (Number.isNaN(scheduled.getTime())) return false;
+
+  const time = `${String(scheduled.getHours()).padStart(2, "0")}:${String(scheduled.getMinutes()).padStart(2, "0")}`;
+  return getDoseVisualState(time, { now }) === "missed";
 }
 
 export function getTodayRange() {

@@ -29,19 +29,24 @@ export function LabResultHistory({
       setIsLoading(true);
 
       try {
-        const response = await fetch(resultsEndpoint);
+        const response = await fetch(resultsEndpoint, {
+          credentials: "include",
+        });
 
         if (!response.ok) {
+          const body = await response.text();
+          console.error("Lab history fetch failed", response.status, body);
           if (!cancelled) setResults([]);
           return;
         }
 
-        const data = (await response.json()) as { results: LabResultRecord[] };
+        const data = (await response.json()) as { results?: LabResultRecord[] };
 
         if (!cancelled) {
-          setResults(data.results ?? []);
+          setResults(data?.results ?? []);
         }
-      } catch {
+      } catch (error) {
+        console.error("Lab history fetch error:", error);
         if (!cancelled) setResults([]);
       } finally {
         if (!cancelled) setIsLoading(false);

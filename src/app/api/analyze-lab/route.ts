@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { createSupabaseDataClient } from "@/lib/supabase-data";
 import { resolveLabFileType } from "@/lib/lab-file";
 import { uploadLabResultFile } from "@/lib/lab-storage";
 import { analyzeLabDocument, getLabAiProvider } from "@/lib/lab-analyze";
@@ -77,7 +78,8 @@ export async function POST(request: Request) {
   const language = await getUserLanguage();
 
   try {
-    if (authError || !user) {
+    if (authError || !user?.id) {
+      console.log("Lab analyze: No user ID available", authError?.message);
       return Response.json(
         { error: errorMessage(language, "auth"), code: "unauthorized" },
         { status: 401 },
@@ -106,6 +108,8 @@ export async function POST(request: Request) {
       );
     }
 
+    console.log("Step 1: File received", file.name);
+
     const resolvedType =
       typeof mediaTypeField === "string" && mediaTypeField.length > 0
         ? mediaTypeField
@@ -126,20 +130,6 @@ export async function POST(request: Request) {
     }
 
     const mediaType = resolvedType as AcceptedMediaType;
-    const base64File = Buffer.from(await file.arrayBuffer()).toString("base64");
-
-    const analysis = await analyzeLabDocument({
-      language,
-      mediaType,
-      base64File,
-    });
-
-    if (isUnreadableResponse(analysis)) {
-      return Response.json(
-        { error: errorMessage(language, "unreadable"), code: "unreadable" },
-        { status: 422 },
-      );
-    }
 
     let fileUrl =
       typeof fileUrlField === "string" && fileUrlField.length > 0
@@ -147,7 +137,28 @@ export async function POST(request: Request) {
         : null;
 
     if (!fileUrl) {
+      console.log("Step 2: Uploading to storage...");
       fileUrl = await uploadLabResultFile(authSupabase, user.id, file);
+      console.log("Step 2 complete: file_url", fileUrl);
+    } else {
+      console.log("Step 2: Using provided file_url", fileUrl);
+    }
+
+    const base64File = Buffer.from(await file.arrayBuffer()).toString("base64");
+
+    console.log("Step 3: Calling AI API...");
+    const analysis = await analyzeLabDocument({
+      language,
+      mediaType,
+      base64File,
+    });
+    console.log("Step 4: Analysis received", analysis.length, "chars");
+
+    if (isUnreadableResponse(analysis)) {
+      return Response.json(
+        { error: errorMessage(language, "unreadable"), code: "unreadable" },
+        { status: 422 },
+      );
     }
 
     const normalCount = (analysis.match(/🟢/g) || []).length;
@@ -159,8 +170,15 @@ export async function POST(request: Request) {
         ? parsedCounts
         : { normal: normalCount, watch: watchCount, high: highCount };
 
+    console.log("Step 5: Saving to Supabase...", {
+      userId: user.id,
+      fileUrl,
+      counts,
+    });
+
+    const dataClient = createSupabaseDataClient() ?? authSupabase;
     const now = new Date().toISOString();
-    const { data, error: saveError } = await authSupabase
+    const { data, error: saveError } = await dataClient
       .from("lab_results")
       .insert({
         user_id: user.id,
@@ -171,13 +189,19 @@ export async function POST(request: Request) {
         high_count: counts.high,
         created_at: now,
       })
-      .select("id")
+      .select("id, created_at, normal_count, watch_count, high_count")
       .single();
 
-    console.log("Save result:", data, saveError);
+    console.log("Step 6: Save result", data, saveError);
+    console.log("Supabase insert result:", data, saveError);
 
     if (saveError) {
-      console.error("Lab result save failed", saveError);
+      console.error("Lab result save failed", {
+        message: saveError.message,
+        code: saveError.code,
+        details: saveError.details,
+        hint: saveError.hint,
+      });
       return Response.json(
         {
           error: errorMessage(language, "saveFailed"),
@@ -219,6 +243,7 @@ export async function POST(request: Request) {
       {
         error: errorMessage(language, "unavailable"),
         code: "unavailable",
+        details: error instanceof Error ? error.message : undefined,
       },
       { status: 500 },
     );
