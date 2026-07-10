@@ -134,13 +134,15 @@ function ScrollToTopButton() {
     const scrollContainer = document.querySelector(".app-scroll-main");
     if (!scrollContainer) return;
 
+    const container = scrollContainer;
+
     function handleScroll() {
-      setVisible(scrollContainer.scrollTop > 300);
+      setVisible(container.scrollTop > 300);
     }
 
     handleScroll();
-    scrollContainer.addEventListener("scroll", handleScroll, { passive: true });
-    return () => scrollContainer.removeEventListener("scroll", handleScroll);
+    container.addEventListener("scroll", handleScroll, { passive: true });
+    return () => container.removeEventListener("scroll", handleScroll);
   }, []);
 
   if (!visible) return null;
