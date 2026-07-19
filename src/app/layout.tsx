@@ -1,8 +1,10 @@
 import type { Metadata, Viewport } from "next";
+import Script from "next/script";
 import { Inter } from "next/font/google";
 import { OfflineBanner } from "@/components/OfflineBanner";
 import { ElderModeProvider } from "@/components/ElderModeProvider";
 import { LanguageProvider } from "@/components/LanguageProvider";
+import { fontSizeBootScript } from "@/lib/font-size";
 import "./globals.css";
 
 const inter = Inter({
@@ -32,6 +34,9 @@ export default function RootLayout({
   return (
     <html lang="de" suppressHydrationWarning className={inter.variable}>
       <body>
+        <Script id="font-size-boot" strategy="beforeInteractive">
+          {fontSizeBootScript}
+        </Script>
         <LanguageProvider>
           <ElderModeProvider>
             <OfflineBanner />

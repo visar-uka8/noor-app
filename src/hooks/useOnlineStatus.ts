@@ -3,11 +3,12 @@
 import { useEffect, useState } from "react";
 
 export function useOnlineStatus() {
-  const [isOnline, setIsOnline] = useState(
-    () => typeof navigator !== "undefined" && navigator.onLine,
-  );
+  // Default online so SSR and the first client render match (navigator is SSR-only).
+  const [isOnline, setIsOnline] = useState(true);
 
   useEffect(() => {
+    setIsOnline(navigator.onLine);
+
     function handleOnline() {
       setIsOnline(true);
     }

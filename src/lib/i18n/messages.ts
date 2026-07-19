@@ -5,6 +5,7 @@ export type MessageKey = keyof typeof messages.de;
 export const messages = {
   de: {
     "nav.home": "Start",
+    "nav.family": "Familie",
     "nav.medication": "Medikamente",
     "nav.lab": "Labor",
     "nav.profile": "Profil",
@@ -47,8 +48,9 @@ export const messages = {
     "lab.analyzeNow": "Jetzt analysieren",
     "lab.analyzing": "Ihre Laborwerte werden analysiert...",
     "lab.analyzingHint": "Das dauert nur einen Moment",
-    "lab.slowHint":
-      "Bei langsamem Internet kann das 1–2 Minuten dauern. Bitte warten Sie und schließen Sie die Seite nicht.",
+    "lab.analyzingHintAlmost": "Fast fertig — noch einen Moment bitte.",
+    "lab.analyzingHintLong":
+      "Das dauert etwas länger als üblich. Bitte schließen Sie die Seite nicht.",
     "lab.privacy": "Ihre Daten sind verschlüsselt und werden nicht weitergegeben",
     "lab.previewAlt": "Vorschau des ausgewählten Laborbefunds",
     "lab.uploadLabel": "Foto oder PDF hochladen",
@@ -57,6 +59,14 @@ export const messages = {
     "lab.historyEmptySubtitle":
       "Laden Sie Ihren ersten Befund hoch — wir erklären alles auf einfachem Deutsch.",
     "lab.analyzed": "Analysiert",
+    "lab.delete": "Löschen",
+    "lab.deleteCancel": "Abbrechen",
+    "lab.deleting": "Wird gelöscht…",
+    "lab.deleteConfirmTitle": "Diesen Befund löschen?",
+    "lab.deleteConfirmMessage":
+      "Diese Analyse wird dauerhaft entfernt.",
+    "lab.deleteFailed":
+      "Befund konnte gerade nicht gelöscht werden.",
     "lab.pdfSelected": "PDF ausgewählt",
     "lab.errorTitle": "Die Analyse konnte nicht abgeschlossen werden.",
     "lab.loginRequired":
@@ -68,6 +78,8 @@ export const messages = {
       "Das Bild war leider nicht gut lesbar. Bitte versuchen Sie ein klareres Foto aufzunehmen.",
     "lab.unavailable":
       "Analyse momentan nicht verfügbar. Bitte versuchen Sie es später erneut.",
+    "lab.saveFailed":
+      "Die Analyse war erfolgreich, konnte aber nicht gespeichert werden. Bitte versuchen Sie es erneut.",
     "lab.notConfigured":
       "Die KI-Analyse ist noch nicht eingerichtet. Bitte fügen Sie einen kostenlosen Google Gemini API-Schlüssel hinzu.",
     "settings.language": "Sprache",
@@ -83,6 +95,7 @@ export const messages = {
   },
   en: {
     "nav.home": "Home",
+    "nav.family": "Family",
     "nav.medication": "Medications",
     "nav.lab": "Lab",
     "nav.profile": "Profile",
@@ -125,8 +138,9 @@ export const messages = {
     "lab.analyzeNow": "Analyze now",
     "lab.analyzing": "Analyzing your lab results...",
     "lab.analyzingHint": "This will only take a moment",
-    "lab.slowHint":
-      "On a slow connection this can take 1–2 minutes. Please wait and do not close the page.",
+    "lab.analyzingHintAlmost": "Almost done — just a moment please.",
+    "lab.analyzingHintLong":
+      "This is taking a bit longer than usual. Please do not close the page.",
     "lab.privacy": "Your data is encrypted and never shared",
     "lab.previewAlt": "Preview of selected lab report",
     "lab.uploadLabel": "Upload photo or PDF",
@@ -135,6 +149,14 @@ export const messages = {
     "lab.historyEmptySubtitle":
       "Upload your first report — we explain everything in plain language.",
     "lab.analyzed": "Analyzed",
+    "lab.delete": "Delete",
+    "lab.deleteCancel": "Cancel",
+    "lab.deleting": "Deleting…",
+    "lab.deleteConfirmTitle": "Delete this report?",
+    "lab.deleteConfirmMessage":
+      "This analysis will be permanently removed.",
+    "lab.deleteFailed":
+      "The report could not be deleted right now.",
     "lab.pdfSelected": "PDF selected",
     "lab.errorTitle": "The analysis could not be completed.",
     "lab.loginRequired": "Please sign in to upload lab results.",
@@ -145,6 +167,8 @@ export const messages = {
       "The image was hard to read. Please try a clearer photo.",
     "lab.unavailable":
       "Analysis is temporarily unavailable. Please try again later.",
+    "lab.saveFailed":
+      "Analysis succeeded but could not be saved. Please try again.",
     "lab.notConfigured":
       "AI analysis is not set up yet. Please add a free Google Gemini API key.",
     "settings.language": "Language",
@@ -182,7 +206,7 @@ export function getTimeGreeting(language: Language, date: Date) {
 
   if (hour >= 5 && hour < 11) key = "home.greetingMorning";
   else if (hour >= 11 && hour < 14) key = "home.greetingMidday";
-  else if (hour >= 14 && hour < 21) key = "home.greetingEvening";
+  else if (hour >= 14 && hour < 23) key = "home.greetingEvening";
   else key = "home.greetingNight";
 
   return translate(language, key);

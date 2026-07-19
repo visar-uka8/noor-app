@@ -1,47 +1,42 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   loadActiveMedications,
+  loadConfirmationsForStreak,
   loadTodayConfirmations,
   syncMissedDoses,
 } from "@/lib/medication-data";
+import { calculateMedicationStreak } from "@/lib/medication-streak";
 import {
   buildDisconnectedFamilyCard,
-  buildFamilyMemberFamilyCard,
+  buildPatientFamilyCardWithActivity,
+  buildHomeHealthPassportSummary,
   buildHomeMedicationSummary,
-  buildPatientFamilyCard,
   formatHomeLabDate,
   getInitials,
-  isHealthPassportComplete,
   type HomeScreenData,
 } from "@/lib/home-screen";
-import { getCaretakerLabel } from "@/lib/family-dashboard-status";
-import { resolveProfileNames } from "@/lib/profile-display";
-import type { HealthPassportData } from "@/types/health-passport";
+import { loadTodayActivityLogs } from "@/lib/activity-log-data";
+import { buildHomeTodayActivitySummary } from "@/types/activity-log";
+import {
+  buildWatcherFollowText,
+  getWatcherId,
+} from "@/lib/family-roles";
+import {
+  queryActivePatientWatchersSafe,
+  queryActiveWatcherLinkForUser,
+} from "@/lib/family-links-query";
+import {
+  loadUserProfileRow,
+  logSupabaseError,
+} from "@/lib/load-settings-profile";
+import { resolveHomeDisplayFields } from "@/lib/profile-display";
+import { loadHealthPassportForUser } from "@/lib/health-passport-load";
+import { isHealthPassportAvailable } from "@/lib/health-passport-completion";
+import { loadVisibleFamilyNoteSafe } from "@/lib/family-notes-data";
+import { resolveStoredAvatarUrl } from "@/lib/profile-avatar-store";
 import type { StoredConfirmation, StoredMedication } from "@/types/medication";
 
-export type HomeSectionKey =
-  | "profile"
-  | "medication"
-  | "labResult"
-  | "family"
-  | "healthPassport";
-
-export type HomeScreenResponse = HomeScreenData & {
-  sectionErrors?: Partial<Record<HomeSectionKey, string>>;
-};
-
-type Profile = {
-  first_name: string;
-  last_name: string;
-};
-
-type StoredPassport = {
-  personal: HealthPassportData["personal"];
-  medications: HealthPassportData["medications"];
-  allergies: HealthPassportData["allergies"];
-  surgeries: HealthPassportData["surgeries"];
-  emergency_contact: HealthPassportData["emergencyContact"];
-};
+export type HomeScreenResponse = HomeScreenData;
 
 type AuthUser = {
   id: string;
@@ -53,105 +48,108 @@ export async function buildHomeScreenResponse(
   user: AuthUser,
   supabase: SupabaseClient,
 ): Promise<HomeScreenResponse> {
-  const sectionErrors: Partial<Record<HomeSectionKey, string>> = {};
-
   console.log("Home page user:", {
     id: user.id,
     email: user.email,
     metadata: user.user_metadata,
   });
 
-  const profile = await loadProfileSafe(user, supabase, sectionErrors);
-  const medications = await loadMedicationsSafe(user.id, supabase, sectionErrors);
-  const confirmations = await loadConfirmationsSafe(
-    user.id,
-    supabase,
-    sectionErrors,
-  );
+  const profile = await loadProfileSafe(user, supabase);
+  const medications = await loadMedicationsSafe(user.id, supabase);
+  const confirmations = await loadConfirmationsSafe(user.id, supabase);
 
   try {
     await syncMissedDoses(user.id, supabase, medications, confirmations);
   } catch (error) {
     console.error("Home medication sync failed:", error);
-    sectionErrors.medication ??= formatQueryError(error);
   }
 
-  const refreshedConfirmations = sectionErrors.medication
-    ? confirmations
-    : await loadConfirmationsSafe(user.id, supabase, sectionErrors, {
-        suppressError: true,
-      });
-
-  const labResult = await loadLabResultSafe(user.id, supabase, sectionErrors);
-  const family = await loadFamilyCardSafe(user.id, supabase, sectionErrors);
-  const passport = await loadPassportSafe(user.id, supabase, sectionErrors);
-
-  const { firstName, lastName } = resolveProfileNames(
-    profile,
-    user.user_metadata as { first_name?: string; last_name?: string },
+  const refreshedConfirmations = await loadConfirmationsSafe(
+    user.id,
+    supabase,
   );
-  const displayFirstName =
-    firstName ||
-    (user.user_metadata?.first_name as string | undefined)?.trim() ||
-    user.email?.split("@")[0] ||
-    "Willkommen";
+  const streakConfirmations = await loadStreakConfirmationsSafe(
+    user.id,
+    supabase,
+  );
+  const medicationStreak = calculateMedicationStreak(
+    medications,
+    streakConfirmations,
+  );
+
+  const labResult = await loadLabResultSafe(user.id, supabase);
+  const todayActivityLogs = await loadTodayActivityLogsSafe(user.id, supabase);
+  const family = await loadFamilyCardSafe(user.id, supabase, todayActivityLogs);
+  const passport = await loadHealthPassportForUser(user.id, supabase);
+  const watchedPatientHealthPassportAvailable =
+    await loadWatchedPatientPassportAvailable(user.id, supabase);
+  const unreadFamilyNote = await loadVisibleFamilyNoteSafe(supabase, user.id);
+
+  const metadata = user.user_metadata as {
+    first_name?: string;
+    last_name?: string;
+  } | null;
+
+  const { firstName, lastName, initials } = resolveHomeDisplayFields({
+    profile,
+    metadata,
+    email: user.email,
+  });
 
   const payload: HomeScreenResponse = {
-    firstName: displayFirstName,
-    initials: getInitials(displayFirstName, lastName) || "?",
+    firstName,
+    lastName,
+    initials,
+    avatarUrl: resolveStoredAvatarUrl({
+      profileAvatarUrl: profile?.avatar_url,
+      metadata: user.user_metadata as Record<string, unknown> | undefined,
+    }),
     medication: buildHomeMedicationSummary(medications, refreshedConfirmations),
+    medicationStreak,
     labResult,
-    family,
-    healthPassport: {
-      complete: isHealthPassportComplete(passport),
+    family: {
+      ...family,
+      watchedPatientHealthPassportAvailable,
     },
+    healthPassport: buildHomeHealthPassportSummary(passport),
+    todayActivity: buildHomeTodayActivitySummary(todayActivityLogs),
+    unreadFamilyNote,
   };
-
-  if (Object.keys(sectionErrors).length > 0) {
-    payload.sectionErrors = sectionErrors;
-    console.log("Home page section errors:", sectionErrors);
-  }
 
   console.log("Home page data:", payload);
 
   return payload;
 }
 
-async function loadProfileSafe(
-  user: AuthUser,
-  supabase: SupabaseClient,
-  sectionErrors: Partial<Record<HomeSectionKey, string>>,
-) {
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("first_name, last_name")
-    .eq("id", user.id)
-    .maybeSingle<Profile>();
+async function loadProfileSafe(user: AuthUser, supabase: SupabaseClient) {
+  console.log("Fetching profile for:", user.id);
 
-  console.log("Home page profile data:", data);
-  console.log("Home page profile error:", error);
+  const { profile, error } = await loadUserProfileRow(
+    supabase,
+    user.id,
+    "Home profile load",
+  );
+
+  console.log("Profile result:", profile);
+  console.log("Profile error:", error);
 
   if (error) {
-    sectionErrors.profile = error.message;
-    console.error("Home profile query failed:", error);
+    logSupabaseError("Home profile query failed", error);
     return null;
   }
 
-  return data;
+  return profile;
 }
 
 async function loadMedicationsSafe(
   userId: string,
   supabase: SupabaseClient,
-  sectionErrors: Partial<Record<HomeSectionKey, string>>,
 ): Promise<StoredMedication[]> {
   try {
     const medications = await loadActiveMedications(userId, supabase);
     console.log("Home page medications data:", medications);
     return medications;
   } catch (error) {
-    const message = formatQueryError(error);
-    sectionErrors.medication = message;
     console.error("Home medications query failed:", error);
     return [];
   }
@@ -160,8 +158,6 @@ async function loadMedicationsSafe(
 async function loadConfirmationsSafe(
   userId: string,
   supabase: SupabaseClient,
-  sectionErrors: Partial<Record<HomeSectionKey, string>>,
-  options?: { suppressError?: boolean },
 ): Promise<StoredConfirmation[]> {
   try {
     const confirmations = await loadTodayConfirmations(userId, supabase);
@@ -169,18 +165,23 @@ async function loadConfirmationsSafe(
     return confirmations;
   } catch (error) {
     console.error("Home confirmations query failed:", error);
-    if (!options?.suppressError) {
-      sectionErrors.medication ??= formatQueryError(error);
-    }
     return [];
   }
 }
 
-async function loadLabResultSafe(
+async function loadStreakConfirmationsSafe(
   userId: string,
   supabase: SupabaseClient,
-  sectionErrors: Partial<Record<HomeSectionKey, string>>,
-) {
+): Promise<StoredConfirmation[]> {
+  try {
+    return await loadConfirmationsForStreak(userId, supabase);
+  } catch (error) {
+    console.error("Home streak confirmations query failed:", error);
+    return [];
+  }
+}
+
+async function loadLabResultSafe(userId: string, supabase: SupabaseClient) {
   const { data, error } = await supabase
     .from("lab_results")
     .select("created_at")
@@ -193,7 +194,6 @@ async function loadLabResultSafe(
   console.log("Home page lab error:", error);
 
   if (error) {
-    sectionErrors.labResult = error.message;
     console.error("Home lab query failed:", error);
     return { hasResult: false, lastDate: null };
   }
@@ -204,175 +204,118 @@ async function loadLabResultSafe(
   };
 }
 
+async function loadTodayActivityLogsSafe(userId: string, supabase: SupabaseClient) {
+  try {
+    return await loadTodayActivityLogs(userId, supabase);
+  } catch (error) {
+    console.error("Home activity log query failed:", error);
+    return [];
+  }
+}
+
 async function loadFamilyCardSafe(
   userId: string,
   supabase: SupabaseClient,
-  sectionErrors: Partial<Record<HomeSectionKey, string>>,
+  todayActivityLogs: Awaited<ReturnType<typeof loadTodayActivityLogs>> = [],
 ) {
   try {
-    const asFamilyMember = await loadFamilyMemberLinkSafe(userId, supabase);
-
-    if (asFamilyMember) {
-      const medications = await loadActiveMedications(
-        asFamilyMember.patientId,
-        supabase,
-      );
-      const confirmations = await loadTodayConfirmations(
-        asFamilyMember.patientId,
-        supabase,
-      );
-
-      try {
-        await syncMissedDoses(
-          asFamilyMember.patientId,
-          supabase,
-          medications,
-          confirmations,
-        );
-      } catch (error) {
-        console.error("Home family patient medication sync failed:", error);
-      }
-
-      const refreshedConfirmations = await loadTodayConfirmations(
-        asFamilyMember.patientId,
-        supabase,
-      );
-      const medicationSummary = buildHomeMedicationSummary(
-        medications,
-        refreshedConfirmations,
-      );
-
-      return {
-        connectedCount: 1,
-        card: buildFamilyMemberFamilyCard({
-          patientLabel: asFamilyMember.patientLabel,
-          medication: medicationSummary,
-        }),
-      };
-    }
-
     const watchers = await loadPatientWatchersSafe(userId, supabase);
+
+    console.log(
+      "Home family watchers:",
+      watchers.map((watcher) => watcher.watcherFirstName),
+    );
 
     if (watchers.length > 0) {
       return {
         connectedCount: watchers.length,
-        card: buildPatientFamilyCard({
+        card: buildPatientFamilyCardWithActivity({
           watcherCount: watchers.length,
-          watcherFirstName: watchers[0]?.firstName,
+          watcherFirstName: watchers[0]?.watcherFirstName,
+          watcherNames: watchers.map((watcher) => watcher.watcherFirstName),
+          todayActivity: todayActivityLogs,
         }),
+        watchers,
+        watcherFollowText: buildWatcherFollowText(watchers),
       };
     }
 
     return {
       connectedCount: 0,
       card: buildDisconnectedFamilyCard(),
+      watchers: [],
+      watcherFollowText: "",
     };
   } catch (error) {
-    sectionErrors.family = formatQueryError(error);
     console.error("Home family card query failed:", error);
     return {
       connectedCount: 0,
       card: buildDisconnectedFamilyCard(),
+      watchers: [],
+      watcherFollowText: "",
     };
   }
 }
 
-async function loadFamilyMemberLinkSafe(
-  userId: string,
-  supabase: SupabaseClient,
-) {
-  const { data: familyLink, error: linkError } = await supabase
-    .from("family_links")
-    .select("patient_id")
-    .eq("family_member_id", userId)
-    .eq("active", true)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle<{ patient_id: string }>();
-
-  if (linkError) throw linkError;
-  if (!familyLink) return null;
-
-  const { data: profile, error: profileError } = await supabase
-    .from("profiles")
-    .select("first_name")
-    .eq("id", familyLink.patient_id)
-    .maybeSingle<{ first_name: string | null }>();
-
-  if (profileError) throw profileError;
-
-  const firstName = profile?.first_name?.trim() || "Mama";
-
-  return {
-    patientId: familyLink.patient_id,
-    patientLabel: getCaretakerLabel(firstName),
-  };
-}
-
 async function loadPatientWatchersSafe(userId: string, supabase: SupabaseClient) {
-  const { data: links, error: linksError } = await supabase
-    .from("family_links")
-    .select("family_member_id")
-    .eq("patient_id", userId)
-    .eq("active", true);
+  const links = await queryActivePatientWatchersSafe(supabase, userId);
+  if (!links.length) return [];
 
-  if (linksError) throw linksError;
-  if (!links?.length) return [];
-
-  const watchers: Array<{ firstName: string }> = [];
+  const watchers: Array<{
+    linkId: string;
+    watcherId: string;
+    watcherFirstName: string;
+    watcherName: string;
+    watcherInitials: string;
+    watcherAvatarUrl?: string | null;
+    relationship: string;
+  }> = [];
 
   for (const link of links) {
-    const { data: profile, error: profileError } = await supabase
-      .from("profiles")
-      .select("first_name")
-      .eq("id", link.family_member_id)
-      .maybeSingle<{ first_name: string | null }>();
+    const watcherId = getWatcherId(link);
+    const { profile, error: profileError } = await loadUserProfileRow(
+      supabase,
+      watcherId,
+      "Home watcher profile load",
+    );
 
-    if (profileError) throw profileError;
+    if (profileError) {
+      console.error("Home watcher profile query failed:", profileError);
+    }
 
-    const firstName = profile?.first_name?.trim();
-    if (firstName) watchers.push({ firstName });
+    const firstName = profile?.first_name?.trim() || "Angehörige";
+    const lastName = profile?.last_name?.trim() || "";
+
+    watchers.push({
+      linkId: link.id,
+      watcherId,
+      watcherFirstName: firstName,
+      watcherName: `${firstName}${lastName ? ` ${lastName}` : ""}`.trim(),
+      watcherInitials: getInitials(firstName, lastName) || firstName.slice(0, 2).toUpperCase(),
+      watcherAvatarUrl: profile?.avatar_url ?? null,
+      relationship: link.relationship,
+    });
   }
 
   return watchers;
 }
 
-async function loadPassportSafe(
+async function loadWatchedPatientPassportAvailable(
   userId: string,
   supabase: SupabaseClient,
-  sectionErrors: Partial<Record<HomeSectionKey, string>>,
-): Promise<HealthPassportData | null> {
-  const { data, error } = await supabase
-    .from("health_passports")
-    .select("personal, medications, allergies, surgeries, emergency_contact")
-    .eq("user_id", userId)
-    .maybeSingle<StoredPassport>();
+) {
+  try {
+    const familyLink = await queryActiveWatcherLinkForUser(supabase, userId);
+    if (!familyLink) return false;
 
-  console.log("Home page passport data:", data ? "loaded" : null);
-  console.log("Home page passport error:", error);
+    const watchedPassport = await loadHealthPassportForUser(
+      familyLink.patient_id,
+      supabase,
+    );
 
-  if (error) {
-    sectionErrors.healthPassport = error.message;
-    console.error("Home passport query failed:", error);
-    return null;
+    return isHealthPassportAvailable(watchedPassport);
+  } catch (error) {
+    console.error("Watched patient passport check failed:", error);
+    return false;
   }
-
-  if (!data) return null;
-
-  return {
-    userId,
-    personal: data.personal,
-    medications: data.medications,
-    allergies: data.allergies,
-    surgeries: data.surgeries,
-    emergencyContact: data.emergency_contact,
-  };
-}
-
-function formatQueryError(error: unknown) {
-  if (error && typeof error === "object" && "message" in error) {
-    return String(error.message);
-  }
-
-  return "Unbekannter Datenbankfehler";
 }

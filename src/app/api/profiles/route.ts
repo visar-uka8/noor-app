@@ -1,5 +1,7 @@
-import { createClient } from "@supabase/supabase-js";
 import { createClient as createServerSupabaseClient } from "@/lib/supabase/server";
+import { getAuthenticatedUser } from "@/lib/supabase/request-auth";
+import { normalizeProfileHealthFields } from "@/lib/profile-health";
+import { createSupabaseDataClient } from "@/lib/supabase-data";
 import type { Profile, UserRole } from "@/types/profiles";
 
 export const runtime = "nodejs";
@@ -18,6 +20,12 @@ type ProfileSettingsPayload = {
   language?: unknown;
   first_name?: unknown;
   last_name?: unknown;
+  date_of_birth?: unknown;
+  gender?: unknown;
+  height_cm?: unknown;
+  weight_kg?: unknown;
+  activity_level?: unknown;
+  sport_types?: unknown;
 };
 
 export async function GET(request: Request) {
@@ -56,11 +64,8 @@ export async function POST(request: Request) {
   try {
     const payload = (await request.json()) as ProfilePayload;
     const profile = normalizeProfile(payload);
-    const adminClient = createSupabaseAdminClient();
-    const authClient = await createServerSupabaseClient();
-    const {
-      data: { user },
-    } = await authClient.auth.getUser();
+    const adminClient = createSupabaseDataClient();
+    const { user } = await getAuthenticatedUser(request);
 
     if (!adminClient) {
       if (!user || user.id !== profile.id) {
@@ -76,18 +81,21 @@ export async function POST(request: Request) {
       );
     }
 
-    const supabase = adminClient ?? authClient;
+    const supabase = adminClient ?? (await createServerSupabaseClient());
 
     console.log("[profiles POST] saving profile", {
       id: profile.id,
       role: profile.role,
+      user_type: profile.user_type,
       usingServiceRole: Boolean(adminClient),
       hasAuthSession: Boolean(user),
     });
 
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("profiles")
-      .upsert(profile, { onConflict: "id" });
+      .upsert(profile, { onConflict: "id" })
+      .select("id, role, first_name, last_name")
+      .maybeSingle();
 
     if (error) {
       console.error("[profiles POST] Supabase error:", {
@@ -111,7 +119,9 @@ export async function POST(request: Request) {
       );
     }
 
-    return Response.json({ stored: true, profile });
+    console.log("[profiles POST] save result:", data);
+
+    return Response.json({ stored: true, profile: data ?? profile });
   } catch (error) {
     console.error("[profiles POST] Profile save failed", error);
 
@@ -133,23 +143,72 @@ export async function PATCH(request: Request) {
       return Response.json({ error: "Profil-ID fehlt." }, { status: 400 });
     }
 
-    const updates = normalizeSettings(payload);
-    const supabase = createSupabaseAdminClient();
+    const { user } = await getAuthenticatedUser(request);
+    const adminClient = createSupabaseDataClient();
 
-    if (!supabase) {
-      return Response.json({
-        stored: false,
-        reason: "Supabase ist lokal noch nicht konfiguriert.",
-        profile: { id: payload.id, ...updates },
-      });
+    if (!user || user.id !== payload.id) {
+      if (!adminClient) {
+        return Response.json({ error: "Bitte melden Sie sich an." }, { status: 401 });
+      }
     }
 
-    const { error } = await supabase
-      .from("profiles")
-      .update(updates)
-      .eq("id", payload.id);
+    const settingsUpdates = normalizeSettings(payload);
+    let healthUpdates = {};
 
-    if (error) throw error;
+    try {
+      healthUpdates = normalizeProfileHealthFields(payload);
+    } catch (error) {
+      return Response.json(
+        {
+          error:
+            error instanceof Error
+              ? error.message
+              : "Profildaten konnten nicht validiert werden.",
+        },
+        { status: 400 },
+      );
+    }
+
+    const updates = { ...settingsUpdates, ...healthUpdates };
+    const supabase = adminClient ?? (await createServerSupabaseClient());
+
+    const { data: existing, error: existingError } = await supabase
+      .from("profiles")
+      .select("id, first_name, last_name")
+      .eq("id", payload.id)
+      .maybeSingle();
+
+    if (existingError) throw existingError;
+
+    if (existing) {
+      const { error } = await supabase
+        .from("profiles")
+        .update(updates)
+        .eq("id", payload.id);
+
+      if (error) throw error;
+    } else {
+      const metadata = user?.user_metadata as
+        | { first_name?: string; last_name?: string }
+        | undefined;
+      const firstName =
+        settingsUpdates.first_name ??
+        metadata?.first_name?.trim() ??
+        "Nutzer";
+      const lastName =
+        settingsUpdates.last_name ?? metadata?.last_name?.trim() ?? "";
+
+      const { error } = await supabase.from("profiles").insert({
+        id: payload.id,
+        first_name: firstName,
+        last_name: lastName,
+        elder_mode: false,
+        language: "de",
+        ...updates,
+      });
+
+      if (error) throw error;
+    }
 
     return Response.json({ stored: true, profile: { id: payload.id, ...updates } });
   } catch (error) {
@@ -163,16 +222,7 @@ export async function PATCH(request: Request) {
 }
 
 function createSupabaseAdminClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseKey =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ??
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-  if (!supabaseUrl || !supabaseKey) return null;
-
-  return createClient(supabaseUrl, supabaseKey, {
-    auth: { persistSession: false },
-  });
+  return createSupabaseDataClient();
 }
 
 function normalizeProfile(payload: ProfilePayload) {
@@ -190,13 +240,13 @@ function normalizeProfile(payload: ProfilePayload) {
     id: payload.id,
     first_name: payload.first_name.trim(),
     last_name: payload.last_name.trim(),
-    date_of_birth:
-      typeof payload.date_of_birth === "string" && payload.date_of_birth
-        ? payload.date_of_birth
-        : null,
     role,
+    user_type: role,
     elder_mode: false,
     language: "de",
+    ...(typeof payload.date_of_birth === "string" && payload.date_of_birth
+      ? { date_of_birth: payload.date_of_birth }
+      : {}),
   };
 }
 

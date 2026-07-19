@@ -1,6 +1,16 @@
+import type { PatientFamilyNote } from "@/types/family-notes";
 import type { HealthPassportData } from "@/types/health-passport";
 import type { StoredConfirmation, StoredMedication } from "@/types/medication";
-import { buildMedicationItems } from "@/lib/family-dashboard-status";
+import type { StoredActivityLog } from "@/types/activity-log";
+import { formatTodayActivityShortLabelFromLogs } from "@/types/activity-log";
+import {
+  buildFamilyMemberCardSubtitle,
+  buildMedicationItems,
+} from "@/lib/family-dashboard-status";
+import {
+  getHealthPassportCompletion,
+  type PassportCompletionStatus,
+} from "@/lib/health-passport-completion";
 import { getProfileInitials } from "@/lib/profile-display";
 
 export type HomeMedicationStatus = "green" | "amber" | "red";
@@ -17,7 +27,9 @@ export type FamilyCardStatus = {
 
 export type HomeScreenData = {
   firstName: string;
+  lastName: string;
   initials: string;
+  avatarUrl: string | null;
   medication: {
     total: number;
     confirmed: number;
@@ -25,6 +37,7 @@ export type HomeScreenData = {
     missed: number;
     status: HomeMedicationStatus;
   };
+  medicationStreak: number;
   labResult: {
     hasResult: boolean;
     lastDate: string | null;
@@ -32,10 +45,37 @@ export type HomeScreenData = {
   family: {
     connectedCount: number;
     card: FamilyCardStatus;
+    watchers: Array<{
+      linkId: string;
+      watcherId: string;
+      watcherFirstName: string;
+      watcherName: string;
+    watcherInitials: string;
+    watcherAvatarUrl?: string | null;
+    relationship: string;
+    }>;
+    watcherFollowText: string;
+    watchedPatientHealthPassportAvailable: boolean;
   };
   healthPassport: {
     complete: boolean;
+    completionPercent: number;
+    completionStatus: PassportCompletionStatus;
+    subtitle: string;
+    dotColor: string;
+    hasOverdueVaccination: boolean;
   };
+  todayActivity: {
+    activityType: StoredActivityLog["activity_type"];
+    emoji: string;
+    title: string;
+    subtitle: string;
+    durationMinutes: number | null;
+    shortLabel: string;
+    count: number;
+    totalMinutes: number;
+  } | null;
+  unreadFamilyNote: PatientFamilyNote | null;
 };
 
 export function getTimeGreeting(date: Date) {
@@ -43,7 +83,7 @@ export function getTimeGreeting(date: Date) {
 
   if (hour >= 5 && hour < 11) return "Guten Morgen";
   if (hour >= 11 && hour < 14) return "Guten Tag";
-  if (hour >= 14 && hour < 21) return "Guten Abend";
+  if (hour >= 14 && hour < 23) return "Guten Abend";
 
   return "Gute Nacht";
 }
@@ -53,19 +93,22 @@ export function getInitials(firstName: string, lastName = "") {
 }
 
 export function isHealthPassportComplete(passport: HealthPassportData | null) {
-  if (!passport) return false;
+  return getHealthPassportCompletion(passport).percent === 100;
+}
 
-  const hasPersonal =
-    passport.personal.fullName.trim().length > 0 &&
-    passport.personal.dateOfBirth.trim().length > 0;
-  const hasEmergency =
-    passport.emergencyContact.name.trim().length > 0 ||
-    passport.personal.familyDoctorName.trim().length > 0;
-  const hasMedication = passport.medications.some(
-    (medication) => medication.name.trim().length > 0,
-  );
+export function buildHomeHealthPassportSummary(
+  passport: HealthPassportData | null,
+) {
+  const completion = getHealthPassportCompletion(passport);
 
-  return hasPersonal && hasEmergency && hasMedication;
+  return {
+    complete: completion.percent === 100,
+    completionPercent: completion.percent,
+    completionStatus: completion.status,
+    subtitle: completion.subtitle,
+    dotColor: completion.dotColor,
+    hasOverdueVaccination: completion.hasOverdueVaccination,
+  };
 }
 
 export function buildHomeMedicationSummary(
@@ -110,11 +153,19 @@ export function buildDisconnectedFamilyCard(): FamilyCardStatus {
 export function buildPatientFamilyCard(input: {
   watcherCount: number;
   watcherFirstName?: string;
+  watcherNames?: string[];
 }): FamilyCardStatus {
-  const subtitle =
-    input.watcherCount === 1 && input.watcherFirstName
-      ? `${input.watcherFirstName} verfolgt mit 💚`
-      : `${input.watcherCount} Personen verbunden`;
+  const names =
+    input.watcherNames?.filter((name) => name.trim().length > 0) ??
+    (input.watcherFirstName ? [input.watcherFirstName] : []);
+
+  let subtitle = `${input.watcherCount} Personen verbunden`;
+
+  if (names.length === 1) {
+    subtitle = `${names[0]} folgt mit 💚`;
+  } else if (names.length > 1) {
+    subtitle = `${names.join(" und ")} folgen mit 💚`;
+  }
 
   return {
     mode: "patient",
@@ -133,44 +184,43 @@ export function buildFamilyMemberFamilyCard(input: {
     missed: number;
     status: HomeMedicationStatus;
   };
+  todayActivity?: Pick<StoredActivityLog, "activity_type" | "duration_minutes">[] | null;
 }): FamilyCardStatus {
-  const { patientLabel, medication } = input;
-
-  if (medication.total === 0 || medication.status === "green") {
-    const colors = FAMILY_CARD_COLORS.green;
-    return {
-      mode: "family",
-      iconBackground: colors.iconBackground,
-      iconColor: colors.iconColor,
-      subtitle: `${patientLabel}: Alles okay ✓`,
-      subtitleColor: colors.text,
-    };
-  }
-
-  if (medication.status === "red") {
-    const colors = FAMILY_CARD_COLORS.red;
-    return {
-      mode: "family",
-      iconBackground: colors.iconBackground,
-      iconColor: colors.iconColor,
-      subtitle: `${patientLabel}: Dosis vergessen`,
-      subtitleColor: colors.text,
-    };
-  }
-
-  const colors = FAMILY_CARD_COLORS.amber;
-  const pendingText =
-    medication.pending === 1
-      ? "1 Dosis ausstehend"
-      : `${medication.pending} Dosen ausstehend`;
+  const subtitle = buildFamilyMemberCardSubtitle(input);
+  const hasActivity = Boolean(input.todayActivity?.length);
+  const colors = hasActivity || input.medication.status === "green"
+    ? FAMILY_CARD_COLORS.green
+    : input.medication.status === "red"
+      ? FAMILY_CARD_COLORS.red
+      : FAMILY_CARD_COLORS.amber;
 
   return {
     mode: "family",
     iconBackground: colors.iconBackground,
     iconColor: colors.iconColor,
-    subtitle: `${patientLabel}: ${pendingText}`,
+    subtitle,
     subtitleColor: colors.text,
   };
+}
+
+export function buildPatientFamilyCardWithActivity(input: {
+  watcherCount: number;
+  watcherFirstName?: string;
+  watcherNames?: string[];
+  todayActivity?: Pick<StoredActivityLog, "activity_type" | "duration_minutes">[] | null;
+}): FamilyCardStatus {
+  if (input.todayActivity?.length) {
+    const colors = FAMILY_CARD_COLORS.green;
+    return {
+      mode: "patient",
+      iconBackground: colors.iconBackground,
+      iconColor: colors.iconColor,
+      subtitle: formatTodayActivityShortLabelFromLogs(input.todayActivity),
+      subtitleColor: colors.text,
+    };
+  }
+
+  return buildPatientFamilyCard(input);
 }
 
 export function formatHomeLabDate(dateString: string | null) {
@@ -182,9 +232,76 @@ export function formatHomeLabDate(dateString: string | null) {
   });
 }
 
+export type HomeScreenPreviewMockData = {
+  firstName: string;
+  streak: number;
+  medicationsConfirmed: boolean;
+  lastLabDate: string;
+  familyStatus: string;
+};
+
+export function buildPreviewHomeScreenData(
+  mock: HomeScreenPreviewMockData,
+): HomeScreenData {
+  const medicationTotal = 2;
+
+  return {
+    firstName: mock.firstName,
+    lastName: "",
+    initials: getInitials(mock.firstName),
+    avatarUrl: null,
+    medication: {
+      total: medicationTotal,
+      confirmed: mock.medicationsConfirmed ? medicationTotal : 0,
+      pending: mock.medicationsConfirmed ? 0 : medicationTotal,
+      missed: 0,
+      status: mock.medicationsConfirmed ? "green" : "amber",
+    },
+    medicationStreak: mock.streak,
+    labResult: {
+      hasResult: true,
+      lastDate: mock.lastLabDate,
+    },
+    family: {
+      connectedCount: 1,
+      card: {
+        mode: "family",
+        iconBackground: "#E1F5EE",
+        iconColor: "#1D9E75",
+        subtitle: mock.familyStatus,
+        subtitleColor: "#1D9E75",
+      },
+      watchers: [
+        {
+          linkId: "preview-watcher",
+          watcherId: "preview-watcher",
+          watcherFirstName: "Mama",
+          watcherName: "Mama",
+          watcherInitials: "M",
+          relationship: "Tochter",
+        },
+      ],
+      watcherFollowText: mock.familyStatus,
+      watchedPatientHealthPassportAvailable: false,
+    },
+    healthPassport: {
+      complete: true,
+      completionPercent: 100,
+      completionStatus: "complete",
+      subtitle: "Vollständig ✓",
+      dotColor: "#1D9E75",
+      hasOverdueVaccination: false,
+    },
+    todayActivity: null,
+    unreadFamilyNote: null,
+  };
+}
+
 export const demoHomeScreenData: HomeScreenData = {
   firstName: "Renate",
+  lastName: "L.",
   initials: "RL",
+  avatarUrl: null,
   medication: {
     total: 1,
     confirmed: 1,
@@ -192,6 +309,7 @@ export const demoHomeScreenData: HomeScreenData = {
     missed: 0,
     status: "green",
   },
+  medicationStreak: 0,
   labResult: {
     hasResult: true,
     lastDate: "5. Juni",
@@ -202,10 +320,29 @@ export const demoHomeScreenData: HomeScreenData = {
       mode: "patient",
       iconBackground: "#E1F5EE",
       iconColor: "#1D9E75",
-      subtitle: "Alex verfolgt mit 💚",
+      subtitle: "Alex folgt mit 💚",
     },
+    watchers: [
+      {
+        linkId: "demo-watcher",
+        watcherId: "demo-watcher",
+        watcherFirstName: "Alex",
+        watcherName: "Alex",
+        watcherInitials: "A",
+        relationship: "Sohn",
+      },
+    ],
+    watcherFollowText: "Alex folgt Ihrer Gesundheit 💚",
+    watchedPatientHealthPassportAvailable: false,
   },
   healthPassport: {
     complete: true,
+    completionPercent: 100,
+    completionStatus: "complete",
+    subtitle: "Vollständig ✓",
+    dotColor: "#1D9E75",
+    hasOverdueVaccination: false,
   },
+  todayActivity: null,
+  unreadFamilyNote: null,
 };

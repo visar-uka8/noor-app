@@ -3,11 +3,15 @@
 import { ErrorBanner } from "@/components/AppStates";
 import { Loader2, Share2, UsersRound } from "lucide-react";
 import { useEffect, useState } from "react";
+import { supabase } from "@/lib/supabase";
 import {
   buildInviteShareMessage,
   formatInviteCountdown,
   type FamilyInvite,
 } from "@/types/family-connect";
+
+const PATIENT_ROLE_LABEL =
+  "Sie sind der Patient. Teilen Sie diesen Code mit Ihrem Kind damit es Ihre Gesundheit im Blick behalten kann.";
 
 export function FamilyConnectInvite() {
   const [invite, setInvite] = useState<FamilyInvite | null>(null);
@@ -36,7 +40,17 @@ export function FamilyConnectInvite() {
     setShareFeedback(null);
 
     try {
-      const response = await fetch("/api/family-invites", { method: "POST" });
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      const response = await fetch("/api/family-invites", {
+        method: "POST",
+        credentials: "include",
+        headers: session?.access_token
+          ? { Authorization: `Bearer ${session.access_token}` }
+          : {},
+      });
 
       if (!response.ok) {
         throw new Error("Invite creation failed.");
@@ -86,8 +100,11 @@ export function FamilyConnectInvite() {
           <UsersRound size={32} strokeWidth={2.2} />
         </div>
 
-        <p className="mt-5 text-center text-base leading-relaxed text-muted">
-          Teilen Sie diesen Code mit Ihrem Kind
+        <p
+          className="mt-5 text-center text-[15px] leading-relaxed font-medium text-[#085041]"
+          role="status"
+        >
+          {PATIENT_ROLE_LABEL}
         </p>
 
         <div className="mt-6 rounded-2xl bg-family-light px-4 py-6 text-center">
@@ -152,7 +169,10 @@ export function FamilyConnectInvite() {
 
       <section className="noor-card p-6">
         <h2 className="heading-lg">Familie einladen</h2>
-        <p className="text-body mt-2 text-muted">
+        <p className="mt-3 text-[15px] leading-relaxed font-medium text-[#085041]">
+          {PATIENT_ROLE_LABEL}
+        </p>
+        <p className="text-body mt-3 text-muted">
           Erstellen Sie einen Code, damit Ihr Kind Ihre Gesundheit in Noor sehen
           kann.
         </p>

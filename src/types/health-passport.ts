@@ -34,6 +34,20 @@ export type PassportSurgery = {
   hospital: string;
 };
 
+export type PassportVaccination = {
+  id: string;
+  name: string;
+  date: string;
+  next_due: string;
+};
+
+export type PassportCondition = {
+  id: string;
+  name: string;
+  since: string;
+  treatment: string;
+};
+
 export type EmergencyContact = {
   name: string;
   relationship: string;
@@ -55,6 +69,8 @@ export type HealthPassportData = {
   personal: HealthPassportPersonal;
   medications: PassportMedication[];
   allergies: PassportAllergy[];
+  conditions: PassportCondition[];
+  vaccinations: PassportVaccination[];
   surgeries: PassportSurgery[];
   emergencyContact: EmergencyContact;
 };
@@ -91,6 +107,24 @@ export function createEmptySurgery(): PassportSurgery {
   };
 }
 
+export function createEmptyVaccination(): PassportVaccination {
+  return {
+    id: crypto.randomUUID(),
+    name: "",
+    date: "",
+    next_due: "",
+  };
+}
+
+export function createEmptyCondition(): PassportCondition {
+  return {
+    id: crypto.randomUUID(),
+    name: "",
+    since: "",
+    treatment: "",
+  };
+}
+
 export function createEmptyPassport(userId = ""): HealthPassportData {
   return {
     userId,
@@ -103,12 +137,10 @@ export function createEmptyPassport(userId = ""): HealthPassportData {
       familyDoctorName: "",
       familyDoctorPhone: "",
     },
-    medications: [
-      createEmptyMedication(),
-      createEmptyMedication(),
-      createEmptyMedication(),
-    ],
+    medications: [],
     allergies: [],
+    conditions: [],
+    vaccinations: [],
     surgeries: [],
     emergencyContact: {
       name: "",

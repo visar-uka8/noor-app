@@ -1,23 +1,21 @@
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
+import { getAuthenticatedUser } from "@/lib/supabase/request-auth";
 import { buildShareUrl } from "@/lib/health-passport-share";
 
 export const runtime = "nodejs";
 
 const SHARE_TTL_MS = 24 * 60 * 60 * 1000;
 
-export async function POST() {
+export async function POST(request: Request) {
   try {
-    const authSupabase = await createClient();
-    const {
-      data: { user },
-      error: authError,
-    } = await authSupabase.auth.getUser();
+    const { user } = await getAuthenticatedUser(request);
 
-    if (authError || !user) {
+    if (!user) {
       return Response.json({ error: "Bitte melden Sie sich an." }, { status: 401 });
     }
 
+    const authSupabase = await createClient();
     const supabase = createSupabaseDataClient() ?? authSupabase;
 
     const { data: passport, error: passportError } = await supabase
@@ -44,18 +42,28 @@ export async function POST() {
         patient_id: user.id,
         token,
         expires_at: expiresAt.toISOString(),
+        created_at: new Date().toISOString(),
       })
       .select("id, token, expires_at")
       .single();
 
     if (error) throw error;
 
+    const shareUrl = buildShareUrl(data.token);
+
+    console.log("[health-passport/share] created", {
+      userId: user.id,
+      token: data.token,
+      shareUrl,
+      expiresAt: data.expires_at,
+    });
+
     return Response.json({
       share: {
         id: data.id,
         token: data.token,
         expiresAt: data.expires_at,
-        shareUrl: buildShareUrl(data.token),
+        shareUrl,
       },
     });
   } catch (error) {
@@ -69,8 +77,11 @@ export async function POST() {
 }
 
 function generateShareToken() {
-  const bytes = crypto.getRandomValues(new Uint8Array(16));
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  // Compact URL-safe token (similar to Math.random().toString(36) but stronger).
+  const bytes = crypto.getRandomValues(new Uint8Array(12));
+  return Array.from(bytes, (byte) =>
+    (byte % 36).toString(36),
+  ).join("");
 }
 
 function createSupabaseDataClient() {

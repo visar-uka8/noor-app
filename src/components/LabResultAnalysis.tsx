@@ -3,7 +3,9 @@
 import { Share2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import { createClient } from "@/lib/supabase/client";
 import type { LabAnalysisResult } from "@/types/lab-results";
+import { formatLabResultDate } from "@/types/lab-results";
 import {
   getLabValueStatusKey,
   isDoctorVisitUrgent,
@@ -19,6 +21,12 @@ type LabResultAnalysisProps = {
 };
 
 type LabValueFilterKey = "all" | "red" | "amber" | "green";
+
+type ShareProfile = {
+  first_name: string | null;
+  last_name: string | null;
+  date_of_birth: string | null;
+};
 
 function matchesLabValueFilter(
   value: ParsedLabValue,
@@ -49,34 +57,132 @@ const BORDER_BY_LEVEL: Record<LabValueLevel, string> = {
   red: "border-l-[#A32D2D]",
 };
 
+function formatShareBirthDate(value: string | null | undefined) {
+  if (!value?.trim()) return "—";
+
+  const trimmed = value.trim();
+  const parsed = new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) return trimmed;
+
+  return formatLabResultDate(trimmed);
+}
+
+function formatDoctorShareTitle(doctorName: string | null | undefined) {
+  const name = doctorName?.trim() ?? "";
+  if (!name) return "Laborwerte für den Hausarzt";
+  if (/^dr\.?\b/i.test(name)) return `Laborwerte für ${name}`;
+  return `Laborwerte für Dr. ${name}`;
+}
+
+async function loadDoctorShareContext() {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  let profile: ShareProfile | null = null;
+  let doctorName = "";
+
+  if (user?.id) {
+    const { data } = await supabase
+      .from("profiles")
+      .select("first_name, last_name, date_of_birth")
+      .eq("id", user.id)
+      .maybeSingle<ShareProfile>();
+
+    profile = data;
+  }
+
+  try {
+    const response = await fetch("/api/health-passport", {
+      credentials: "include",
+    });
+    if (response.ok) {
+      const body = (await response.json()) as {
+        passport?: { personal?: { familyDoctorName?: string } };
+      };
+      doctorName = body.passport?.personal?.familyDoctorName?.trim() ?? "";
+    }
+  } catch (error) {
+    console.error("Failed to load Hausarzt for lab share:", error);
+  }
+
+  return { profile, doctorName };
+}
+
+function buildSharePayload(
+  audience: "doctor" | "family",
+  analysisText: string,
+  createdAt: string | undefined,
+  context: { profile: ShareProfile | null; doctorName: string },
+) {
+  const formattedDate = formatLabResultDate(
+    createdAt ?? new Date().toISOString(),
+  );
+
+  if (audience === "family") {
+    return {
+      title: "Meine Laborwerte — Noor Analyse",
+      text: `Laboranalyse vom ${formattedDate}\n\n${analysisText}`,
+    };
+  }
+
+  const firstName = context.profile?.first_name?.trim() ?? "";
+  const lastName = context.profile?.last_name?.trim() ?? "";
+  const patientName = `${firstName} ${lastName}`.trim() || "—";
+  const birthDate = formatShareBirthDate(context.profile?.date_of_birth);
+
+  return {
+    title: formatDoctorShareTitle(context.doctorName),
+    text: `Patient: ${patientName}\nGeburtsdatum: ${birthDate}\n\n${analysisText}`,
+  };
+}
+
 export function LabResultAnalysis({ result }: LabResultAnalysisProps) {
   const [shareFeedback, setShareFeedback] = useState<string | null>(null);
+  const [isSharing, setIsSharing] = useState(false);
   const parsed = useMemo(
     () => parseLabAnalysis(result.analysis),
     [result.analysis],
   );
 
   async function shareAnalysis(audience: "doctor" | "family") {
-    const intro =
-      audience === "doctor"
-        ? "Meine Laborwerte — erklärt von Noor:"
-        : "Hallo, hier sind meine Laborwerte — erklärt von Noor:";
+    if (isSharing) return;
 
-    const message = `${intro}\n\n${result.analysis}`;
+    setIsSharing(true);
+    setShareFeedback(null);
 
     try {
+      const context =
+        audience === "doctor"
+          ? await loadDoctorShareContext()
+          : { profile: null, doctorName: "" };
+
+      const { title, text } = buildSharePayload(
+        audience,
+        result.analysis,
+        result.createdAt,
+        context,
+      );
+
       if (navigator.share) {
-        await navigator.share({
-          title: "Noor Laboranalyse",
-          text: message,
-        });
+        await navigator.share({ title, text });
         return;
       }
 
-      await navigator.clipboard.writeText(message);
+      await navigator.clipboard.writeText(`${title}\n\n${text}`);
       setShareFeedback("Analyse wurde kopiert.");
-    } catch {
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        (error.name === "AbortError" || error.message.includes("Share canceled"))
+      ) {
+        return;
+      }
+
       setShareFeedback("Teilen ist gerade nicht möglich.");
+    } finally {
+      setIsSharing(false);
     }
   }
 
@@ -89,7 +195,7 @@ export function LabResultAnalysis({ result }: LabResultAnalysisProps) {
         <StructuredAnalysisView parsed={parsed} />
       ) : (
         <article className="noor-card mt-4 border-l-4 border-l-primary p-5">
-          <div className="analysis-markdown">
+          <div className="analysis-markdown lab-analysis-text">
             <ReactMarkdown>{result.analysis}</ReactMarkdown>
           </div>
         </article>
@@ -106,16 +212,18 @@ export function LabResultAnalysis({ result }: LabResultAnalysisProps) {
       <div className="mt-8 flex flex-col gap-3 pb-2">
         <button
           type="button"
-          onClick={() => shareAnalysis("doctor")}
-          className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-primary px-5 py-4 text-base font-semibold text-white transition-colors hover:bg-primary-dark active:scale-[0.98]"
+          onClick={() => void shareAnalysis("doctor")}
+          disabled={isSharing}
+          className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-primary px-5 py-4 text-base font-semibold text-white transition-colors hover:bg-primary-dark active:scale-[0.98] disabled:opacity-60"
         >
           <Share2 size={20} aria-hidden="true" />
           Mit Hausarzt teilen
         </button>
         <button
           type="button"
-          onClick={() => shareAnalysis("family")}
-          className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border-2 border-primary bg-surface px-5 py-4 text-base font-semibold text-primary transition-colors hover:bg-primary-light active:scale-[0.98]"
+          onClick={() => void shareAnalysis("family")}
+          disabled={isSharing}
+          className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border-2 border-primary bg-surface px-5 py-4 text-base font-semibold text-primary transition-colors hover:bg-primary-light active:scale-[0.98] disabled:opacity-60"
         >
           <Share2 size={20} aria-hidden="true" />
           Mit Familie teilen
@@ -191,7 +299,7 @@ function StructuredAnalysisView({
       {parsed.summary ? (
         <section className="rounded-2xl border border-border border-l-4 border-l-[#1D9E75] bg-[#E1F5EE] p-5 shadow-[var(--warm-shadow)]">
           <h3 className="text-lg font-bold text-[#085041]">Zusammenfassung</h3>
-          <div className="analysis-markdown mt-3">
+          <div className="analysis-markdown lab-analysis-text mt-3">
             <ReactMarkdown>{parsed.summary}</ReactMarkdown>
           </div>
         </section>
@@ -263,7 +371,7 @@ function StructuredAnalysisView({
           }`}
         >
           <h3 className="text-lg font-bold text-[#085041]">Wann zum Arzt</h3>
-          <div className="analysis-markdown mt-3">
+          <div className="analysis-markdown lab-analysis-text mt-3">
             <ReactMarkdown>{parsed.doctorVisit}</ReactMarkdown>
           </div>
         </section>
@@ -452,7 +560,7 @@ function LabValueCard({ value }: { value: ParsedLabValue }) {
       )}
 
       {value.meaning ? (
-        <p className="lab-value-explanation mt-3 text-foreground">
+        <p className="lab-analysis-text lab-value-explanation mt-3 text-foreground">
           <span className="font-semibold text-heading">Was bedeutet das: </span>
           {value.meaning}
         </p>
@@ -467,7 +575,7 @@ function LabValueCard({ value }: { value: ParsedLabValue }) {
       ) : null}
 
       {value.tip ? (
-        <p className="lab-value-explanation mt-3 flex gap-2 text-foreground">
+        <p className="lab-analysis-text lab-value-explanation mt-3 flex gap-2 text-foreground">
           <span aria-hidden="true">💡</span>
           <span>{value.tip}</span>
         </p>

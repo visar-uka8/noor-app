@@ -154,6 +154,46 @@ export type LabAnalysisCounts = {
   high: number;
 };
 
+export type LabResultStatusDisplay =
+  | { mode: "pills"; counts: LabAnalysisCounts }
+  | { mode: "tap" };
+
+export function getLabResultStatusDisplay(result: {
+  ai_analysis?: string | null;
+  normal_count?: number | null;
+  watch_count?: number | null;
+  high_count?: number | null;
+}): LabResultStatusDisplay {
+  const hasSavedCounts =
+    result.normal_count != null ||
+    result.watch_count != null ||
+    result.high_count != null;
+
+  if (hasSavedCounts) {
+    return {
+      mode: "pills",
+      counts: {
+        normal: result.normal_count ?? 0,
+        watch: result.watch_count ?? 0,
+        high: result.high_count ?? 0,
+      },
+    };
+  }
+
+  const text = result.ai_analysis?.trim() ?? "";
+  if (text) {
+    const normal = (text.match(/🟢/g) || []).length;
+    const watch = (text.match(/🟡/g) || []).length;
+    const high = (text.match(/🔴/g) || []).length;
+
+    if (normal + watch + high > 0) {
+      return { mode: "pills", counts: { normal, watch, high } };
+    }
+  }
+
+  return { mode: "tap" };
+}
+
 export function getLabAnalysisCounts(
   text: string,
   stored?: {

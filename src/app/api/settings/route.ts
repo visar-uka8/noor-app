@@ -1,14 +1,17 @@
-import { createClient as createAdminClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
+import { createSupabaseDataClient } from "@/lib/supabase-data";
 import {
-  getProfileInitials,
-  resolveProfileNames,
-} from "@/lib/profile-display";
+  buildProfileSettingsFields,
+  loadUserProfileRow,
+  logSupabaseError,
+} from "@/lib/load-settings-profile";
+import { normalizeNotificationPreferences } from "@/lib/notification-preferences";
+import { getWatcherId } from "@/lib/family-roles";
+import { queryActiveFamilyLinksForUser } from "@/lib/family-links-query";
 import {
-  defaultNotificationPreferences,
   formatConnectionDate,
   type FamilyConnection,
-  type NotificationPreferences,
   type SettingsData,
 } from "@/types/settings";
 
@@ -20,26 +23,10 @@ type SettingsPayload = {
   notification_preferences?: unknown;
 };
 
-type ProfileRow = {
-  id: string;
-  first_name: string;
-  last_name: string;
-  role?: string;
-  language: "de" | "en";
-  elder_mode: boolean;
-  notification_preferences: NotificationPreferences | null;
-};
-
 type AuthMetadata = {
   first_name?: string;
   last_name?: string;
-};
-
-type FamilyLinkRow = {
-  id: string;
-  relationship: string;
-  created_at: string;
-  family_member_id: string;
+  avatar_url?: string;
 };
 
 type LinkedProfile = {
@@ -61,16 +48,15 @@ export async function GET() {
     }
 
     const supabase = createSupabaseDataClient() ?? authSupabase;
+    const { profile, error: profileError } = await loadUserProfileRow(
+      supabase,
+      user.id,
+      "Settings API profile",
+    );
 
-    const { data: profile, error: profileError } = await supabase
-      .from("profiles")
-      .select(
-        "id, first_name, last_name, role, language, elder_mode, notification_preferences",
-      )
-      .eq("id", user.id)
-      .maybeSingle<ProfileRow>();
-
-    if (profileError) throw profileError;
+    if (profileError && !profile) {
+      logSupabaseError("Settings API profile fatal", profileError);
+    }
 
     let resolvedProfile = profile;
 
@@ -78,78 +64,35 @@ export async function GET() {
       resolvedProfile = await ensureProfileFromMetadata(
         supabase,
         user.id,
-        user.user_metadata,
+        user.user_metadata as AuthMetadata | undefined,
       );
     }
 
     const metadata = user.user_metadata as AuthMetadata | undefined;
-    const { firstName, lastName } = resolveProfileNames(
-      resolvedProfile,
-      metadata,
+    const familyConnections = await loadFamilyConnectionsSafe(
+      supabase,
+      user.id,
     );
 
-    const { data: familyLinks, error: linksError } = await supabase
-      .from("family_links")
-      .select("id, relationship, created_at, family_member_id")
-      .eq("patient_id", user.id)
-      .eq("active", true)
-      .order("created_at", { ascending: false })
-      .returns<FamilyLinkRow[]>();
-
-    if (linksError) throw linksError;
-
-    const memberIds = (familyLinks ?? []).map((link) => link.family_member_id);
-    let linkedProfiles: LinkedProfile[] = [];
-
-    if (memberIds.length > 0) {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("id, first_name, last_name")
-        .in("id", memberIds)
-        .returns<LinkedProfile[]>();
-
-      if (error) throw error;
-      linkedProfiles = data ?? [];
-    }
-
-    const familyConnections: FamilyConnection[] = (familyLinks ?? []).map((link) => {
-      const member = linkedProfiles.find(
-        (linkedProfile) => linkedProfile.id === link.family_member_id,
-      );
-      const name = member
-        ? `${member.first_name} ${member.last_name}`.trim()
-        : "Familienmitglied";
-
-      return {
-        id: link.id,
-        name,
-        relationship: link.relationship,
-        connectedAt: formatConnectionDate(link.created_at),
-      };
-    });
-
     const payload: SettingsData = {
-      profile: {
-        id: user.id,
-        firstName,
-        lastName,
-        email: user.email ?? "",
-        initials: getProfileInitials(firstName, lastName),
-        language: resolvedProfile?.language ?? "de",
-        elderMode: resolvedProfile?.elder_mode ?? false,
-        notificationPreferences:
-          resolvedProfile?.notification_preferences ??
-          defaultNotificationPreferences,
-      },
+      profile: buildProfileSettingsFields({
+        userId: user.id,
+        email: user.email,
+        profile: resolvedProfile,
+        metadata,
+      }),
       familyConnections,
     };
 
     return Response.json(payload);
   } catch (error) {
-    console.error("Settings load failed", error);
+    logSupabaseError("Settings load failed", error);
 
     return Response.json(
-      { error: "Einstellungen konnten nicht geladen werden." },
+      {
+        error: "Einstellungen konnten nicht geladen werden.",
+        details: error instanceof Error ? error.message : "Unknown error",
+      },
       { status: 500 },
     );
   }
@@ -198,7 +141,7 @@ export async function PATCH(request: Request) {
 
     return Response.json({ stored: true });
   } catch (error) {
-    console.error("Settings update failed", error);
+    logSupabaseError("Settings update failed", error);
 
     return Response.json(
       { error: "Einstellungen konnten nicht gespeichert werden." },
@@ -207,33 +150,86 @@ export async function PATCH(request: Request) {
   }
 }
 
-function normalizeNotificationPreferences(value: unknown): NotificationPreferences {
-  const preferences = value as Record<string, unknown>;
+async function loadFamilyConnectionsSafe(
+  supabase: SupabaseClient,
+  userId: string,
+): Promise<FamilyConnection[]> {
+  try {
+    const links = await queryActiveFamilyLinksForUser(supabase, userId);
+    const profileIds = new Set<string>();
 
-  if (typeof preferences.emailNotifications === "boolean") {
-    return { emailNotifications: preferences.emailNotifications };
+    for (const link of links) {
+      if (link.patient_id !== userId) {
+        profileIds.add(link.patient_id);
+      }
+
+      const watcherId = getWatcherId(link);
+      if (watcherId && watcherId !== userId) {
+        profileIds.add(watcherId);
+      }
+    }
+
+    let linkedProfiles: LinkedProfile[] = [];
+
+    if (profileIds.size > 0) {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("id, first_name, last_name")
+        .in("id", [...profileIds])
+        .returns<LinkedProfile[]>();
+
+      if (error) {
+        logSupabaseError("Settings linked profiles", error);
+      } else {
+        linkedProfiles = data ?? [];
+      }
+    }
+
+    const connections: FamilyConnection[] = [];
+
+    for (const link of links) {
+      const watcherId = getWatcherId(link);
+
+      if (link.patient_id === userId && watcherId !== userId) {
+        const member = linkedProfiles.find((profile) => profile.id === watcherId);
+        const name = member
+          ? `${member.first_name} ${member.last_name}`.trim()
+          : "Familienmitglied";
+
+        connections.push({
+          id: link.id,
+          name,
+          relationship: link.relationship,
+          connectedAt: formatConnectionDate(link.created_at ?? new Date().toISOString()),
+          subtitle: "Folgt Ihrer Gesundheit",
+        });
+      }
+
+      if (watcherId === userId && link.patient_id !== userId) {
+        const member = linkedProfiles.find((profile) => profile.id === link.patient_id);
+        const name = member
+          ? `${member.first_name} ${member.last_name}`.trim()
+          : "Angehörige";
+
+        connections.push({
+          id: link.id,
+          name,
+          relationship: link.relationship,
+          connectedAt: formatConnectionDate(link.created_at ?? new Date().toISOString()),
+          subtitle: "Sie verfolgen diese Person",
+        });
+      }
+    }
+
+    return connections;
+  } catch (error) {
+    logSupabaseError("Settings family connections crash", error);
+    return [];
   }
-
-  return defaultNotificationPreferences;
-}
-
-function createSupabaseDataClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseKey =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ??
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-  if (!supabaseUrl || !supabaseKey) return null;
-
-  return createAdminClient(supabaseUrl, supabaseKey, {
-    auth: { persistSession: false },
-  });
 }
 
 async function ensureProfileFromMetadata(
-  supabase: NonNullable<ReturnType<typeof createSupabaseDataClient>> | Awaited<
-    ReturnType<typeof createClient>
-  >,
+  supabase: SupabaseClient,
   userId: string,
   metadata: AuthMetadata | undefined,
 ) {
@@ -256,13 +252,11 @@ async function ensureProfileFromMetadata(
   const { data, error } = await supabase
     .from("profiles")
     .upsert(record, { onConflict: "id" })
-    .select(
-      "id, first_name, last_name, role, language, elder_mode, notification_preferences",
-    )
-    .single<ProfileRow>();
+    .select("id, first_name, last_name, role, elder_mode, language")
+    .maybeSingle();
 
   if (error) {
-    console.error("Profile recovery upsert failed", error);
+    logSupabaseError("Profile recovery upsert failed", error);
     return null;
   }
 

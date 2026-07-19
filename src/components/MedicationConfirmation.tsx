@@ -9,17 +9,26 @@ import {
   FeatureEmptyState,
   PageSkeleton,
 } from "@/components/AppStates";
-import { MedicationDoseButton } from "@/components/MedicationDoseButton";
+import {
+  GroupedDoseRow,
+  MedicationGroupCard,
+} from "@/components/MedicationGroupCard";
+import { MedicationConfirmationPreview } from "@/components/MedicationConfirmationPreview";
+import { MedicationStreakCard } from "@/components/MedicationStreakCard";
 import { SlowConnectionNotice } from "@/components/SlowConnectionNotice";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { useSlowConnection } from "@/hooks/useSlowConnection";
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 import {
+  confirmationMatchesDose,
   expandMedicationsToDailyDoses,
   findConfirmationForDose,
+  formatMedicationConfirmationName,
   getDoseVisualState,
+  isDoseMoreThanTwoHoursEarly,
   normalizeMedicationTimes,
 } from "@/lib/medication-schedule";
+import { getSupabase } from "@/lib/supabase";
 import { timeSlotLabels } from "@/types/medication";
 import type {
   DailyDoseSlot,
@@ -27,19 +36,35 @@ import type {
   StoredMedication,
 } from "@/types/medication";
 
-const UNDO_WINDOW_MS = 60_000;
+const UNDO_WINDOW_MS = 5_000;
 
-export function MedicationConfirmation() {
+export function MedicationConfirmation({
+  previewMode = false,
+}: { previewMode?: boolean } = {}) {
+  if (previewMode) {
+    return <MedicationConfirmationPreview />;
+  }
+
+  return <MedicationConfirmationConnected />;
+}
+
+function MedicationConfirmationConnected() {
   const router = useRouter();
   const isOnline = useOnlineStatus();
   const [medications, setMedications] = useState<StoredMedication[]>([]);
   const [confirmations, setConfirmations] = useState<StoredConfirmation[]>([]);
+  const [streak, setStreak] = useState(0);
   const [pendingDoseIds, setPendingDoseIds] = useState<Set<string>>(new Set());
   const [isLoading, setIsLoading] = useState(true);
   const [hasLoadError, setHasLoadError] = useState(false);
   const [loadErrorDetail, setLoadErrorDetail] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [doseToConfirm, setDoseToConfirm] = useState<DailyDoseSlot | null>(null);
+  const [earlyConfirmDialog, setEarlyConfirmDialog] = useState<{
+    dose: DailyDoseSlot;
+    medicationName: string;
+    scheduledTime: string;
+  } | null>(null);
   const [medicationToDelete, setMedicationToDelete] =
     useState<StoredMedication | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -104,6 +129,44 @@ export function MedicationConfirmation() {
     return states;
   }, [doses, confirmedDoseIds, now]);
 
+  const groupedMedications = useMemo(() => {
+    const groups = new Map<
+      string,
+      {
+        key: string;
+        name: string;
+        dosage: string;
+        doses: GroupedDoseRow[];
+      }
+    >();
+
+    for (const dose of doses) {
+      const key = dose.medicationId;
+      const group = groups.get(key) ?? {
+        key,
+        name: dose.name,
+        dosage: dose.dosage,
+        doses: [],
+      };
+
+      group.doses.push({
+        dose,
+        visualState: doseVisualStates.get(dose.id) ?? "upcoming",
+        confirmedAt: findConfirmationForDose(confirmations, dose)?.confirmed_at,
+        pending: pendingDoseIds.has(dose.id),
+      });
+
+      groups.set(key, group);
+    }
+
+    return Array.from(groups.values()).map((group) => ({
+      ...group,
+      doses: group.doses.sort((left, right) =>
+        left.dose.time.localeCompare(right.dose.time),
+      ),
+    }));
+  }, [doses, doseVisualStates, confirmations, pendingDoseIds]);
+
   const pendingCount = useMemo(() => {
     let count = 0;
 
@@ -143,15 +206,22 @@ export function MedicationConfirmation() {
       };
       const confirmationsData = (await confirmationsResponse.json()) as {
         confirmations?: StoredConfirmation[];
+        streak?: number;
       };
 
       setMedications(medicationsData?.medications ?? []);
       setConfirmations(confirmationsData?.confirmations ?? []);
+      setStreak(
+        typeof confirmationsData?.streak === "number"
+          ? confirmationsData.streak
+          : 0,
+      );
     } catch (error) {
       console.error("Medications fetch error:", error);
       setHasLoadError(true);
       setMedications([]);
       setConfirmations([]);
+      setStreak(0);
       setLoadErrorDetail(
         error instanceof Error
           ? error.message
@@ -235,17 +305,81 @@ export function MedicationConfirmation() {
     );
   }
 
+  async function refreshStreak() {
+    try {
+      const response = await fetchWithTimeout("/api/medication-confirmations", {
+        credentials: "include",
+      });
+      if (!response.ok) return;
+      const data = (await response.json()) as { streak?: number };
+      if (typeof data.streak === "number") {
+        setStreak(data.streak);
+      }
+    } catch (error) {
+      console.error("Streak refresh failed:", error);
+    }
+  }
+
   async function confirmDose(dose: DailyDoseSlot) {
-    if (confirmedDoseIds.has(dose.id) || pendingDoseIds.has(dose.id)) return;
+    console.log("Confirming:", dose.medicationId, dose.scheduledAt, dose.slot, dose.time);
+
+    if (!dose?.medicationId) {
+      console.error("No medication ID available to confirm");
+      setSaveError("Bestätigung fehlgeschlagen: Medikament-ID fehlt.");
+      return;
+    }
+
+    if (confirmedDoseIds.has(dose.id) || pendingDoseIds.has(dose.id)) {
+      console.log("Confirm skipped — already confirmed or pending", dose.id);
+      return;
+    }
 
     setSaveError(null);
     setPendingDoseIds((current) => new Set(current).add(dose.id));
 
+    const optimisticConfirmedAt = new Date().toISOString();
+    const optimisticConfirmation: StoredConfirmation = {
+      id: `optimistic-${dose.id}`,
+      medication_id: dose.medicationId,
+      dose_time: dose.slot,
+      medication_name: formatMedicationConfirmationName(dose.name, dose.dosage),
+      scheduled_at: dose.scheduledAt,
+      confirmed_at: optimisticConfirmedAt,
+      missed: doseVisualStates.get(dose.id) === "missed",
+    };
+
+    // Optimistic UI so the loader isn't stuck if the network is slow.
+    setConfirmations((current) => [
+      ...current.filter((confirmation) => !confirmationMatchesDose(confirmation, dose)),
+      optimisticConfirmation,
+    ]);
+
     try {
+      const supabase = getSupabase();
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+
+      console.log("User confirming:", user?.id);
+      if (userError) console.log("User confirm auth error:", userError.message);
+
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      const headers: HeadersInit = {
+        "Content-Type": "application/json",
+      };
+      if (session?.access_token) {
+        headers.Authorization = `Bearer ${session.access_token}`;
+      }
+
       const response = await fetchWithTimeout("/api/medication-confirmations", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         credentials: "include",
+        timeoutMs: 20_000,
         body: JSON.stringify({
           medication_id: dose.medicationId,
           dose_time: dose.slot,
@@ -253,33 +387,47 @@ export function MedicationConfirmation() {
         }),
       });
 
-      if (!response.ok) {
-        throw new Error("Medication confirmation save failed.");
+      const data = (await response.json().catch(() => null)) as
+        | { confirmation?: StoredConfirmation; error?: string }
+        | null;
+
+      console.log("Confirmation insert:", data, response.status);
+
+      if (!response.ok || !data?.confirmation?.confirmed_at) {
+        throw new Error(
+          data?.error ?? `Bestätigung fehlgeschlagen (${response.status})`,
+        );
       }
 
-      const data = (await response.json()) as {
-        confirmation: StoredConfirmation;
+      const savedConfirmation: StoredConfirmation = {
+        id: data.confirmation.id,
+        medication_id: data.confirmation.medication_id ?? dose.medicationId,
+        dose_time: data.confirmation.dose_time ?? dose.slot,
+        medication_name:
+          data.confirmation.medication_name ||
+          formatMedicationConfirmationName(dose.name, dose.dosage),
+        scheduled_at: data.confirmation.scheduled_at || dose.scheduledAt,
+        confirmed_at: data.confirmation.confirmed_at,
+        missed: Boolean(data.confirmation.missed),
       };
 
-      setConfirmations((current) => {
-        const next = current.filter(
-          (confirmation) =>
-            !(
-              confirmation.medication_id === dose.medicationId &&
-              confirmation.dose_time === dose.slot &&
-              confirmation.scheduled_at === dose.scheduledAt
-            ),
-        );
-        return [...next, data.confirmation];
-      });
+      setConfirmations((current) => [
+        ...current.filter((confirmation) => !confirmationMatchesDose(confirmation, dose)),
+        savedConfirmation,
+      ]);
       setUndoTarget({
         dose,
         expiresAt: Date.now() + UNDO_WINDOW_MS,
       });
-    } catch {
-      setSaveError(
-        "Bestätigung konnte nicht gespeichert werden. Bitte tippen Sie erneut auf die Einnahme.",
+      void refreshStreak();
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unbekannter Fehler";
+      console.error("Confirm failed:", message, error);
+      setConfirmations((current) =>
+        current.filter((confirmation) => confirmation.id !== optimisticConfirmation.id),
       );
+      setSaveError(`Bestätigung fehlgeschlagen: ${message}`);
     } finally {
       setPendingDoseIds((current) => {
         const next = new Set(current);
@@ -287,6 +435,37 @@ export function MedicationConfirmation() {
         return next;
       });
     }
+  }
+
+  function handleConfirmTap(dose: DailyDoseSlot) {
+    console.log("Confirm tapped");
+    console.log("Dose ID:", dose.id);
+    console.log("Medication ID:", dose.medicationId);
+
+    if (!dose.id && !dose.medicationId) {
+      console.error("No ID available to confirm");
+      return;
+    }
+
+    if (confirmedDoseIds.has(dose.id) || pendingDoseIds.has(dose.id)) return;
+
+    const visualState = doseVisualStates.get(dose.id) ?? "upcoming";
+
+    if (visualState === "missed") {
+      void confirmDose(dose);
+      return;
+    }
+
+    if (isDoseMoreThanTwoHoursEarly(dose.time, now)) {
+      setEarlyConfirmDialog({
+        dose,
+        medicationName: dose.name,
+        scheduledTime: dose.time,
+      });
+      return;
+    }
+
+    setDoseToConfirm(dose);
   }
 
   async function undoConfirmation() {
@@ -313,15 +492,14 @@ export function MedicationConfirmation() {
 
       setConfirmations((current) =>
         current.map((confirmation) =>
-          confirmation.medication_id === undoTarget.dose.medicationId &&
-          confirmation.dose_time === undoTarget.dose.slot &&
-          confirmation.scheduled_at === undoTarget.dose.scheduledAt
+          confirmationMatchesDose(confirmation, undoTarget.dose)
             ? { ...confirmation, confirmed_at: null, missed: confirmation.missed }
             : confirmation,
         ),
       );
       setUndoTarget(null);
       await loadMedicationData();
+      void refreshStreak();
     } catch {
       setSaveError(
         "Rückgängig machen ist gerade nicht möglich. Bitte versuchen Sie es erneut.",
@@ -377,6 +555,8 @@ export function MedicationConfirmation() {
           pendingCount={pendingCount}
         />
 
+        <MedicationStreakCard streak={streak} variant="medication" />
+
         <p className="instruction-text mb-6 text-[#555555]">
           Tippen Sie wenn Sie Ihr Medikament genommen haben 💚
         </p>
@@ -386,25 +566,19 @@ export function MedicationConfirmation() {
         ) : null}
 
         <div
-          className="flex flex-col gap-4"
+          className="flex flex-col gap-3"
           role="group"
           aria-label="Tägliche Medikamenteneinnahme"
         >
-          {doses.map((dose) => {
-            const confirmation = findConfirmationForDose(confirmations, dose);
-
-            return (
-              <MedicationDoseButton
-                key={dose.id}
-                dose={dose}
-                visualState={doseVisualStates.get(dose.id) ?? "upcoming"}
-                pending={pendingDoseIds.has(dose.id)}
-                confirmedAt={confirmation?.confirmed_at}
-                now={now}
-                onConfirm={() => setDoseToConfirm(dose)}
-              />
-            );
-          })}
+          {groupedMedications.map((group) => (
+            <MedicationGroupCard
+              key={group.key}
+              name={group.name}
+              dosage={group.dosage}
+              doses={group.doses}
+              onConfirm={handleConfirmTap}
+            />
+          ))}
         </div>
 
         <MedicationManageSection
@@ -442,6 +616,19 @@ export function MedicationConfirmation() {
         ) : null}
       </main>
 
+      {earlyConfirmDialog ? (
+        <EarlyConfirmDialog
+          medicationName={earlyConfirmDialog.medicationName}
+          scheduledTime={earlyConfirmDialog.scheduledTime}
+          onConfirm={() => {
+            const dose = earlyConfirmDialog.dose;
+            setEarlyConfirmDialog(null);
+            void confirmDose(dose);
+          }}
+          onCancel={() => setEarlyConfirmDialog(null)}
+        />
+      ) : null}
+
       {doseToConfirm ? (
         <MedicationConfirmDialog
           dose={doseToConfirm}
@@ -473,6 +660,8 @@ function MedicationManageSection({
   medications: StoredMedication[];
   onDelete: (medication: StoredMedication) => void;
 }) {
+  const groupedMedications = groupMedicationsForManage(medications);
+
   return (
     <>
       <div
@@ -488,7 +677,7 @@ function MedicationManageSection({
         </p>
 
       <ul className="mt-4 flex flex-col gap-3">
-        {medications.map((medication) => (
+        {groupedMedications.map(({ medication, scheduleLabel }) => (
           <li
             key={medication.id}
             className="flex items-center justify-between rounded-xl border border-[#E4E2DB] bg-white px-4 py-3.5"
@@ -504,7 +693,7 @@ function MedicationManageSection({
                 </p>
               ) : null}
               <p className="mt-0.5 text-[12px] text-[#AAA79A]">
-                {formatMedicationSchedule(medication)}
+                {scheduleLabel}
               </p>
             </div>
             <div className="ml-3 flex shrink-0 flex-col gap-1.5">
@@ -538,6 +727,141 @@ function formatMedicationSchedule(medication: StoredMedication) {
   return normalizeMedicationTimes(medication?.times)
     .map((entry) => `${timeSlotLabels[entry.slot]} ${entry.time}`)
     .join(" · ");
+}
+
+function groupMedicationsForManage(medications: StoredMedication[]) {
+  const groups = new Map<
+    string,
+    {
+      medication: StoredMedication;
+      scheduleParts: string[];
+    }
+  >();
+
+  for (const medication of medications) {
+    const key = `${medication.name.trim().toLowerCase()}::${medication.dosage.trim().toLowerCase()}`;
+    const schedule = normalizeMedicationTimes(medication.times).map(
+      (entry) => `${timeSlotLabels[entry.slot]} ${entry.time}`,
+    );
+    const existing = groups.get(key);
+
+    if (!existing) {
+      groups.set(key, { medication, scheduleParts: schedule });
+      continue;
+    }
+
+    existing.scheduleParts.push(...schedule);
+    existing.scheduleParts.sort((left, right) => {
+      const leftTime = left.split(" ").pop() ?? "";
+      const rightTime = right.split(" ").pop() ?? "";
+      return leftTime.localeCompare(rightTime);
+    });
+  }
+
+  return Array.from(groups.values()).map(({ medication, scheduleParts }) => ({
+    medication,
+    scheduleLabel: [...new Set(scheduleParts)].join(" · "),
+  }));
+}
+
+function EarlyConfirmDialog({
+  medicationName,
+  scheduledTime,
+  onConfirm,
+  onCancel,
+}: {
+  medicationName: string;
+  scheduledTime: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        backgroundColor: "rgba(0,0,0,0.4)",
+        zIndex: 100,
+        display: "flex",
+        alignItems: "flex-end",
+        padding: "16px",
+      }}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="early-confirm-title"
+      onClick={onCancel}
+    >
+      <div
+        style={{
+          backgroundColor: "#FFFFFF",
+          borderRadius: "20px",
+          padding: "24px",
+          width: "100%",
+        }}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div style={{ fontSize: "20px", marginBottom: "8px" }}>⏰</div>
+        <div
+          id="early-confirm-title"
+          style={{
+            fontSize: "17px",
+            fontWeight: "600",
+            color: "#085041",
+            marginBottom: "8px",
+          }}
+        >
+          Zu früh?
+        </div>
+        <div
+          style={{
+            fontSize: "15px",
+            color: "#88856F",
+            marginBottom: "20px",
+            lineHeight: "1.5",
+          }}
+        >
+          {medicationName} ist erst um {scheduledTime} Uhr geplant. Möchten Sie
+          es trotzdem jetzt bestätigen?
+        </div>
+        <div style={{ display: "flex", gap: "10px" }}>
+          <button
+            type="button"
+            onClick={onCancel}
+            style={{
+              flex: 1,
+              padding: "14px",
+              borderRadius: "12px",
+              border: "0.5px solid #E4E2DB",
+              backgroundColor: "#F7F6F2",
+              fontSize: "15px",
+              fontWeight: "500",
+              color: "#88856F",
+              cursor: "pointer",
+            }}
+          >
+            Abbrechen
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            style={{
+              flex: 1,
+              padding: "14px",
+              borderRadius: "12px",
+              border: "none",
+              backgroundColor: "#1D9E75",
+              fontSize: "15px",
+              fontWeight: "600",
+              color: "#FFFFFF",
+              cursor: "pointer",
+            }}
+          >
+            Ja, bestätigen
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function MedicationConfirmDialog({

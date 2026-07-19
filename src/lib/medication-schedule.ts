@@ -10,6 +10,7 @@ import { defaultTimeSlotValues, timeSlotLabels } from "@/types/medication";
 
 const UPCOMING_LEAD_MINUTES = 30;
 const MISSED_GRACE_MINUTES = 90;
+export const EARLY_CONFIRM_THRESHOLD_MINUTES = 120;
 
 export type DoseVisualState = "confirmed" | "due" | "missed" | "upcoming";
 
@@ -23,6 +24,13 @@ export function getDoseDiffMinutes(
   scheduled.setHours(hours, minutes, 0, 0);
 
   return (scheduled.getTime() - current.getTime()) / (1000 * 60);
+}
+
+export function isDoseMoreThanTwoHoursEarly(
+  scheduledTime: string,
+  now: Date | number = Date.now(),
+) {
+  return getDoseDiffMinutes(scheduledTime, now) > EARLY_CONFIRM_THRESHOLD_MINUTES;
 }
 
 export function getDoseVisualState(
@@ -162,17 +170,42 @@ export function getTodayRange() {
   return { start, end };
 }
 
+export function confirmationMatchesDose(
+  confirmation: Pick<
+    StoredConfirmation,
+    "medication_id" | "dose_time" | "scheduled_at"
+  >,
+  dose: Pick<DailyDoseSlot, "medicationId" | "slot" | "scheduledAt">,
+) {
+  if (confirmation.medication_id !== dose.medicationId) return false;
+  if (confirmation.dose_time !== dose.slot) return false;
+
+  // Match by calendar day — server (UTC) and client (local) ISO strings often differ.
+  return isSameLocalCalendarDay(confirmation.scheduled_at, dose.scheduledAt);
+}
+
+function isSameLocalCalendarDay(left: string, right: string) {
+  const a = new Date(left);
+  const b = new Date(right);
+
+  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return false;
+
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
 export function findConfirmationForDose(
   confirmations: StoredConfirmation[],
   dose: DailyDoseSlot,
 ) {
-  return confirmations.find(
-    (confirmation) =>
-      confirmation.medication_id === dose.medicationId &&
-      confirmation.dose_time === dose.slot &&
-      new Date(confirmation.scheduled_at).getTime() ===
-        new Date(dose.scheduledAt).getTime(),
+  const matches = confirmations.filter((confirmation) =>
+    confirmationMatchesDose(confirmation, dose),
   );
+
+  return matches.find((confirmation) => confirmation.confirmed_at) ?? matches[0];
 }
 
 export function buildMissedConfirmationRecords(

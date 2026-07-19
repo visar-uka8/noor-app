@@ -1,24 +1,34 @@
 "use client";
 
 import { Loader2, Plus, Save, Trash2 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PageSkeleton, ErrorBanner } from "@/components/AppStates";
 import { HealthPassportEmergencyMode } from "@/components/HealthPassportEmergencyMode";
 import { HealthPassportShareDialog } from "@/components/HealthPassportShareDialog";
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
+import { filterCommonConditions } from "@/lib/common-conditions";
+import { filterCommonVaccines } from "@/lib/common-vaccines";
+import { calculateHealthPassportCompletionPercent } from "@/lib/health-passport-completion";
+import {
+  cacheEmergencyPassport,
+  readEmergencyPassportCache,
+} from "@/lib/health-passport-emergency-cache";
+import { formatPassportMedicationLine, getPassportMedicationsForDisplay, toPassportMedications } from "@/lib/health-passport-medications";
+import { parseStoredMedication } from "@/lib/medication-schedule";
 import { createClient } from "@/lib/supabase/client";
 import {
   bloodTypes,
   createEmptyAllergy,
-  createEmptyMedication,
+  createEmptyCondition,
   createEmptyPassport,
   createEmptySurgery,
-  frequencyLabels,
+  createEmptyVaccination,
   type HealthPassportData,
-  type MedicationFrequency,
   type PassportAllergy,
-  type PassportMedication,
+  type PassportCondition,
   type PassportSurgery,
+  type PassportVaccination,
 } from "@/types/health-passport";
 
 type SaveMode = "manual" | "auto";
@@ -58,6 +68,12 @@ export function HealthPassport() {
     isDirtyRef.current = isDirty;
   }, [isDirty]);
 
+  useEffect(() => {
+    if (passport.personal.fullName.trim() || passport.userId) {
+      cacheEmergencyPassport(passport);
+    }
+  }, [passport]);
+
   const savePassport = useCallback(async (mode: SaveMode = "manual") => {
     if (!passportRef.current.personal.fullName.trim()) {
       if (mode === "manual") {
@@ -79,7 +95,11 @@ export function HealthPassport() {
       });
 
       if (!response.ok) {
-        throw new Error("Save failed.");
+        const body = (await response.json().catch(() => null)) as
+          | { error?: string }
+          | null;
+        console.error("Health passport save error:", body?.error ?? response.status);
+        throw new Error(body?.error ?? "Save failed.");
       }
 
       setIsDirty(false);
@@ -113,6 +133,13 @@ export function HealthPassport() {
     async function loadPassport() {
       setIsLoading(true);
 
+      // Show cached emergency data immediately if available (works offline).
+      const cached = readEmergencyPassportCache();
+      if (cached) {
+        setPassport(cached);
+        setIsLoading(false);
+      }
+
       try {
         const supabase = createClient();
         const {
@@ -125,15 +152,41 @@ export function HealthPassport() {
           const data = (await response.json()) as {
             passport: HealthPassportData;
           };
-          setPassport({
+          let nextPassport = {
             ...data.passport,
+            conditions: data.passport.conditions ?? [],
             userId: user?.id ?? data.passport.userId,
-          });
-        } else if (user) {
+          };
+
+          if (user) {
+            const { data: medicationRows, error: medicationError } = await supabase
+              .from("medications")
+              .select("id, user_id, name, dosage, times, frequency, start_date, is_active, created_at, updated_at")
+              .eq("user_id", user.id)
+              .eq("is_active", true)
+              .order("created_at", { ascending: true });
+
+            console.log("Medications for passport:", medicationRows);
+
+            if (!medicationError) {
+              nextPassport = {
+                ...nextPassport,
+                medications: toPassportMedications(
+                  (medicationRows ?? []).map(parseStoredMedication),
+                ),
+              };
+            }
+          }
+
+          setPassport(nextPassport);
+          cacheEmergencyPassport(nextPassport);
+        } else if (!cached && user) {
           setPassport(createEmptyPassport(user.id));
         }
       } catch {
-        setPassport(createEmptyPassport());
+        if (!cached) {
+          setPassport(createEmptyPassport());
+        }
       } finally {
         setIsLoading(false);
       }
@@ -159,6 +212,14 @@ export function HealthPassport() {
     setIsDirty(true);
     setStatusMessage(null);
   }
+
+  const displayMedications = useMemo(
+    () => getPassportMedicationsForDisplay(passport.medications),
+    [passport.medications],
+  );
+
+  const completionPercent = calculateHealthPassportCompletionPercent(passport);
+  const conditions = passport.conditions ?? [];
 
   if (isLoading) {
     return <PageSkeleton />;
@@ -188,11 +249,20 @@ export function HealthPassport() {
         <HealthPassportEmergencyMode
           passport={passport}
           onClose={() => setIsEmergencyMode(false)}
-          onShare={async () => {
+          onBeforeShare={async () => {
             if (isDirtyRef.current) {
-              await savePassport("manual");
+              return savePassport("manual");
             }
-            setIsShareDialogOpen(true);
+
+            if (!passportRef.current.personal.fullName.trim()) {
+              setStatusMessage(
+                "Bitte geben Sie zuerst den vollständigen Namen ein.",
+              );
+              return false;
+            }
+
+            // Ensure the latest passport exists in Supabase before sharing.
+            return savePassport("manual");
           }}
         />
       ) : null}
@@ -203,6 +273,8 @@ export function HealthPassport() {
       />
 
       <main className="mx-auto flex w-full max-w-app flex-1 flex-col px-5 py-6">
+        <PassportCompletionBanner percent={completionPercent} />
+
         <button
           type="button"
           onClick={() => setIsEmergencyMode(true)}
@@ -360,75 +432,73 @@ export function HealthPassport() {
         </FormSection>
 
         <FormSection title="Aktuelle Medikamente">
-          <div className="flex flex-col gap-4">
-            {passport.medications.map((medication, index) => (
-              <MedicationRow
-                key={medication.id}
-                medication={medication}
-                onChange={(updated) =>
-                  updatePassport((current) => ({
-                    ...current,
-                    medications: current.medications.map((item, itemIndex) =>
-                      itemIndex === index ? updated : item,
-                    ),
-                  }))
-                }
-                onDelete={() =>
-                  updatePassport((current) => ({
-                    ...current,
-                    medications: current.medications.filter(
-                      (_, itemIndex) => itemIndex !== index,
-                    ),
-                  }))
-                }
-              />
-            ))}
-          </div>
+          {displayMedications.length === 0 ? (
+            <p className="text-base text-muted">
+              Noch keine aktiven Medikamente. Fügen Sie welche unter Medikamente
+              hinzu.
+            </p>
+          ) : (
+            <ul className="flex flex-col gap-3">
+              {displayMedications.map((medication) => (
+                <li
+                  key={medication.id}
+                  className="rounded-2xl border border-border bg-background px-4 py-3 text-base text-foreground"
+                >
+                  {formatPassportMedicationLine(medication)}
+                </li>
+              ))}
+            </ul>
+          )}
 
-          <button
-            type="button"
-            onClick={() =>
-              updatePassport((current) => ({
-                ...current,
-                medications: [...current.medications, createEmptyMedication()],
-              }))
-            }
-            className="mt-4 flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-primary px-5 py-3 text-base font-semibold text-white transition-colors hover:bg-primary-dark active:scale-[0.98]"
+          <p className="text-sm leading-relaxed text-muted">
+            Diese Medikamente werden automatisch aus Ihrer Medikamentenliste
+            übernommen. Um Medikamente zu ändern, gehen Sie zu Medikamente →
+            Verwalten.
+          </p>
+
+          <Link
+            href="/medication"
+            className="inline-flex min-h-12 items-center justify-center rounded-2xl border border-border bg-background px-5 py-3 text-base font-semibold text-primary transition-colors hover:bg-primary-light/40"
           >
-            <Plus size={20} aria-hidden="true" />
-            Medikament hinzufügen
-          </button>
+            Zu Medikamente →
+          </Link>
         </FormSection>
 
         <FormSection title="Allergien">
-          <div className="flex flex-col gap-4">
-            {passport.allergies.length === 0 ? (
-              <p className="text-base text-muted">Noch keine Allergien eingetragen.</p>
-            ) : null}
+          {passport.allergies.length === 0 ? (
+            <p className="text-base text-muted">Noch keine Allergien eingetragen.</p>
+          ) : null}
 
-            {passport.allergies.map((allergy, index) => (
-              <AllergyRow
-                key={allergy.id}
-                allergy={allergy}
-                onChange={(updated) =>
-                  updatePassport((current) => ({
-                    ...current,
-                    allergies: current.allergies.map((item, itemIndex) =>
-                      itemIndex === index ? updated : item,
-                    ),
-                  }))
+          {passport.allergies.map((allergy, index) => (
+            <AllergyRow
+              key={allergy.id}
+              allergy={allergy}
+              onChange={(updated) =>
+                updatePassport((current) => ({
+                  ...current,
+                  allergies: current.allergies.map((item, itemIndex) =>
+                    itemIndex === index ? updated : item,
+                  ),
+                }))
+              }
+              onDelete={() => {
+                if (
+                  !window.confirm(
+                    "Möchten Sie diese Allergie wirklich löschen?",
+                  )
+                ) {
+                  return;
                 }
-                onDelete={() =>
-                  updatePassport((current) => ({
-                    ...current,
-                    allergies: current.allergies.filter(
-                      (_, itemIndex) => itemIndex !== index,
-                    ),
-                  }))
-                }
-              />
-            ))}
-          </div>
+
+                updatePassport((current) => ({
+                  ...current,
+                  allergies: current.allergies.filter(
+                    (_, itemIndex) => itemIndex !== index,
+                  ),
+                }));
+              }}
+            />
+          ))}
 
           <button
             type="button"
@@ -438,42 +508,157 @@ export function HealthPassport() {
                 allergies: [...current.allergies, createEmptyAllergy()],
               }))
             }
-            className="mt-4 flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-primary px-5 py-3 text-base font-semibold text-white transition-colors hover:bg-primary-dark active:scale-[0.98]"
+            className="flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-primary px-5 py-3 text-base font-semibold text-white transition-colors hover:bg-primary-dark active:scale-[0.98]"
           >
             <Plus size={20} aria-hidden="true" />
             Allergie hinzufügen
           </button>
         </FormSection>
 
-        <FormSection title="Frühere Operationen">
-          <div className="flex flex-col gap-4">
-            {passport.surgeries.length === 0 ? (
-              <p className="text-base text-muted">Noch keine Operationen eingetragen.</p>
-            ) : null}
+        <FormSection
+          title="Erkrankungen & Diagnosen"
+          description="Chronische Erkrankungen und wichtige Diagnosen"
+        >
+          {conditions.length === 0 ? (
+            <p className="text-base text-muted">
+              Noch keine Erkrankungen eingetragen.
+            </p>
+          ) : null}
 
-            {passport.surgeries.map((surgery, index) => (
-              <SurgeryRow
-                key={surgery.id}
-                surgery={surgery}
-                onChange={(updated) =>
-                  updatePassport((current) => ({
-                    ...current,
-                    surgeries: current.surgeries.map((item, itemIndex) =>
-                      itemIndex === index ? updated : item,
-                    ),
-                  }))
+          {conditions.map((condition, index) => (
+            <ConditionRow
+              key={condition.id}
+              condition={condition}
+              onChange={(updated) =>
+                updatePassport((current) => ({
+                  ...current,
+                  conditions: current.conditions.map((item, itemIndex) =>
+                    itemIndex === index ? updated : item,
+                  ),
+                }))
+              }
+              onDelete={() => {
+                if (
+                  !window.confirm(
+                    "Möchten Sie diese Erkrankung wirklich löschen?",
+                  )
+                ) {
+                  return;
                 }
-                onDelete={() =>
-                  updatePassport((current) => ({
-                    ...current,
-                    surgeries: current.surgeries.filter(
-                      (_, itemIndex) => itemIndex !== index,
-                    ),
-                  }))
+
+                updatePassport((current) => ({
+                  ...current,
+                  conditions: current.conditions.filter(
+                    (_, itemIndex) => itemIndex !== index,
+                  ),
+                }));
+              }}
+            />
+          ))}
+
+          <button
+            type="button"
+            onClick={() =>
+              updatePassport((current) => ({
+                ...current,
+                conditions: [...current.conditions, createEmptyCondition()],
+              }))
+            }
+            className="flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-primary px-5 py-3 text-base font-semibold text-white transition-colors hover:bg-primary-dark active:scale-[0.98]"
+          >
+            <Plus size={20} aria-hidden="true" />
+            Erkrankung hinzufügen
+          </button>
+        </FormSection>
+
+        <FormSection title="Impfungen">
+          {passport.vaccinations.length === 0 ? (
+            <p className="text-base text-muted">
+              Noch keine Impfungen eingetragen.
+            </p>
+          ) : null}
+
+          {passport.vaccinations.map((vaccination, index) => (
+            <VaccinationRow
+              key={vaccination.id}
+              vaccination={vaccination}
+              onChange={(updated) =>
+                updatePassport((current) => ({
+                  ...current,
+                  vaccinations: current.vaccinations.map((item, itemIndex) =>
+                    itemIndex === index ? updated : item,
+                  ),
+                }))
+              }
+              onDelete={() => {
+                if (
+                  !window.confirm(
+                    "Möchten Sie diese Impfung wirklich löschen?",
+                  )
+                ) {
+                  return;
                 }
-              />
-            ))}
-          </div>
+
+                updatePassport((current) => ({
+                  ...current,
+                  vaccinations: current.vaccinations.filter(
+                    (_, itemIndex) => itemIndex !== index,
+                  ),
+                }));
+              }}
+            />
+          ))}
+
+          <button
+            type="button"
+            onClick={() =>
+              updatePassport((current) => ({
+                ...current,
+                vaccinations: [...current.vaccinations, createEmptyVaccination()],
+              }))
+            }
+            className="flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-primary px-5 py-3 text-base font-semibold text-white transition-colors hover:bg-primary-dark active:scale-[0.98]"
+          >
+            <Plus size={20} aria-hidden="true" />
+            Impfung hinzufügen
+          </button>
+        </FormSection>
+
+        <FormSection title="Frühere Operationen">
+          {passport.surgeries.length === 0 ? (
+            <p className="text-base text-muted">Noch keine Operationen eingetragen.</p>
+          ) : null}
+
+          {passport.surgeries.map((surgery, index) => (
+            <SurgeryRow
+              key={surgery.id}
+              surgery={surgery}
+              onChange={(updated) =>
+                updatePassport((current) => ({
+                  ...current,
+                  surgeries: current.surgeries.map((item, itemIndex) =>
+                    itemIndex === index ? updated : item,
+                  ),
+                }))
+              }
+              onDelete={() => {
+                if (
+                  !window.confirm(
+                    "Möchten Sie diese Operation wirklich löschen?",
+                  )
+                ) {
+                  return;
+                }
+
+                updatePassport((current) => ({
+                  ...current,
+                  surgeries: current.surgeries.filter(
+                    (_, itemIndex) => itemIndex !== index,
+                  ),
+                }));
+              }}
+            />
+          ))}
 
           <button
             type="button"
@@ -483,7 +668,7 @@ export function HealthPassport() {
                 surgeries: [...current.surgeries, createEmptySurgery()],
               }))
             }
-            className="mt-4 flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-primary px-5 py-3 text-base font-semibold text-white transition-colors hover:bg-primary-dark active:scale-[0.98]"
+            className="flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-primary px-5 py-3 text-base font-semibold text-white transition-colors hover:bg-primary-dark active:scale-[0.98]"
           >
             <Plus size={20} aria-hidden="true" />
             Operation hinzufügen
@@ -590,16 +775,93 @@ export function HealthPassport() {
   );
 }
 
+function PassportCompletionBanner({ percent }: { percent: number }) {
+  return (
+    <div
+      style={{
+        backgroundColor: "#FAEEDA",
+        borderRadius: "12px",
+        padding: "12px 16px",
+        marginBottom: "20px",
+      }}
+      role="status"
+      aria-live="polite"
+    >
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          marginBottom: "8px",
+        }}
+      >
+        <span
+          style={{
+            fontSize: "14px",
+            fontWeight: 600,
+            color: "#633806",
+          }}
+        >
+          Vollständigkeit
+        </span>
+        <span
+          style={{
+            fontSize: "14px",
+            fontWeight: 600,
+            color: "#633806",
+          }}
+        >
+          {percent}%
+        </span>
+      </div>
+      <div
+        style={{
+          height: "6px",
+          backgroundColor: "#FAD9A0",
+          borderRadius: "3px",
+          overflow: "hidden",
+        }}
+      >
+        <div
+          style={{
+            height: "100%",
+            width: `${percent}%`,
+            backgroundColor: percent === 100 ? "#1D9E75" : "#BA7517",
+            borderRadius: "3px",
+            transition: "width 0.5s ease",
+          }}
+        />
+      </div>
+      {percent < 100 ? (
+        <div
+          style={{
+            fontSize: "12px",
+            color: "#BA7517",
+            marginTop: "6px",
+          }}
+        >
+          Im Notfall kann ein unvollständiger Pass Leben retten — bitte
+          ausfüllen.
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function FormSection({
   title,
+  description,
   children,
 }: {
   title: string;
+  description?: string;
   children: React.ReactNode;
 }) {
   return (
     <section className="rounded-2xl border border-border bg-surface p-5 shadow-[var(--warm-shadow)]">
       <h2 className="text-xl font-bold text-foreground">{title}</h2>
+      {description ? (
+        <p className="mt-1 text-[13px] text-[#88856F]">{description}</p>
+      ) : null}
       <div className="mt-5 flex flex-col gap-4">{children}</div>
     </section>
   );
@@ -613,84 +875,351 @@ function FormField({
   children: React.ReactNode;
 }) {
   return (
-    <label className="health-passport-label flex flex-col gap-2 font-semibold text-foreground">
+    <label className="form-label health-passport-label flex flex-col gap-2 font-semibold text-foreground">
       {label}
       <span className="font-normal">{children}</span>
     </label>
   );
 }
 
-function MedicationRow({
-  medication,
+function VaccinationRow({
+  vaccination,
   onChange,
   onDelete,
 }: {
-  medication: PassportMedication;
-  onChange: (medication: PassportMedication) => void;
+  vaccination: PassportVaccination;
+  onChange: (vaccination: PassportVaccination) => void;
   onDelete: () => void;
 }) {
-  function toggleFrequency(frequency: MedicationFrequency) {
-    const nextFrequency = medication.frequency.includes(frequency)
-      ? medication.frequency.filter((entry) => entry !== frequency)
-      : [...medication.frequency, frequency];
-
-    onChange({ ...medication, frequency: nextFrequency });
-  }
+  const fieldLabelStyle = {
+    display: "block",
+    fontSize: "13px",
+    color: "#88856F",
+    marginBottom: "6px",
+  } as const;
 
   return (
-    <div className="rounded-2xl border border-border bg-background p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div className="grid flex-1 gap-3">
-          <input
-            value={medication.name}
-            onChange={(event) =>
-              onChange({ ...medication, name: event.target.value })
-            }
-            className={inputClassName}
-            placeholder="Name"
-          />
-          <input
-            value={medication.dose}
-            onChange={(event) =>
-              onChange({ ...medication, dose: event.target.value })
-            }
-            className={inputClassName}
-            placeholder="Dosis"
-          />
-          <div className="flex flex-wrap gap-2">
-            {(Object.keys(frequencyLabels) as MedicationFrequency[]).map(
-              (frequency) => {
-                const selected = medication.frequency.includes(frequency);
+    <div
+      style={{
+        border: "0.5px solid #E4E2DB",
+        borderRadius: "12px",
+        padding: "14px",
+        position: "relative",
+      }}
+    >
+      <button
+        type="button"
+        onClick={onDelete}
+        aria-label="Impfung löschen"
+        style={{
+          position: "absolute",
+          top: "12px",
+          right: "12px",
+          background: "none",
+          border: "none",
+          cursor: "pointer",
+          color: "#A32D2D",
+          fontSize: "18px",
+          lineHeight: 1,
+          padding: "4px",
+        }}
+      >
+        🗑
+      </button>
 
-                return (
-                  <button
-                    key={frequency}
-                    type="button"
-                    onClick={() => toggleFrequency(frequency)}
-                    className={`min-h-10 rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
-                      selected
-                        ? "bg-primary-light text-primary-dark"
-                        : "bg-surface text-muted"
-                    }`}
-                    aria-pressed={selected}
-                  >
-                    {frequencyLabels[frequency]}
-                  </button>
-                );
-              },
-            )}
+      <div style={{ paddingRight: "28px" }}>
+        <VaccineNameInput
+          value={vaccination.name}
+          onChange={(name) => onChange({ ...vaccination, name })}
+          style={{ width: "100%", marginBottom: "10px" }}
+        />
+
+        <label style={fieldLabelStyle}>Datum</label>
+        <input
+          type="date"
+          value={vaccination.date}
+          onChange={(event) =>
+            onChange({ ...vaccination, date: event.target.value })
+          }
+          className={inputClassName}
+          style={{ width: "100%", marginBottom: "10px" }}
+        />
+
+        <label style={fieldLabelStyle}>Nächste Impfung (optional)</label>
+        <input
+          type="date"
+          value={vaccination.next_due}
+          onChange={(event) =>
+            onChange({ ...vaccination, next_due: event.target.value })
+          }
+          className={inputClassName}
+          style={{ width: "100%" }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function ConditionRow({
+  condition,
+  onChange,
+  onDelete,
+}: {
+  condition: PassportCondition;
+  onChange: (condition: PassportCondition) => void;
+  onDelete: () => void;
+}) {
+  const fieldLabelStyle = {
+    display: "block",
+    fontSize: "13px",
+    color: "#88856F",
+    marginBottom: "6px",
+  } as const;
+
+  return (
+    <div
+      style={{
+        border: "0.5px solid #E4E2DB",
+        borderRadius: "12px",
+        padding: "14px",
+        backgroundColor: "#FFFFFF",
+      }}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div style={{ paddingRight: "4px" }} className="grid flex-1 gap-3">
+          <div>
+            <label style={fieldLabelStyle}>Name der Erkrankung</label>
+            <ConditionNameInput
+              value={condition.name}
+              onChange={(name) => onChange({ ...condition, name })}
+              style={{ width: "100%" }}
+            />
+          </div>
+
+          <div>
+            <label style={fieldLabelStyle}>Seit wann (optional)</label>
+            <input
+              type="text"
+              value={condition.since}
+              onChange={(event) =>
+                onChange({ ...condition, since: event.target.value })
+              }
+              className={inputClassName}
+              style={{ width: "100%" }}
+              placeholder="z.B. seit 2019, seit Kindheit"
+            />
+          </div>
+
+          <div>
+            <label style={fieldLabelStyle}>Behandlung (optional)</label>
+            <input
+              type="text"
+              value={condition.treatment}
+              onChange={(event) =>
+                onChange({ ...condition, treatment: event.target.value })
+              }
+              className={inputClassName}
+              style={{ width: "100%" }}
+              placeholder="z.B. Cortisoncreme, Insulin, keine"
+            />
           </div>
         </div>
 
         <button
           type="button"
           onClick={onDelete}
-          className="flex min-h-12 min-w-12 items-center justify-center rounded-xl text-red-600 transition-colors hover:bg-red-50"
-          aria-label="Medikament löschen"
+          className="flex min-h-12 min-w-12 shrink-0 items-center justify-center rounded-xl text-red-600 transition-colors hover:bg-red-50"
+          aria-label="Erkrankung löschen"
         >
           <Trash2 size={20} aria-hidden="true" />
         </button>
       </div>
+    </div>
+  );
+}
+
+function ConditionNameInput({
+  value,
+  onChange,
+  style,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  style?: React.CSSProperties;
+}) {
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const fieldRef = useRef<HTMLDivElement>(null);
+  const trimmedValue = value.trim();
+  const suggestions = useMemo(
+    () => filterCommonConditions(value),
+    [value],
+  );
+  const showDropdown = showSuggestions && trimmedValue.length > 0;
+
+  useEffect(() => {
+    if (!showSuggestions) return;
+
+    function handlePointerDown(event: MouseEvent) {
+      if (!fieldRef.current?.contains(event.target as Node)) {
+        setShowSuggestions(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [showSuggestions]);
+
+  return (
+    <div ref={fieldRef} className="relative" style={style}>
+      <input
+        type="text"
+        value={value}
+        onChange={(event) => {
+          onChange(event.target.value);
+          setShowSuggestions(event.target.value.trim().length > 0);
+        }}
+        onFocus={() => {
+          if (trimmedValue.length > 0) {
+            setShowSuggestions(true);
+          }
+        }}
+        className={`${inputClassName} ${
+          showDropdown ? "rounded-b-none border-b-0" : ""
+        }`}
+        style={{ width: "100%" }}
+        placeholder="z.B. Neurodermitis, Diabetes Typ 2"
+        autoComplete="off"
+        aria-label="Name der Erkrankung"
+      />
+
+      {showDropdown ? (
+        <div
+          className="absolute left-0 right-0 top-full z-[100] max-h-[200px] overflow-y-auto rounded-b-xl border border-t-0 border-[#E4E2DB] bg-white shadow-[0_4px_12px_rgba(0,0,0,0.08)]"
+          style={{ borderWidth: "0.5px" }}
+          role="listbox"
+          aria-label="Erkrankungsvorschläge"
+        >
+          {suggestions.map((entry) => (
+            <button
+              key={entry}
+              type="button"
+              role="option"
+              onClick={() => {
+                onChange(entry);
+                setShowSuggestions(false);
+              }}
+              className="flex min-h-12 w-full items-center border-b border-[#F0EFE9] px-4 text-left text-[15px] text-[#1E1D1B] transition-colors hover:bg-[#F7F6F2]"
+              style={{ borderBottomWidth: "0.5px" }}
+            >
+              {entry}
+            </button>
+          ))}
+
+          <button
+            type="button"
+            onClick={() => {
+              onChange(trimmedValue);
+              setShowSuggestions(false);
+            }}
+            className="sticky bottom-0 flex min-h-12 w-full items-center bg-[#F7F6F2] px-4 text-left text-sm font-semibold text-primary"
+          >
+            + {trimmedValue} hinzufügen
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function VaccineNameInput({
+  value,
+  onChange,
+  style,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  style?: React.CSSProperties;
+}) {
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const fieldRef = useRef<HTMLDivElement>(null);
+  const trimmedValue = value.trim();
+  const suggestions = useMemo(
+    () => filterCommonVaccines(value),
+    [value],
+  );
+  const showDropdown = showSuggestions && trimmedValue.length > 0;
+
+  useEffect(() => {
+    if (!showSuggestions) return;
+
+    function handlePointerDown(event: MouseEvent) {
+      if (!fieldRef.current?.contains(event.target as Node)) {
+        setShowSuggestions(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [showSuggestions]);
+
+  return (
+    <div ref={fieldRef} className="relative" style={style}>
+      <input
+        type="text"
+        value={value}
+        onChange={(event) => {
+          onChange(event.target.value);
+          setShowSuggestions(event.target.value.trim().length > 0);
+        }}
+        onFocus={() => {
+          if (trimmedValue.length > 0) {
+            setShowSuggestions(true);
+          }
+        }}
+        className={`${inputClassName} ${
+          showDropdown ? "rounded-b-none border-b-0" : ""
+        }`}
+        style={{ width: "100%" }}
+        placeholder="z.B. COVID-19, Tetanus, Grippe"
+        autoComplete="off"
+        aria-label="Impfstoff"
+      />
+
+      {showDropdown ? (
+        <div
+          className="absolute left-0 right-0 top-full z-[100] max-h-[200px] overflow-y-auto rounded-b-xl border border-t-0 border-[#E4E2DB] bg-white shadow-[0_4px_12px_rgba(0,0,0,0.08)]"
+          style={{ borderWidth: "0.5px" }}
+          role="listbox"
+          aria-label="Impfstoffvorschläge"
+        >
+          {suggestions.map((vaccine) => (
+            <button
+              key={vaccine}
+              type="button"
+              role="option"
+              onClick={() => {
+                onChange(vaccine);
+                setShowSuggestions(false);
+              }}
+              className="flex min-h-12 w-full items-center border-b border-[#F0EFE9] px-4 text-left text-[15px] text-[#1E1D1B] transition-colors hover:bg-[#F7F6F2]"
+              style={{ borderBottomWidth: "0.5px" }}
+            >
+              {vaccine}
+            </button>
+          ))}
+
+          <button
+            type="button"
+            onClick={() => {
+              onChange(trimmedValue);
+              setShowSuggestions(false);
+            }}
+            className="sticky bottom-0 flex min-h-12 w-full items-center bg-[#F7F6F2] px-4 text-left text-sm font-semibold text-primary"
+          >
+            „{trimmedValue}" übernehmen
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

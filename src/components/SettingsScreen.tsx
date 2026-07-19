@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  Bell,
   CheckCircle2,
   Download,
   FileText,
@@ -16,12 +15,24 @@ import {
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { AvatarUploadButton } from "@/components/AvatarUploadButton";
 import { ErrorBanner, ErrorState, PageSkeleton } from "@/components/AppStates";
 import { useElderMode } from "@/components/ElderModeProvider";
 import { useLanguage } from "@/components/LanguageProvider";
+import { Toggle } from "@/components/ui/Toggle";
 import { appVersion, contactEmail } from "@/lib/app-info";
-import { getProfileInitials, resolveProfileNames } from "@/lib/profile-display";
+import {
+  fontSizeStorageKey,
+  readFontSizePreference,
+  type FontSizePreference,
+} from "@/lib/font-size";
+import {
+  buildProfileSettingsFields,
+  loadUserProfileRow,
+  logSupabaseError,
+} from "@/lib/load-settings-profile";
 import { createClient } from "@/lib/supabase/client";
+import { notifyFamilyConnectionsChanged } from "@/lib/family-links-query";
 import {
   defaultNotificationPreferences,
   type FamilyConnection,
@@ -38,6 +49,7 @@ const demoSettings: SettingsData = {
     initials: "HL",
     language: "de",
     elderMode: false,
+    avatarUrl: null,
     notificationPreferences: defaultNotificationPreferences,
   },
   familyConnections: [
@@ -51,13 +63,18 @@ const demoSettings: SettingsData = {
 };
 
 const notificationLabels = {
-  emailNotifications: "Benachrichtigungen per E-Mail",
+  section: "Benachrichtigungen",
+  emailHint: "Benachrichtigungen per E-Mail",
+  medications: "Medikamente",
+  labResults: "Laborwerte",
+  family: "Familie",
 } as const;
 
 export function SettingsScreen() {
   const router = useRouter();
-  const { elderMode, setElderMode } = useElderMode();
+  const { fontSize: contextFontSize, setFontSize } = useElderMode();
   const { t } = useLanguage();
+  const [fontSize, setFontSizeState] = useState<FontSizePreference>("normal");
   const [settings, setSettings] = useState<SettingsData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -67,13 +84,34 @@ export function SettingsScreen() {
   const [isExporting, setIsExporting] = useState(false);
   const [disconnectingId, setDisconnectingId] = useState<string | null>(null);
   const [bannerError, setBannerError] = useState<string | null>(null);
+  const [loadWarning, setLoadWarning] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const isDemo = settings?.profile.id === demoSettings.profile.id;
 
+  useEffect(() => {
+    const saved = window.localStorage.getItem(fontSizeStorageKey);
+    if (saved === "large") {
+      setFontSizeState("large");
+      return;
+    }
+
+    if (saved === "normal") {
+      setFontSizeState("normal");
+      return;
+    }
+
+    setFontSizeState(readFontSizePreference());
+  }, []);
+
+  useEffect(() => {
+    setFontSizeState(contextFontSize);
+  }, [contextFontSize]);
+
   async function loadSettings() {
     setIsLoading(true);
     setLoadFailed(false);
+    setLoadWarning(null);
 
     try {
       const supabase = createClient();
@@ -86,54 +124,82 @@ export function SettingsScreen() {
         throw new Error("User not authenticated.");
       }
 
-      const { data: profileData, error: profileError } = await supabase
-        .from("profiles")
-        .select("first_name, last_name, role")
-        .eq("id", user.id)
-        .maybeSingle();
-
-      console.log("Profile data:", profileData);
-      console.log("Current user:", user);
+      const { profile: profileData, error: profileError } = await loadUserProfileRow(
+        supabase,
+        user.id,
+        "Settings page profile",
+      );
 
       if (profileError) {
-        throw profileError;
+        logSupabaseError("Settings page profile", profileError);
       }
 
-      const response = await fetch("/api/settings", {
-        credentials: "include",
-      });
-
-      if (!response.ok) {
-        throw new Error("Settings request failed.");
-      }
-
-      const data = (await response.json()) as SettingsData;
       const metadata = user.user_metadata as
         | { first_name?: string; last_name?: string }
         | undefined;
-      const { firstName, lastName } = resolveProfileNames(
-        profileData,
+
+      let apiData: SettingsData | null = null;
+      let apiFailed = false;
+
+      try {
+        const response = await fetch("/api/settings", {
+          credentials: "include",
+        });
+
+        if (!response.ok) {
+          const body = (await response.json().catch(() => null)) as
+            | { error?: string; details?: string }
+            | null;
+          console.error("Settings API failed:", response.status, body);
+          apiFailed = true;
+        } else {
+          apiData = (await response.json()) as SettingsData;
+        }
+      } catch (apiError) {
+        console.error("Settings API crash:", apiError);
+        apiFailed = true;
+      }
+
+      const fallbackProfile = buildProfileSettingsFields({
+        userId: user.id,
+        email: user.email,
+        profile: profileData,
         metadata,
-      );
+        elderModeOverride: contextFontSize === "large",
+      });
 
       setSettings({
-        ...data,
         profile: {
-          ...data.profile,
+          ...(apiData?.profile ?? fallbackProfile),
           id: user.id,
-          firstName,
-          lastName,
-          email: user.email ?? data.profile.email,
-          initials: getProfileInitials(firstName, lastName),
+          firstName: apiData?.profile.firstName || fallbackProfile.firstName,
+          lastName: apiData?.profile.lastName || fallbackProfile.lastName,
+          email: user.email ?? apiData?.profile.email ?? fallbackProfile.email,
+          initials:
+            apiData?.profile.initials ||
+            fallbackProfile.initials,
+          avatarUrl:
+            apiData?.profile.avatarUrl ?? fallbackProfile.avatarUrl,
+          elderMode: contextFontSize === "large",
+          notificationPreferences:
+            apiData?.profile.notificationPreferences ??
+            fallbackProfile.notificationPreferences,
         },
+        familyConnections: apiData?.familyConnections ?? [],
       });
-      setElderMode(data.profile.elderMode);
-    } catch {
+
+      if (profileError || apiFailed) {
+        setLoadWarning(
+          "Einige Profildaten konnten nicht geladen werden. Sie können die Seite trotzdem nutzen.",
+        );
+      }
+    } catch (error) {
+      console.error("Profile page crash:", error);
+
       if (process.env.NEXT_PUBLIC_SUPABASE_URL) {
         setLoadFailed(true);
       } else {
         setSettings(demoSettings);
-        setElderMode(demoSettings.profile.elderMode);
       }
     } finally {
       setIsLoading(false);
@@ -147,7 +213,7 @@ export function SettingsScreen() {
 
     return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [setElderMode]);
+  }, []);
 
   async function patchSettings(updates: {
     elderMode?: boolean;
@@ -180,11 +246,13 @@ export function SettingsScreen() {
     window.setTimeout(() => setSuccessMessage(null), 2200);
   }
 
-  async function setTextSize(enabled: boolean) {
-    setElderMode(enabled);
+  async function toggleFontSize(size: FontSizePreference) {
+    setFontSizeState(size);
+    setFontSize(size);
 
     if (!settings) return;
 
+    const enabled = size === "large";
     setSettings({
       ...settings,
       profile: { ...settings.profile, elderMode: enabled },
@@ -197,11 +265,20 @@ export function SettingsScreen() {
     }
   }
 
-  async function toggleEmailNotifications() {
+  async function setNotificationPreference(
+    key: "medications" | "labResults" | "family",
+    enabled: boolean,
+  ) {
     if (!settings) return;
 
-    const nextPreferences = {
-      emailNotifications: !settings.profile.notificationPreferences.emailNotifications,
+    const current = settings.profile.notificationPreferences;
+    const nextPreferences: NotificationPreferences = {
+      ...current,
+      [key]: enabled,
+      emailNotifications:
+        (key === "medications" ? enabled : current.medications) ||
+        (key === "labResults" ? enabled : current.labResults) ||
+        (key === "family" ? enabled : current.family),
     };
 
     setSettings({
@@ -236,6 +313,7 @@ export function SettingsScreen() {
           (connection) => connection.id !== connectionId,
         ),
       });
+      notifyFamilyConnectionsChanged();
       showSuccess("Verbindung getrennt");
     } catch {
       showError("Verbindung konnte nicht getrennt werden. Bitte versuchen Sie es erneut.");
@@ -330,6 +408,19 @@ export function SettingsScreen() {
         />
       ) : null}
 
+      {loadWarning ? (
+        <div className="mx-5 mt-4 rounded-2xl border border-warning/30 bg-warning-light px-4 py-3">
+          <p className="text-sm text-warning">{loadWarning}</p>
+          <button
+            type="button"
+            onClick={() => void loadSettings()}
+            className="mt-2 text-sm font-semibold text-primary underline-offset-2 hover:underline"
+          >
+            Erneut laden
+          </button>
+        </div>
+      ) : null}
+
       <main className="mx-auto flex w-full max-w-app flex-1 flex-col px-5 py-6">
         {showElderToast && (
           <div
@@ -352,12 +443,24 @@ export function SettingsScreen() {
 
         <section className="noor-card p-5">
           <div className="flex flex-col items-center text-center">
-            <div
-              className="flex h-24 w-24 items-center justify-center rounded-full bg-primary text-3xl font-bold text-white"
-              aria-hidden="true"
-            >
-              {profile.initials}
-            </div>
+            <AvatarUploadButton
+              userId={profile.id}
+              avatarUrl={profile.avatarUrl}
+              name={`${profile.firstName} ${profile.lastName}`.trim()}
+              firstName={profile.firstName}
+              lastName={profile.lastName}
+              size={96}
+              onUploaded={(avatarUrl) =>
+                setSettings((current) =>
+                  current
+                    ? {
+                        ...current,
+                        profile: { ...current.profile, avatarUrl },
+                      }
+                    : current,
+                )
+              }
+            />
             <h1 className="heading-lg mt-4">
               {profile.firstName} {profile.lastName}
             </h1>
@@ -377,27 +480,40 @@ export function SettingsScreen() {
             title={t("settings.textSize")}
             normalLabel={t("settings.normal")}
             largeLabel={t("settings.large")}
-            elderMode={elderMode}
-            onChange={setTextSize}
+            fontSize={fontSize}
+            onChange={toggleFontSize}
           />
-          <div className="flex items-center justify-between gap-3 border-t border-border px-5 py-4">
-              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary-light text-primary">
-                <Bell size={24} aria-hidden="true" />
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-base font-bold text-foreground">
-                  {notificationLabels.emailNotifications}
-                </p>
-                <p className="mt-1 text-base text-muted">
-                  E-Mail: {profile.email || "—"}
-                </p>
-              </div>
-              <ToggleSwitch
-                checked={profile.notificationPreferences.emailNotifications}
-                onChange={() => void toggleEmailNotifications()}
-                label={notificationLabels.emailNotifications}
-              />
+        </section>
+
+        <SectionHeading title={notificationLabels.section} />
+        <section className="noor-card overflow-hidden">
+          <div
+            className="border-b border-[#F0EFE9] px-4 py-3.5"
+            style={{ borderBottomWidth: "0.5px", padding: "14px 16px" }}
+          >
+            <p className="text-[15px] font-semibold text-[#1E1D1B]">
+              {notificationLabels.emailHint}
+            </p>
+            <p className="mt-1 text-sm text-muted">
+              E-Mail: {profile.email || "—"}
+            </p>
           </div>
+
+          <NotificationToggleRow
+            label={notificationLabels.medications}
+            checked={profile.notificationPreferences.medications}
+            onChange={(enabled) => void setNotificationPreference("medications", enabled)}
+          />
+          <NotificationToggleRow
+            label={notificationLabels.labResults}
+            checked={profile.notificationPreferences.labResults}
+            onChange={(enabled) => void setNotificationPreference("labResults", enabled)}
+          />
+          <NotificationToggleRow
+            label={notificationLabels.family}
+            checked={profile.notificationPreferences.family}
+            onChange={(enabled) => void setNotificationPreference("family", enabled)}
+          />
         </section>
 
         <SectionHeading title="Familienverbindungen" />
@@ -517,6 +633,31 @@ export function SettingsScreen() {
   );
 }
 
+function NotificationToggleRow({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <div
+      className="flex items-center justify-between border-b border-[#F0EFE9] last:border-b-0"
+      style={{ padding: "14px 16px", borderBottomWidth: "0.5px" }}
+    >
+      <span
+        className="flex-1 text-[15px] text-[#1E1D1B]"
+        style={{ fontSize: "15px", color: "#1E1D1B", flex: 1 }}
+      >
+        {label}
+      </span>
+      <Toggle checked={checked} onChange={onChange} label={label} />
+    </div>
+  );
+}
+
 function SectionHeading({ title }: { title: string }) {
   return (
     <h2 className="mb-3 mt-6 text-base font-bold uppercase tracking-wide text-muted">
@@ -542,6 +683,9 @@ function FamilyConnectionCard({
         </span>
         <div className="min-w-0 flex-1">
           <p className="text-base font-bold text-foreground">{connection.name}</p>
+          {connection.subtitle ? (
+            <p className="mt-1 text-sm text-primary">{connection.subtitle}</p>
+          ) : null}
           <p className="mt-1 text-base text-muted">{connection.relationship}</p>
           <p className="mt-1 text-sm text-muted">
             Verbunden seit {connection.connectedAt}
@@ -554,7 +698,7 @@ function FamilyConnectionCard({
         disabled={isDisconnecting}
         className="mt-4 min-h-12 w-full rounded-2xl border border-red-200 px-4 py-3 text-base font-semibold text-red-600 transition-colors hover:bg-red-50 disabled:opacity-60"
       >
-        {isDisconnecting ? "Wird getrennt…" : "Verbindung trennen"}
+        {isDisconnecting ? "Wird getrennt…" : "Trennen"}
       </button>
     </li>
   );
@@ -564,14 +708,14 @@ function TextSizeSettingsRow({
   title,
   normalLabel,
   largeLabel,
-  elderMode,
+  fontSize,
   onChange,
 }: {
   title: string;
   normalLabel: string;
   largeLabel: string;
-  elderMode: boolean;
-  onChange: (enabled: boolean) => void;
+  fontSize: FontSizePreference;
+  onChange: (size: FontSizePreference) => void;
 }) {
   return (
     <div
@@ -593,32 +737,32 @@ function TextSizeSettingsRow({
       >
         <button
           type="button"
-          onClick={() => onChange(false)}
-          aria-pressed={!elderMode}
+          onClick={() => onChange("normal")}
+          aria-pressed={fontSize === "normal"}
           className="flex-1 cursor-pointer rounded-[10px] border-0 py-2.5 text-sm font-semibold"
           style={{
             padding: "10px",
             borderRadius: "10px",
             fontWeight: "600",
             fontSize: "14px",
-            backgroundColor: !elderMode ? "#1D9E75" : "#F0EFE9",
-            color: !elderMode ? "#FFFFFF" : "#6B685A",
+            backgroundColor: fontSize === "normal" ? "#1D9E75" : "#F0EFE9",
+            color: fontSize === "normal" ? "#FFFFFF" : "#6B685A",
           }}
         >
           {normalLabel}
         </button>
         <button
           type="button"
-          onClick={() => onChange(true)}
-          aria-pressed={elderMode}
+          onClick={() => onChange("large")}
+          aria-pressed={fontSize === "large"}
           className="flex-1 cursor-pointer rounded-[10px] border-0 py-2.5 text-sm font-semibold"
           style={{
             padding: "10px",
             borderRadius: "10px",
             fontWeight: "600",
             fontSize: "14px",
-            backgroundColor: elderMode ? "#1D9E75" : "#F0EFE9",
-            color: elderMode ? "#FFFFFF" : "#6B685A",
+            backgroundColor: fontSize === "large" ? "#1D9E75" : "#F0EFE9",
+            color: fontSize === "large" ? "#FFFFFF" : "#6B685A",
           }}
         >
           {largeLabel}
@@ -672,35 +816,6 @@ function LinkRow({
       </span>
       <span className="text-base font-bold text-foreground">{title}</span>
     </Link>
-  );
-}
-
-function ToggleSwitch({
-  checked,
-  onChange,
-  label,
-}: {
-  checked: boolean;
-  onChange: (checked: boolean) => void;
-  label: string;
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
-      onClick={() => onChange(!checked)}
-      className={`relative h-8 min-h-8 min-w-[51px] w-14 shrink-0 rounded-full transition-colors ${
-        checked ? "bg-primary" : "bg-zinc-300"
-      }`}
-    >
-      <span
-        className={`absolute top-1 h-6 w-6 rounded-full bg-white shadow transition-transform ${
-          checked ? "translate-x-6" : "translate-x-1"
-        }`}
-      />
-    </button>
   );
 }
 

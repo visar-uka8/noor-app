@@ -6,11 +6,35 @@ export type HealthPassportShare = {
 };
 
 export function getShareBaseUrl() {
-  if (typeof window !== "undefined") {
-    return process.env.NEXT_PUBLIC_APP_URL ?? window.location.origin;
+  const envUrl = process.env.NEXT_PUBLIC_APP_URL?.trim().replace(/\/$/, "");
+
+  if (envUrl && !isVercelPreviewHost(envUrl)) {
+    return envUrl;
   }
 
-  return process.env.NEXT_PUBLIC_APP_URL ?? "https://noor.health";
+  if (typeof window !== "undefined") {
+    const host = window.location.hostname;
+
+    if (host === "noorhealth.de" || host === "www.noorhealth.de") {
+      return "https://noorhealth.de";
+    }
+
+    if (host === "noorhealth.app" || host === "www.noorhealth.app") {
+      return "https://noorhealth.app";
+    }
+  }
+
+  // Never use *.vercel.app for shareable emergency links.
+  return "https://noorhealth.de";
+}
+
+function isVercelPreviewHost(url: string) {
+  try {
+    const host = new URL(url).hostname;
+    return host.endsWith(".vercel.app");
+  } catch {
+    return url.includes("vercel.app");
+  }
 }
 
 export function buildShareUrl(token: string) {
@@ -19,6 +43,22 @@ export function buildShareUrl(token: string) {
 
 export const shareExpiryNotice =
   "Dieser Link ist 24 Stunden gültig und kann von jedem geöffnet werden.";
+
+export function formatShareExpiryDate(expiresAt: string) {
+  const date = new Date(expiresAt);
+
+  if (Number.isNaN(date.getTime())) {
+    return expiresAt;
+  }
+
+  return date.toLocaleString("de-DE", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 
 export function formatPassportDate(dateString: string) {
   if (!dateString) return "—";

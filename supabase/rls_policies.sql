@@ -96,9 +96,14 @@ create policy "Patients manage family links"
   with check (auth.uid() = patient_id);
 
 drop policy if exists "Patients update family links" on public.family_links;
-create policy "Patients update family links"
+drop policy if exists "Participants update family links" on public.family_links;
+create policy "Participants update family links"
   on public.family_links for update
-  using (auth.uid() = patient_id);
+  using (
+    auth.uid() = patient_id
+    or auth.uid() = family_member_id
+    or auth.uid() = watcher_id
+  );
 
 drop policy if exists "Patients manage family invites" on public.family_invites;
 create policy "Patients manage family invites"

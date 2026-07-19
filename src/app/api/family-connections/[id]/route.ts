@@ -1,5 +1,8 @@
-import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
+import { createSupabaseDataClient } from "@/lib/supabase-data";
+import { getWatcherId } from "@/lib/family-roles";
+import { queryActiveFamilyLinksForUser } from "@/lib/family-links-query";
+import { logSupabaseError } from "@/lib/load-settings-profile";
 
 export const runtime = "nodejs";
 
@@ -22,14 +25,32 @@ export async function DELETE(
     const supabase = createSupabaseDataClient() ?? authSupabase;
     const { data: link, error: linkError } = await supabase
       .from("family_links")
-      .select("id, patient_id")
+      .select("id, patient_id, watcher_id, family_member_id, active")
       .eq("id", id)
-      .maybeSingle<{ id: string; patient_id: string }>();
+      .maybeSingle<{
+        id: string;
+        patient_id: string;
+        watcher_id: string | null;
+        family_member_id: string | null;
+        active: boolean | null;
+      }>();
 
     if (linkError) throw linkError;
 
-    if (!link || link.patient_id !== user.id) {
+    if (!link) {
       return Response.json({ error: "Verbindung nicht gefunden." }, { status: 404 });
+    }
+
+    const watcherId = getWatcherId(link);
+    const canDisconnect =
+      link.patient_id === user.id || watcherId === user.id;
+
+    if (!canDisconnect) {
+      return Response.json({ error: "Verbindung nicht gefunden." }, { status: 404 });
+    }
+
+    if (link.active === false) {
+      return Response.json({ disconnected: true });
     }
 
     const { error } = await supabase
@@ -41,24 +62,11 @@ export async function DELETE(
 
     return Response.json({ disconnected: true });
   } catch (error) {
-    console.error("Family disconnect failed", error);
+    logSupabaseError("Family disconnect failed", error);
 
     return Response.json(
       { error: "Verbindung konnte nicht getrennt werden." },
       { status: 500 },
     );
   }
-}
-
-function createSupabaseDataClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseKey =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ??
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-  if (!supabaseUrl || !supabaseKey) return null;
-
-  return createAdminClient(supabaseUrl, supabaseKey, {
-    auth: { persistSession: false },
-  });
 }

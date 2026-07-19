@@ -5,9 +5,11 @@ import QRCode from "qrcode";
 import { useEffect, useState } from "react";
 import {
   buildShareUrl,
+  formatShareExpiryDate,
   shareExpiryNotice,
   type HealthPassportShare,
 } from "@/lib/health-passport-share";
+import { getSupabase } from "@/lib/supabase";
 
 type HealthPassportShareDialogProps = {
   open: boolean;
@@ -35,12 +37,24 @@ export function HealthPassportShareDialog({
       setQrCodeUrl(null);
 
       try {
+        const supabase = getSupabase();
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+
         const response = await fetch("/api/health-passport/share", {
           method: "POST",
+          credentials: "include",
+          headers: session?.access_token
+            ? { Authorization: `Bearer ${session.access_token}` }
+            : {},
         });
 
         if (!response.ok) {
-          throw new Error("Share creation failed.");
+          const body = (await response.json().catch(() => null)) as {
+            error?: string;
+          } | null;
+          throw new Error(body?.error ?? "Share creation failed.");
         }
 
         const data = (await response.json()) as { share: HealthPassportShare };
@@ -55,14 +69,18 @@ export function HealthPassportShareDialog({
           margin: 1,
           width: 280,
           color: {
-            dark: "#085041",
+            dark: "#111111",
             light: "#ffffff",
           },
         });
 
         setQrCodeUrl(qr);
-      } catch {
-        setErrorMessage("Der Notfall-Link konnte gerade nicht erstellt werden.");
+      } catch (error) {
+        setErrorMessage(
+          error instanceof Error
+            ? error.message
+            : "Der Notfall-Link konnte gerade nicht erstellt werden.",
+        );
       } finally {
         setIsLoading(false);
       }
@@ -74,20 +92,18 @@ export function HealthPassportShareDialog({
   async function shareLink() {
     if (!share) return;
 
-    const message = `Noor Notfall-Gesundheitspass\n${share.shareUrl}\n\n${shareExpiryNotice}`;
-
     try {
       if (navigator.share) {
         await navigator.share({
-          title: "Noor Notfall-Gesundheitspass",
-          text: message,
+          title: "Notfall-Gesundheitspass",
+          text: "Gesundheitsinformationen für den Notfall",
           url: share.shareUrl,
         });
         return;
       }
 
-      await navigator.clipboard.writeText(message);
-      setStatusMessage("Link wurde kopiert.");
+      await navigator.clipboard.writeText(share.shareUrl);
+      setStatusMessage("Link kopiert!");
     } catch {
       setStatusMessage("Teilen ist gerade nicht möglich.");
     }
@@ -130,6 +146,15 @@ export function HealthPassportShareDialog({
 
         {share ? (
           <div className="mt-6 flex flex-col items-center gap-5">
+            <button
+              type="button"
+              onClick={() => void shareLink()}
+              className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-primary px-5 py-4 text-base font-semibold text-white transition-colors hover:bg-primary-dark active:scale-[0.98]"
+            >
+              <Share2 size={22} aria-hidden="true" />
+              Link teilen
+            </button>
+
             {qrCodeUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
@@ -143,14 +168,9 @@ export function HealthPassportShareDialog({
               {share.shareUrl}
             </p>
 
-            <button
-              type="button"
-              onClick={() => void shareLink()}
-              className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-primary px-5 py-4 text-base font-semibold text-white transition-colors hover:bg-primary-dark active:scale-[0.98]"
-            >
-              <Share2 size={22} aria-hidden="true" />
-              Link teilen
-            </button>
+            <p className="text-sm text-muted">
+              Dieser Link läuft ab am {formatShareExpiryDate(share.expiresAt)}
+            </p>
 
             {statusMessage ? (
               <p className="text-sm text-muted" role="status">

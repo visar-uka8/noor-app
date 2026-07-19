@@ -1,6 +1,21 @@
 export type LabAnalysisResult = {
   analysis: string;
   labResultId?: string;
+  createdAt?: string;
+  saveFailed?: boolean;
+  saveError?: string;
+  saveErrorCode?: string;
+  saveErrorDetails?: string;
+  saveErrorHint?: string;
+  saveDebug?: {
+    client: "service_role" | "user_session";
+    attempts: Array<{
+      label: string;
+      ok: boolean;
+      code?: string;
+      message?: string;
+    }>;
+  };
 };
 
 export type LabResultRecord = {

@@ -1,3 +1,6 @@
+import { getActivityTypeTitle } from "@/types/activity-log";
+import type { ActivityType } from "@/types/activity-log";
+
 type Language = "de" | "en";
 
 type AcceptedMediaType =
@@ -7,12 +10,206 @@ type AcceptedMediaType =
   | "image/webp"
   | "application/pdf";
 
-export function buildLabSystemPrompt(_language: Language) {
+export type LabAnalysisProfile = {
+  date_of_birth?: string | null;
+  gender?: string | null;
+  height_cm?: number | null;
+  weight_kg?: number | string | null;
+  activity_level?: string | null;
+  sport_types?: string[] | null;
+};
+
+const activityLevelLabels: Record<string, string> = {
+  sedentary: "Wenig aktiv",
+  light: "Leicht aktiv",
+  moderate: "Aktiv",
+  very_active: "Sehr aktiv",
+};
+
+const sportTypeLabels: Record<string, string> = {
+  running: "Laufen",
+  cycling: "Radfahren",
+  swimming: "Schwimmen",
+  strength: "Krafttraining",
+  yoga: "Yoga",
+  football: "Fußball",
+  tennis: "Tennis",
+  other: "Andere",
+};
+
+export function buildLabUserContext(profile: LabAnalysisProfile | null | undefined) {
+  if (!profile) {
+    return "Kein Profil verfügbar.";
+  }
+
+  const lines: string[] = ["PATIENTENPROFIL:"];
+
+  if (profile.date_of_birth) {
+    const age =
+      new Date().getFullYear() -
+      new Date(profile.date_of_birth).getFullYear();
+    lines.push(`- Alter: ${age} Jahre`);
+  }
+
+  if (profile.gender) {
+    const genderLabel =
+      profile.gender === "male"
+        ? "männlich"
+        : profile.gender === "female"
+          ? "weiblich"
+          : "keine Angabe";
+    lines.push(`- Geschlecht: ${genderLabel}`);
+  }
+
+  if (profile.height_cm != null && profile.height_cm > 0) {
+    lines.push(`- Größe: ${profile.height_cm} cm`);
+  }
+
+  if (profile.weight_kg != null && Number(profile.weight_kg) > 0) {
+    lines.push(`- Gewicht: ${profile.weight_kg} kg`);
+  }
+
+  if (
+    profile.height_cm != null &&
+    profile.height_cm > 0 &&
+    profile.weight_kg != null &&
+    Number(profile.weight_kg) > 0
+  ) {
+    const bmi =
+      Number(profile.weight_kg) / Math.pow(profile.height_cm / 100, 2);
+    lines.push(`- BMI: ${bmi.toFixed(1)}`);
+  }
+
+  if (profile.activity_level) {
+    lines.push(
+      `- Aktivitätslevel: ${activityLevelLabels[profile.activity_level] ?? profile.activity_level}`,
+    );
+  }
+
+  const sportLabels = (profile.sport_types ?? [])
+    .map((entry) => sportTypeLabels[entry] ?? entry)
+    .filter(Boolean);
+
+  lines.push(
+    `- Sportarten: ${sportLabels.length > 0 ? sportLabels.join(", ") : "keine Angabe"}`,
+  );
+
+  if (lines.length === 1) {
+    return "Kein Profil verfügbar.";
+  }
+
+  return lines.join("\n");
+}
+
+export function buildLabActivityContext(
+  recentActivity: Array<{
+    date: string;
+    activity_type: string;
+    duration_minutes: number | null;
+  }>,
+) {
+  if (!recentActivity.length) {
+    return "Keine Aktivitätsdaten vorhanden.";
+  }
+
+  const averageMinutes = Math.round(
+    recentActivity.reduce(
+      (sum, entry) => sum + (entry.duration_minutes || 0),
+      0,
+    ) / recentActivity.length,
+  );
+
+  return `AKTIVITÄT LETZTE 7 TAGE:
+${recentActivity
+  .map((entry) => {
+    const label =
+      getActivityTypeTitle(entry.activity_type as ActivityType) ||
+      entry.activity_type;
+    const minutes = entry.duration_minutes ?? 0;
+    return `${entry.date}: ${label}, ${minutes} Min.`;
+  })
+  .join("\n")}
+Durchschnittliche Aktivität: ${averageMinutes} Min./Tag`;
+}
+
+export type LabAnalysisCondition = {
+  name: string;
+  since?: string;
+  treatment?: string;
+};
+
+export function buildLabConditionsContext(
+  conditions: LabAnalysisCondition[] | null | undefined,
+) {
+  if (!conditions?.length) {
+    return "Keine bekannten Erkrankungen.";
+  }
+
+  const filled = conditions.filter((condition) => condition.name.trim().length > 0);
+  if (!filled.length) {
+    return "Keine bekannten Erkrankungen.";
+  }
+
+  return `BEKANNTE ERKRANKUNGEN:
+${filled
+  .map(
+    (condition) =>
+      `- ${condition.name.trim()}${condition.since?.trim() ? ` (${condition.since.trim()})` : ""}
+   ${condition.treatment?.trim() ? `Behandlung: ${condition.treatment.trim()}` : ""}`.trimEnd(),
+  )
+  .join("\n")}`;
+}
+
+export function buildLabSystemPrompt(
+  _language: Language,
+  userContext = "Kein Profil verfügbar.",
+  activityContext = "Keine Aktivitätsdaten vorhanden.",
+  conditionsContext = "Keine bekannten Erkrankungen.",
+) {
   return `KRITISCH: Du antwortest IMMER auf Deutsch, egal in welcher 
 Sprache das Dokument ist oder die Frage gestellt wird.
 
-Du bist Noor, ein freundlicher aber präziser Gesundheitsbegleiter 
-für ältere Patienten in Deutschland.
+Du bist Noor, ein präziser Gesundheitsbegleiter.
+
+${userContext}
+
+${conditionsContext}
+
+${activityContext}
+
+WICHTIG FÜR ERKRANKUNGEN:
+Berücksichtige bei ALLEN Wert-Erklärungen und Empfehlungen die bekannten Erkrankungen des Patienten.
+Interpretiere Laborwerte im Kontext dieser Diagnosen — z. B. Blutzucker und HbA1c bei Diabetes, Entzündungsmarker bei Neurodermitis, Lipidwerte bei Herz-Kreislauf-Erkrankungen.
+Gib keine generischen Erklärungen wenn eine Erkrankung relevante, spezifischere Interpretation ermöglicht.
+
+WICHTIG FÜR EMPFEHLUNGEN:
+Berücksichtige bei ALLEN Lifestyle-Empfehlungen das Patientenprofil:
+
+- Wenn der Patient sehr aktiv ist (3+ Mal Sport/Woche):
+  NIEMALS empfehlen "30 Minuten spazieren gehen" oder "1.5-2 Liter Wasser trinken"
+  als allgemeine Empfehlung — das ist für aktive Menschen irrelevant.
+
+  Stattdessen:
+  * Empfehlungen an Trainingsintensität anpassen
+  * Für sehr aktive: mehr Wasser (2.5-3.5L je nach Trainingsumfang), Regeneration, Protein etc.
+  * Sportspezifische Tipps geben
+  * Auf Übertraining oder Mangelzustände hinweisen die bei Sportlern häufiger vorkommen
+
+- Wenn der Patient wenig aktiv ist:
+  Moderate Aktivität empfehlen, angepasst ans Alter
+
+- Alter berücksichtigen:
+  Empfehlungen für einen 35-jährigen Sportler sind völlig anders als für einen 70-jährigen.
+
+- BMI berücksichtigen:
+  Bei erhöhtem BMI entsprechende Hinweise geben.
+  Bei normalem BMI nicht unnötig auf Gewicht eingehen.
+
+Für den Persönlichen Lebensstil-Plan gilt:
+Die Empfehlungen müssen SPEZIFISCH und REALISTISCH sein für diese konkrete Person — nicht generisch.
+
+Ein 36-jähriger der 5x pro Woche Sport macht braucht KEINE Empfehlung mehr Sport zu machen.
+Er braucht vielleicht Hinweise zu Regeneration, Elektrolyten, oder sportspezifischer Ernährung.
 
 Ein Patient hat dir ein Foto seines Laborbefunds geschickt.
 
@@ -63,31 +260,25 @@ und Vollfettmilchprodukte — da Ihr Cholesterin erhöht ist']
 ---
 IHR PERSÖNLICHER LEBENSSTIL-PLAN
 
-Basierend auf Ihren Laborwerten empfehle ich folgendes:
+Basierend auf Ihren Laborwerten und Ihrem Patientenprofil empfehle ich folgendes:
 
 ERNÄHRUNG 🥗
 [2-3 specific foods to eat more of based on their results]
 [2-3 specific foods to reduce based on their results]
-Not generic advice. Specific to their actual values.
-Example: "Da Ihr Cholesterin erhöht ist, essen Sie mehr 
-Haferflocken, Lachs und Avocados. Reduzieren Sie rotes 
-Fleisch und Vollfettmilchprodukte."
+Not generic advice. Specific to their actual values and activity level.
 
 BEWEGUNG 🚶
-[One specific, achievable exercise recommendation]
-Appropriate for elderly users.
-Example: "30 Minuten Spazierengehen täglich kann Ihren 
-Cholesterinwert in 3 Monaten um bis zu 10% senken."
+[One specific, realistic exercise or recovery recommendation]
+An das Patientenprofil angepasst — nicht generisch.
+Für sehr aktive Patienten: Regeneration, sportspezifische Tipps.
+Für wenig aktive Patienten: moderate, altersgerechte Aktivität.
 
 TRINKEN 💧
-[Specific hydration advice if relevant to their values]
-Example: "Trinken Sie mindestens 1,5 Liter Wasser täglich.
-Bei erhöhter Harnsäure hilft viel Wasser beim Abbau."
+[Specific hydration advice if relevant to their values and activity level]
+Nicht generisch 1,5L empfehlen wenn der Patient sehr aktiv ist.
 
 NÄCHSTE KONTROLLE 📅
 [When they should get their next lab test]
-Example: "Lassen Sie Ihren Cholesterinwert in 
-3 Monaten erneut kontrollieren."
 
 ---
 WANN ZUM ARZT
@@ -126,6 +317,13 @@ export async function analyzeLabDocument(options: {
   language: Language;
   mediaType: AcceptedMediaType;
   base64File: string;
+  profile?: LabAnalysisProfile | null;
+  conditions?: LabAnalysisCondition[] | null;
+  recentActivity?: Array<{
+    date: string;
+    activity_type: string;
+    duration_minutes: number | null;
+  }>;
 }) {
   const provider = getLabAiProvider();
 
@@ -133,7 +331,15 @@ export async function analyzeLabDocument(options: {
     throw new Error("LAB_AI_NOT_CONFIGURED");
   }
 
-  const systemPrompt = buildLabSystemPrompt(options.language);
+  const userContext = buildLabUserContext(options.profile);
+  const conditionsContext = buildLabConditionsContext(options.conditions);
+  const activityContext = buildLabActivityContext(options.recentActivity ?? []);
+  const systemPrompt = buildLabSystemPrompt(
+    options.language,
+    userContext,
+    activityContext,
+    conditionsContext,
+  );
   const userPrompt = buildLabUserPrompt(options.language);
 
   if (provider === "gemini") {

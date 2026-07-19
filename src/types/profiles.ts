@@ -5,7 +5,13 @@ export type Profile = {
   first_name: string;
   last_name: string;
   date_of_birth: string | null;
-  role: UserRole;
+  gender?: string | null;
+  height_cm?: number | null;
+  weight_kg?: number | string | null;
+  activity_level?: string | null;
+  sport_types?: string[] | null;
+  avatar_url?: string | null;
+  role: UserRole | null;
   elder_mode: boolean;
   language: "de" | "en";
   created_at: string;

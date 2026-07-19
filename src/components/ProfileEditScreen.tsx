@@ -2,14 +2,23 @@
 
 import { useEffect, useState } from "react";
 import { ErrorBanner, ErrorState, PageSkeleton } from "@/components/AppStates";
+import { ProfileHealthFields } from "@/components/ProfileHealthFields";
 import { resolveProfileNames } from "@/lib/profile-display";
 import { createClient } from "@/lib/supabase/client";
+import {
+  emptyProfileHealthData,
+  isValidHeightCm,
+  isValidWeightKg,
+  profileHealthFromRow,
+  type ProfileHealthData,
+} from "@/types/profile-health";
 
 type ProfileForm = {
   id: string;
   firstName: string;
   lastName: string;
   email: string;
+  health: ProfileHealthData;
 };
 
 const emptyProfile: ProfileForm = {
@@ -17,6 +26,7 @@ const emptyProfile: ProfileForm = {
   firstName: "",
   lastName: "",
   email: "",
+  health: emptyProfileHealthData,
 };
 
 export function ProfileEditScreen() {
@@ -44,12 +54,11 @@ export function ProfileEditScreen() {
 
       const { data: profileData, error: profileError } = await supabase
         .from("profiles")
-        .select("first_name, last_name, role")
+        .select(
+          "first_name, last_name, role, date_of_birth, gender, height_cm, weight_kg, activity_level, sport_types",
+        )
         .eq("id", user.id)
         .maybeSingle();
-
-      console.log("Profile data:", profileData);
-      console.log("Current user:", user);
 
       if (profileError) {
         throw profileError;
@@ -68,6 +77,7 @@ export function ProfileEditScreen() {
         firstName,
         lastName,
         email: user.email ?? "",
+        health: profileHealthFromRow(profileData),
       });
     } catch {
       if (process.env.NEXT_PUBLIC_SUPABASE_URL) {
@@ -89,6 +99,16 @@ export function ProfileEditScreen() {
       return;
     }
 
+    if (!isValidHeightCm(profile.health.heightCm)) {
+      setSaveError("Körpergröße muss zwischen 140 und 220 cm liegen.");
+      return;
+    }
+
+    if (!isValidWeightKg(profile.health.weightKg)) {
+      setSaveError("Körpergewicht muss zwischen 40 und 200 kg liegen.");
+      return;
+    }
+
     setIsSaving(true);
     setSaveError(null);
 
@@ -101,18 +121,38 @@ export function ProfileEditScreen() {
           id: profile.id,
           first_name: profile.firstName,
           last_name: profile.lastName,
+          date_of_birth: profile.health.dateOfBirth || null,
+          gender: profile.health.gender || null,
+          height_cm: profile.health.heightCm.trim()
+            ? Number(profile.health.heightCm)
+            : null,
+          weight_kg: profile.health.weightKg.trim()
+            ? Number(profile.health.weightKg)
+            : null,
+          activity_level: profile.health.activityLevel || null,
+          sport_types:
+            profile.health.activityLevel &&
+            profile.health.activityLevel !== "sedentary"
+              ? profile.health.sportTypes
+              : [],
         }),
       });
 
+      const body = (await response.json().catch(() => null)) as {
+        error?: string;
+      } | null;
+
       if (!response.ok) {
-        throw new Error("Save failed.");
+        throw new Error(body?.error ?? "Save failed.");
       }
 
       setSaved(true);
       window.setTimeout(() => setSaved(false), 1800);
-    } catch {
+    } catch (error) {
       setSaveError(
-        "Profil konnte nicht gespeichert werden. Bitte versuchen Sie es erneut.",
+        error instanceof Error
+          ? error.message
+          : "Profil konnte nicht gespeichert werden. Bitte versuchen Sie es erneut.",
       );
       setSaved(false);
     } finally {
@@ -195,6 +235,18 @@ export function ProfileEditScreen() {
               Die E-Mail-Adresse kann hier nicht geändert werden.
             </span>
           </label>
+
+          <div className="border-t border-border pt-5">
+            <ProfileHealthFields
+              value={profile.health}
+              onChange={(health) =>
+                setProfile((current) => ({
+                  ...current,
+                  health,
+                }))
+              }
+            />
+          </div>
 
           <button
             type="submit"

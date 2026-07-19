@@ -267,10 +267,8 @@ async function loadFamilyNotificationEmails(
 
 function isEmailNotificationsEnabled(preferences: NotificationPreferences | null | undefined) {
   if (!preferences) return true;
-  if (typeof preferences.emailNotifications === "boolean") {
-    return preferences.emailNotifications;
-  }
-
+  if (preferences.emailNotifications === false) return false;
+  if (preferences.medications === false) return false;
   return true;
 }
 

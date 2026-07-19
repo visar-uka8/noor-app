@@ -1,10 +1,18 @@
-import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
+import { getAuthenticatedUser } from "@/lib/supabase/request-auth";
+import { createSupabaseDataClient } from "@/lib/supabase-data";
+import { queryFamilyLinkForPair } from "@/lib/family-links-query";
+import {
+  getProfileFirstName,
+  getUserEmail,
+  sendFamilyConnectionAlert,
+} from "@/lib/notifications";
 import {
   familyInviteErrors,
   familyRelationships,
   type FamilyRelationship,
 } from "@/types/family-connect";
+import type { PostgrestError } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 
@@ -32,46 +40,30 @@ export async function POST(request: Request) {
     const code = normalizeCode(payload.code);
     const relationship = normalizeRelationship(payload.relationship);
 
-    const authSupabase = await createClient();
-    const {
-      data: { user },
-      error: authError,
-    } = await authSupabase.auth.getUser();
+    const { user, authError } = await getAuthenticatedUser(request);
 
-    if (authError || !user) {
+    console.log("User at connect time:", user?.id);
+    console.log("Invite code entered:", code);
+    console.log("Connect auth error:", authError?.message);
+
+    if (!user) {
       return Response.json(
         { error: "Bitte melden Sie sich an, um sich zu verbinden." },
         { status: 401 },
       );
     }
 
-    const supabase = createSupabaseDataClient() ?? authSupabase;
-    const { data: invite, error } = await supabase
-      .from("family_invites")
-      .select("id, patient_id, code, expires_at, used")
-      .eq("code", code)
-      .maybeSingle<StoredInvite>();
+    const supabase = createSupabaseDataClient() ?? (await createClient());
+    let invite = await findValidInvite(supabase, code);
 
-    if (error) throw error;
+    if (!invite) {
+      invite = await findRecoverableInvite(supabase, code, user.id);
+    }
 
     if (!invite) {
       return Response.json(
         { error: familyInviteErrors.invalid, code: "invalid" },
         { status: 404 },
-      );
-    }
-
-    if (invite.used) {
-      return Response.json(
-        { error: familyInviteErrors.used, code: "used" },
-        { status: 409 },
-      );
-    }
-
-    if (new Date(invite.expires_at).getTime() < Date.now()) {
-      return Response.json(
-        { error: familyInviteErrors.expired, code: "expired" },
-        { status: 410 },
       );
     }
 
@@ -82,50 +74,90 @@ export async function POST(request: Request) {
       );
     }
 
-    const { error: markUsedError } = await supabase
-      .from("family_invites")
-      .update({ used: true })
-      .eq("id", invite.id);
+    const existingLink = await queryFamilyLinkForPair(
+      supabase,
+      invite.patient_id,
+      user.id,
+    );
 
-    if (markUsedError) throw markUsedError;
+    if (existingLink?.active !== false) {
+      const patientName = await loadPatientName(supabase, invite.patient_id);
 
-    const { error: linkError } = await supabase.from("family_links").insert({
-      patient_id: invite.patient_id,
-      family_member_id: user.id,
-      relationship,
-      active: true,
-    });
+      return Response.json({
+        connected: true,
+        alreadyConnected: true,
+        patientId: invite.patient_id,
+        patientName,
+        dashboardUrl: "/dashboard",
+      });
+    }
 
-    if (linkError) throw linkError;
+    if (existingLink) {
+      const { error: reactivateError } = await supabase
+        .from("family_links")
+        .update({
+          active: true,
+          relationship,
+          watcher_id: user.id,
+          family_member_id: user.id,
+        })
+        .eq("id", existingLink.id);
 
-    // Caretakers keep their patient role if they already use Noor for themselves.
-    const { data: currentProfile } = await supabase
-      .from("profiles")
-      .select("role")
-      .eq("id", user.id)
-      .maybeSingle<{ role: string }>();
+      if (reactivateError) {
+        console.error("Family link reactivate failed:", reactivateError);
+        throw reactivateError;
+      }
+    } else {
+      const { error: linkError } = await supabase.from("family_links").insert({
+        patient_id: invite.patient_id,
+        family_member_id: user.id,
+        watcher_id: user.id,
+        relationship,
+        active: true,
+      });
 
-    if (currentProfile?.role !== "patient") {
-      const { error: roleError } = await supabase
-        .from("profiles")
-        .update({ role: "family_member" })
-        .eq("id", user.id);
+      console.log("Link insert result:", linkError);
 
-      if (roleError) {
-        console.error("Family connect role update failed", roleError);
+      if (linkError) {
+        if (isUniqueFamilyLinkError(linkError)) {
+          const { error: reactivateError } = await supabase
+            .from("family_links")
+            .update({
+              active: true,
+              relationship,
+              watcher_id: user.id,
+            })
+            .eq("patient_id", invite.patient_id)
+            .eq("family_member_id", user.id);
+
+          if (reactivateError) throw reactivateError;
+        } else {
+          throw linkError;
+        }
       }
     }
 
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("first_name, last_name")
-      .eq("id", invite.patient_id)
-      .maybeSingle<PatientProfile>();
+    const { error: markUsedError } = await supabase
+      .from("family_invites")
+      .update({ used: true })
+      .eq("id", invite.id)
+      .eq("used", false);
 
-    const patientName =
-      profile?.first_name?.trim() ||
-      profile?.last_name?.trim() ||
-      "Ihrem Angehörigen";
+    if (markUsedError) {
+      console.error("Invite mark-used failed:", markUsedError);
+    }
+
+    await updateWatcherRoleIfNeeded(supabase, user.id);
+
+    const patientName = await loadPatientName(supabase, invite.patient_id);
+
+    void notifyPatientAboutFamilyConnection(
+      supabase,
+      invite.patient_id,
+      user.id,
+    ).catch((notificationError) => {
+      console.error("Family connection notification failed", notificationError);
+    });
 
     return Response.json({
       connected: true,
@@ -136,10 +168,121 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error("Family connect failed", error);
 
+    if (isMissingFamilyInvitesTableError(error)) {
+      return Response.json(
+        {
+          error:
+            "Familienverbindungen sind noch nicht eingerichtet. Bitte family_invites.sql in Supabase ausführen.",
+        },
+        { status: 503 },
+      );
+    }
+
     return Response.json(
       { error: "Verbindung konnte gerade nicht hergestellt werden." },
       { status: 500 },
     );
+  }
+}
+
+async function findValidInvite(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  code: string,
+) {
+  const { data: invite, error } = await supabase
+    .from("family_invites")
+    .select("id, patient_id, code, expires_at, used")
+    .eq("code", code)
+    .maybeSingle<StoredInvite>();
+
+  console.log("Invite found:", invite);
+  console.log("Invite lookup error:", error);
+
+  if (error) {
+    if (isMissingFamilyInvitesTableError(error)) return null;
+    throw error;
+  }
+
+  if (!invite || invite.used) {
+    return null;
+  }
+
+  if (new Date(invite.expires_at).getTime() < Date.now()) {
+    return null;
+  }
+
+  return invite;
+}
+
+async function findRecoverableInvite(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  code: string,
+  watcherId: string,
+) {
+  const { data: invite, error } = await supabase
+    .from("family_invites")
+    .select("id, patient_id, code, expires_at, used")
+    .eq("code", code)
+    .eq("used", true)
+    .maybeSingle<StoredInvite>();
+
+  if (error || !invite) {
+    return null;
+  }
+
+  if (new Date(invite.expires_at).getTime() < Date.now()) {
+    return null;
+  }
+
+  const existingLink = await queryFamilyLinkForPair(
+    supabase,
+    invite.patient_id,
+    watcherId,
+  );
+
+  if (!existingLink || existingLink.active !== false) {
+    return null;
+  }
+
+  return invite;
+}
+
+async function loadPatientName(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  patientId: string,
+) {
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("first_name, last_name")
+    .eq("id", patientId)
+    .maybeSingle<PatientProfile>();
+
+  return (
+    profile?.first_name?.trim() ||
+    profile?.last_name?.trim() ||
+    "Ihrem Angehörigen"
+  );
+}
+
+async function updateWatcherRoleIfNeeded(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+) {
+  const { data: currentProfile } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", userId)
+    .maybeSingle<{ role: string }>();
+
+  if (currentProfile?.role !== "patient") {
+    const { error: roleError } = await supabase
+      .from("profiles")
+      .update({ role: "family_member" })
+      .eq("id", userId);
+
+    if (roleError) {
+      console.error("Family connect role update failed", roleError);
+    }
   }
 }
 
@@ -170,15 +313,38 @@ function normalizeRelationship(
   throw new Error("Relationship is required.");
 }
 
-function createSupabaseDataClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseKey =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ??
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+function isMissingFamilyInvitesTableError(error: unknown) {
+  if (!error || typeof error !== "object") return false;
 
-  if (!supabaseUrl || !supabaseKey) return null;
+  const record = error as PostgrestError;
+  const message = `${record.message ?? ""} ${record.details ?? ""}`.toLowerCase();
 
-  return createAdminClient(supabaseUrl, supabaseKey, {
-    auth: { persistSession: false },
-  });
+  return (
+    record.code === "42P01" ||
+    record.code === "PGRST205" ||
+    (message.includes("family_invites") &&
+      (message.includes("does not exist") || message.includes("not found")))
+  );
+}
+
+function isUniqueFamilyLinkError(error: PostgrestError) {
+  return error.code === "23505";
+}
+
+async function notifyPatientAboutFamilyConnection(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  patientId: string,
+  familyMemberId: string,
+) {
+  const patientEmail = await getUserEmail(supabase, patientId);
+  if (!patientEmail) return;
+
+  const patientName = await getProfileFirstName(supabase, patientId);
+  const familyMemberName = await getProfileFirstName(supabase, familyMemberId);
+
+  await sendFamilyConnectionAlert(
+    patientEmail,
+    patientName,
+    familyMemberName,
+  );
 }

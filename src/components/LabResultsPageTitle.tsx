@@ -4,17 +4,24 @@ import { AppHeader } from "@/components/AppHeader";
 import { useHomeViewModeContext } from "@/components/HomeViewModeContext";
 import { useLanguage } from "@/components/LanguageProvider";
 import { useFamilyConnection } from "@/hooks/useFamilyConnection";
+import { useFamilyRoles } from "@/hooks/useFamilyRoles";
+import { useUserRole } from "@/hooks/useUserRole";
+import { isFamilyMemberAccount } from "@/lib/family-member-flow";
 
 export function LabResultsPageTitle() {
   const { t } = useLanguage();
   const { mode, hasFamilyConnection } = useHomeViewModeContext();
   const { connection } = useFamilyConnection();
+  const { roles } = useFamilyRoles();
+  const profileRole = useUserRole();
+  const isFamilyMember = isFamilyMemberAccount(profileRole, roles);
 
   const isFamilyView =
-    mode === "family" && hasFamilyConnection && connection.connected;
+    connection.connected &&
+    (isFamilyMember || (mode === "family" && hasFamilyConnection));
 
   const title = isFamilyView
-    ? `${connection.displayLabel}s Laborwerte`
+    ? `${connection.toggleLabel}s Laborwerte`
     : t("lab.title");
 
   const badge = isFamilyView ? (
@@ -28,7 +35,7 @@ export function LabResultsPageTitle() {
         fontWeight: "600",
       }}
     >
-      {connection.displayLabel}s Befunde
+      {connection.toggleLabel}s Befunde
     </span>
   ) : (
     <span

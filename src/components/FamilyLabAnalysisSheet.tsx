@@ -8,6 +8,7 @@ import { LabResultAnalysis } from "@/components/LabResultAnalysis";
 export type FamilyLabAnalysisResult = {
   id: string;
   date: string;
+  createdAt?: string;
   ai_analysis: string;
 };
 
@@ -84,7 +85,13 @@ export function FamilyLabAnalysisSheet({
           ) : null}
 
           {!isLoading && !errorMessage && labResult?.ai_analysis ? (
-            <LabResultAnalysis result={{ analysis: labResult.ai_analysis }} />
+            <LabResultAnalysis
+              result={{
+                analysis: labResult.ai_analysis,
+                labResultId: labResult.id,
+                createdAt: labResult.createdAt,
+              }}
+            />
           ) : null}
 
           {!isLoading && !errorMessage && !labResult?.ai_analysis ? (

@@ -1,5 +1,16 @@
 import { createClient as createAdminClient } from "@supabase/supabase-js";
+import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
+import {
+  isMissingConditionsColumnError,
+  isMissingVaccinationsColumnError,
+} from "@/lib/health-passport-db";
+import {
+  loadHealthPassportForUser,
+  normalizeStoredConditions,
+} from "@/lib/health-passport-load";
+import { toPassportMedications, normalizePassportMedications } from "@/lib/health-passport-medications";
+import { loadActiveMedications } from "@/lib/medication-data";
 import {
   bloodTypes,
   createEmptyPassport,
@@ -9,15 +20,6 @@ import {
 } from "@/types/health-passport";
 
 export const runtime = "nodejs";
-
-type StoredPassport = {
-  user_id: string;
-  personal: HealthPassportData["personal"];
-  medications: HealthPassportData["medications"];
-  allergies: HealthPassportData["allergies"];
-  surgeries: HealthPassportData["surgeries"];
-  emergency_contact: HealthPassportData["emergencyContact"];
-};
 
 export async function GET() {
   try {
@@ -32,25 +34,23 @@ export async function GET() {
     }
 
     const supabase = createSupabaseDataClient() ?? authSupabase;
-    const { data, error } = await supabase
-      .from("health_passports")
-      .select("user_id, personal, medications, allergies, surgeries, emergency_contact")
-      .eq("user_id", user.id)
-      .maybeSingle<StoredPassport>();
+    const passport = await loadHealthPassportForUser(user.id, supabase);
 
-    if (error) throw error;
+    if (passport) {
+      return Response.json({ passport });
+    }
+
+    const medicationsForPassport = await resolvePassportMedications(
+      user.id,
+      supabase,
+      [],
+    );
 
     return Response.json({
-      passport: data
-        ? {
-            userId: data.user_id,
-            personal: data.personal,
-            medications: data.medications,
-            allergies: data.allergies,
-            surgeries: data.surgeries,
-            emergencyContact: data.emergency_contact,
-          }
-        : createEmptyPassport(user.id),
+      passport: {
+        ...createEmptyPassport(user.id),
+        medications: medicationsForPassport,
+      },
     });
   } catch (error) {
     console.error("Health passport load failed", error);
@@ -75,32 +75,81 @@ export async function POST(request: Request) {
       return Response.json({ error: "Bitte melden Sie sich an." }, { status: 401 });
     }
 
-    const passport = normalizePassport(payload, user.id);
-    const record = {
+    const supabase = createSupabaseDataClient() ?? authSupabase;
+    const passport = {
+      ...normalizePassport(payload, user.id),
+      medications: await resolvePassportMedications(user.id, supabase, []),
+    };
+
+    let record: Record<string, unknown> = {
       user_id: user.id,
       personal: passport.personal,
       medications: passport.medications,
       allergies: passport.allergies,
+      conditions: passport.conditions.map(({ id: _id, ...condition }) => condition),
+      vaccinations: passport.vaccinations,
       surgeries: passport.surgeries,
       emergency_contact: passport.emergencyContact,
       updated_at: new Date().toISOString(),
     };
 
-    const supabase = createSupabaseDataClient() ?? authSupabase;
-    const { error } = await supabase
+    let { error } = await supabase
       .from("health_passports")
       .upsert(record, { onConflict: "user_id" });
 
-    if (error) throw error;
+    if (error && isMissingConditionsColumnError(error)) {
+      console.warn(
+        "health_passports.conditions column missing — saving without conditions. Run supabase/migration_health_passport_conditions.sql",
+      );
+
+      const { conditions: _conditions, ...recordWithoutConditions } = record;
+      record = recordWithoutConditions;
+      ({ error } = await supabase
+        .from("health_passports")
+        .upsert(record, { onConflict: "user_id" }));
+    }
+
+    if (error && isMissingVaccinationsColumnError(error)) {
+      console.warn(
+        "health_passports.vaccinations column missing — saving without vaccinations. Run supabase/migration_health_passport_vaccinations.sql",
+      );
+
+      const { vaccinations: _vaccinations, ...recordWithoutVaccinations } = record;
+      record = recordWithoutVaccinations;
+      ({ error } = await supabase
+        .from("health_passports")
+        .upsert(record, { onConflict: "user_id" }));
+    }
+
+    if (error) {
+      console.error("Health passport save error:", error);
+      throw error;
+    }
 
     return Response.json({ stored: true, passport });
   } catch (error) {
     console.error("Health passport save failed", error);
 
-    return Response.json(
-      { error: "Gesundheitspass konnte gerade nicht gespeichert werden." },
-      { status: 500 },
-    );
+    const message =
+      error instanceof Error && error.message.trim().length > 0
+        ? error.message
+        : "Gesundheitspass konnte gerade nicht gespeichert werden.";
+
+    return Response.json({ error: message }, { status: 500 });
+  }
+}
+
+async function resolvePassportMedications(
+  userId: string,
+  supabase: SupabaseClient,
+  fallback: HealthPassportData["medications"],
+) {
+  try {
+    const medications = await loadActiveMedications(userId, supabase);
+    return toPassportMedications(medications);
+  } catch (error) {
+    console.error("Passport medication sync failed:", error);
+    return fallback;
   }
 }
 
@@ -130,6 +179,13 @@ function normalizePassport(payload: HealthPassportData, userId: string) {
       id: allergy.id,
       allergen: allergy.allergen?.trim() ?? "",
       reaction: allergy.reaction?.trim() ?? "",
+    })),
+    conditions: normalizeStoredConditions(payload.conditions),
+    vaccinations: (payload.vaccinations ?? []).map((vaccination) => ({
+      id: vaccination.id,
+      name: vaccination.name?.trim() ?? "",
+      date: vaccination.date ?? "",
+      next_due: vaccination.next_due ?? "",
     })),
     surgeries: (payload.surgeries ?? []).map((surgery) => ({
       id: surgery.id,

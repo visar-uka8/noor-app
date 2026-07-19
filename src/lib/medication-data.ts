@@ -44,6 +44,31 @@ export async function loadTodayConfirmations(
   return data ?? [];
 }
 
+/** Confirmations for streak calculation (last ~365 days). */
+export async function loadConfirmationsForStreak(
+  userId: string,
+  supabase: SupabaseDataClient,
+  lookbackDays = 365,
+) {
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  start.setDate(start.getDate() - lookbackDays);
+
+  const { data, error } = await supabase
+    .from("medication_confirmations")
+    .select(
+      "id, medication_id, dose_time, medication_name, scheduled_at, confirmed_at, missed",
+    )
+    .eq("user_id", userId)
+    .gte("scheduled_at", start.toISOString())
+    .order("scheduled_at", { ascending: false })
+    .returns<StoredConfirmation[]>();
+
+  if (error) throw error;
+
+  return data ?? [];
+}
+
 export async function syncMissedDoses(
   userId: string,
   supabase: SupabaseDataClient,

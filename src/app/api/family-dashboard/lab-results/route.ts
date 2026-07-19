@@ -1,14 +1,12 @@
-import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
+import { createSupabaseDataClient } from "@/lib/supabase-data";
+import { resolveWatcherPatientLink } from "@/lib/family-links-query";
+import { listLabResultsForUser } from "@/lib/lab-results-db";
 import type { LabResultRecord } from "@/types/lab-results";
 
 export const runtime = "nodejs";
 
-type FamilyLink = {
-  patient_id: string;
-};
-
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const authSupabase = await createClient();
     const {
@@ -23,17 +21,13 @@ export async function GET() {
       );
     }
 
+    const patientId = new URL(request.url).searchParams.get("patientId");
     const supabase = createSupabaseDataClient() ?? authSupabase;
-    const { data: familyLink, error: linkError } = await supabase
-      .from("family_links")
-      .select("patient_id")
-      .eq("family_member_id", user.id)
-      .eq("active", true)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle<FamilyLink>();
-
-    if (linkError) throw linkError;
+    const familyLink = await resolveWatcherPatientLink(
+      supabase,
+      user.id,
+      patientId,
+    );
 
     if (!familyLink) {
       return Response.json(
@@ -42,17 +36,15 @@ export async function GET() {
       );
     }
 
-    const { data, error } = await supabase
-      .from("lab_results")
-      .select("id, file_url, ai_analysis, created_at, normal_count, watch_count, high_count")
-      .eq("user_id", familyLink.patient_id)
-      .order("created_at", { ascending: false })
-      .limit(5)
-      .returns<LabResultRecord[]>();
+    const { data, error } = await listLabResultsForUser(
+      supabase,
+      familyLink.patient_id,
+      5,
+    );
 
     if (error) throw error;
 
-    return Response.json({ results: data ?? [] });
+    return Response.json({ results: (data ?? []) as LabResultRecord[] });
   } catch (error) {
     console.error("Family lab results load failed", error);
 
@@ -61,17 +53,4 @@ export async function GET() {
       { status: 500 },
     );
   }
-}
-
-function createSupabaseDataClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseKey =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ??
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-  if (!supabaseUrl || !supabaseKey) return null;
-
-  return createAdminClient(supabaseUrl, supabaseKey, {
-    auth: { persistSession: false },
-  });
 }

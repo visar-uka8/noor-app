@@ -3,7 +3,8 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ErrorBanner } from "@/components/AppStates";
-import { commonMedications, filterCommonMedications } from "@/lib/common-medications";
+import { Toggle } from "@/components/ui/Toggle";
+import { filterCommonMedications, getSuggestedDoses } from "@/lib/common-medications";
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 import { normalizeTimeValue } from "@/lib/medication-schedule";
 import {
@@ -38,12 +39,19 @@ export function MedicationForm({ medicationId }: MedicationFormProps) {
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [knownMedication, setKnownMedication] = useState<string | null>(null);
   const nameFieldRef = useRef<HTMLDivElement>(null);
 
+  const trimmedName = name.trim();
   const nameSuggestions = useMemo(
     () => filterCommonMedications(name),
     [name],
   );
+  const suggestedDoses = useMemo(
+    () => (knownMedication ? getSuggestedDoses(knownMedication) : []),
+    [knownMedication],
+  );
+  const showNameDropdown = showSuggestions && trimmedName.length > 0;
 
   const savePreview = useMemo(
     () => buildMedicationSavePreview(name, dosage, slotStates),
@@ -80,6 +88,11 @@ export function MedicationForm({ medicationId }: MedicationFormProps) {
         const data = (await response.json()) as { medication: StoredMedication };
         setName(data.medication.name);
         setDosage(data.medication.dosage);
+        setKnownMedication(
+          getSuggestedDoses(data.medication.name).length > 0
+            ? data.medication.name.trim()
+            : null,
+        );
         setSlotStates(createSlotStatesFromMedication(data.medication.times));
       } catch {
         setError("Medikament konnte gerade nicht geladen werden.");
@@ -174,43 +187,67 @@ export function MedicationForm({ medicationId }: MedicationFormProps) {
                 required
                 value={name}
                 onChange={(event) => {
-                  setName(event.target.value);
-                  setShowSuggestions(true);
+                  const nextName = event.target.value;
+                  setName(nextName);
+                  setKnownMedication((current) =>
+                    current && nextName.trim() === current ? current : null,
+                  );
+                  setShowSuggestions(nextName.trim().length > 0);
                 }}
-                onFocus={() => setShowSuggestions(true)}
+                onFocus={() => {
+                  if (trimmedName.length > 0) {
+                    setShowSuggestions(true);
+                  }
+                }}
                 placeholder="z.B. Omega-3, Metformin"
                 autoComplete="off"
-                list="common-medications"
-                className="min-h-12 w-full rounded-2xl border border-border bg-surface px-4 text-base text-foreground"
+                className={`min-h-12 w-full border border-border bg-surface px-4 text-base text-foreground ${
+                  showNameDropdown
+                    ? "rounded-t-2xl rounded-b-none border-b-0"
+                    : "rounded-2xl"
+                }`}
               />
-              <datalist id="common-medications">
-                {commonMedications.map((medication) => (
-                  <option key={medication} value={medication} />
-                ))}
-              </datalist>
 
-              {showSuggestions && nameSuggestions.length > 0 ? (
-                <ul
-                  className="absolute left-0 right-0 top-full z-10 mt-2 overflow-hidden rounded-2xl border border-border bg-surface shadow-[var(--warm-shadow)]"
+              {showNameDropdown ? (
+                <div
+                  className="absolute left-0 right-0 top-full z-[100] max-h-[200px] overflow-y-auto rounded-b-xl border border-t-0 border-[#E4E2DB] bg-white shadow-[0_4px_12px_rgba(0,0,0,0.08)]"
+                  style={{ borderWidth: "0.5px" }}
                   role="listbox"
-                  aria-label="Häufige Medikamente"
+                  aria-label="Medikamentenvorschläge"
                 >
                   {nameSuggestions.map((medication) => (
-                    <li key={medication}>
-                      <button
-                        type="button"
-                        role="option"
-                        onClick={() => {
-                          setName(medication);
-                          setShowSuggestions(false);
-                        }}
-                        className="flex min-h-12 w-full items-center px-4 text-left text-base text-foreground transition-colors hover:bg-primary-light"
-                      >
-                        {medication}
-                      </button>
-                    </li>
+                    <button
+                      key={medication}
+                      type="button"
+                      role="option"
+                      onClick={() => {
+                        setName(medication);
+                        setKnownMedication(
+                          getSuggestedDoses(medication).length > 0
+                            ? medication
+                            : null,
+                        );
+                        setShowSuggestions(false);
+                      }}
+                      className="flex min-h-12 w-full items-center border-b border-[#F0EFE9] px-4 text-left text-[15px] text-[#1E1D1B] transition-colors hover:bg-[#F7F6F2]"
+                      style={{ borderBottomWidth: "0.5px" }}
+                    >
+                      {medication}
+                    </button>
                   ))}
-                </ul>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setName(trimmedName);
+                      setKnownMedication(null);
+                      setShowSuggestions(false);
+                    }}
+                    className="sticky bottom-0 flex min-h-12 w-full items-center bg-[#F7F6F2] px-4 text-left text-sm font-semibold text-primary"
+                  >
+                    + &quot;{trimmedName}&quot; hinzufügen
+                  </button>
+                </div>
               ) : null}
             </div>
           </div>
@@ -222,9 +259,32 @@ export function MedicationForm({ medicationId }: MedicationFormProps) {
               required
               value={dosage}
               onChange={(event) => setDosage(event.target.value)}
-              placeholder="z.B. 1000mg, 500mg, 1 Tablette"
+              placeholder="z.B. 500mg oder 1 Tablette"
               className="min-h-12 rounded-2xl border border-border bg-surface px-4 text-base text-foreground"
             />
+            {suggestedDoses.length > 0 ? (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {suggestedDoses.map((dose) => {
+                  const selected = dosage === dose;
+
+                  return (
+                    <button
+                      key={dose}
+                      type="button"
+                      onClick={() => setDosage(dose)}
+                      className={`rounded-full border px-3.5 py-1.5 text-[13px] font-medium transition-colors ${
+                        selected
+                          ? "border-primary bg-primary text-white"
+                          : "border-primary bg-transparent text-primary"
+                      }`}
+                      style={{ borderWidth: "1px" }}
+                    >
+                      {dose}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
           </label>
 
           <section>
@@ -239,7 +299,7 @@ export function MedicationForm({ medicationId }: MedicationFormProps) {
                     <span className="text-base font-semibold text-foreground">
                       {timeSlotLabels[slot]}
                     </span>
-                    <ToggleSwitch
+                    <Toggle
                       checked={slotStates[slot].enabled}
                       onChange={(checked) =>
                         setSlotStates((current) => ({
@@ -296,30 +356,6 @@ export function MedicationForm({ medicationId }: MedicationFormProps) {
         </form>
       </main>
     </>
-  );
-}
-
-function ToggleSwitch({
-  checked,
-  onChange,
-  label,
-}: {
-  checked: boolean;
-  onChange: (checked: boolean) => void;
-  label: string;
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
-      data-checked={checked ? "true" : "false"}
-      onClick={() => onChange(!checked)}
-      className="toggle-track"
-    >
-      <span className="toggle-thumb" aria-hidden="true" />
-    </button>
   );
 }
 

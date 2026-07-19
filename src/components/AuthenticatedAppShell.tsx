@@ -1,19 +1,30 @@
 "use client";
 
+import { usePathname } from "next/navigation";
+import { useEffect } from "react";
 import { AppBottomNav } from "@/components/AppBottomNav";
 import {
   HomeViewModeProvider,
   useHomeViewModeContext,
 } from "@/components/HomeViewModeContext";
-import { useFamilyConnection } from "@/hooks/useFamilyConnection";
+import { useFamilyRoles } from "@/hooks/useFamilyRoles";
 import { useHomeViewMode } from "@/hooks/useHomeViewMode";
 import { useUserRole } from "@/hooks/useUserRole";
+import { isDedicatedFamilyMemberAccount } from "@/lib/family-member-flow";
 
 function AuthenticatedAppShellInner({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const pathname = usePathname();
+
+  useEffect(() => {
+    document
+      .querySelector(".app-scroll-main")
+      ?.classList.remove("home-scroll-lock");
+  }, [pathname]);
+
   return (
     <div className="app-shell">
       <main className="app-scroll-main">{children}</main>
@@ -27,18 +38,17 @@ function AuthenticatedAppShellProviders({
 }: {
   children: React.ReactNode;
 }) {
-  const role = useUserRole();
-  const { connection } = useFamilyConnection();
-  const { mode, setViewMode } = useHomeViewMode(
-    connection.connected,
-    role,
+  const { roles } = useFamilyRoles();
+  const profileRole = useUserRole();
+  const { mode } = useHomeViewMode(
+    roles.isWatcher,
+    profileRole,
   );
 
   return (
     <HomeViewModeProvider
       mode={mode}
-      hasFamilyConnection={connection.connected}
-      setViewMode={setViewMode}
+      hasFamilyConnection={roles.isWatcher}
     >
       <AuthenticatedAppShellInner>{children}</AuthenticatedAppShellInner>
     </HomeViewModeProvider>

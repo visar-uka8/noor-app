@@ -48,23 +48,47 @@ const rowStyles: Record<
 
 const circleStyles: Record<
   Exclude<DoseVisualState, "confirmed">,
-  { button: string; icon: string }
+  { button: string; plusColor: string }
 > = {
   due: {
     button:
       "medication-dose-circle animate-dose-due-pulse border-2 border-[#157A5C] bg-[#1D9E75] shadow-md",
-    icon: "text-white",
+    plusColor: "#FFFFFF",
   },
   missed: {
     button: "medication-dose-circle border-2 border-[#BA7517] bg-[#FAEEDA]",
-    icon: "text-[#BA7517]",
+    plusColor: "#BA7517",
   },
   upcoming: {
     button:
       "medication-dose-circle border-2 border-dashed border-[#C5C2BC] bg-[#F0EFE9]",
-    icon: "text-[#A8A49A]",
+    plusColor: "#1D9E75",
   },
 };
+
+function DoseConfirmPlusIcon({
+  color,
+  size = 28,
+}: {
+  color: string;
+  size?: number;
+}) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke={color}
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      <line x1="12" y1="5" x2="12" y2="19" />
+      <line x1="5" y1="12" x2="19" y2="12" />
+    </svg>
+  );
+}
 
 export function MedicationDoseButton({
   dose,
@@ -100,7 +124,7 @@ export function MedicationDoseButton({
       } ${styles.container}`}
     >
       <div className="min-w-0 flex-1">
-        <p className={`medication-button-time text-base font-semibold ${styles.time}`}>
+        <p className={`medication-button-time font-semibold ${styles.time}`}>
           {timeLabel}
         </p>
         <p className={`medication-button-name mt-1 font-bold leading-tight ${styles.name}`}>
@@ -134,15 +158,11 @@ export function MedicationDoseButton({
           {pending ? (
             <Loader2
               size={28}
-              className={`animate-spin ${circleStyles[visualState].icon}`}
+              className={`animate-spin ${visualState === "due" ? "text-white" : visualState === "missed" ? "text-[#BA7517]" : "text-[#1D9E75]"}`}
               strokeWidth={2.5}
             />
           ) : (
-            <Check
-              size={28}
-              className={circleStyles[visualState].icon}
-              strokeWidth={visualState === "due" ? 3 : 2.8}
-            />
+            <DoseConfirmPlusIcon color={circleStyles[visualState].plusColor} />
           )}
         </button>
       )}

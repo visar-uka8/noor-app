@@ -2,28 +2,44 @@
 
 import { FlaskConical, Pill, ShieldPlus, Users } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import {
   CardListSkeleton,
   ConnectionErrorState,
   NoorStatusBanner,
 } from "@/components/AppStates";
+import { FamilyNoteHomeCard } from "@/components/FamilyNoteHomeCard";
+import { FamilyNoteReplyHomeCard } from "@/components/FamilyNoteReplyHomeCard";
 import { FamilyDashboardPanel } from "@/components/FamilyDashboardPanel";
-import { HomeModeSwitcher } from "@/components/HomeModeSwitcher";
-import { useHomeViewModeContext } from "@/components/HomeViewModeContext";
+import { HomeTodayActivityCard } from "@/components/HomeTodayActivityCard";
+import { MedicationStreakCard } from "@/components/MedicationStreakCard";
+import { usePatientFamilyNote } from "@/hooks/usePatientFamilyNote";
+import { useWatcherFamilyNoteReply } from "@/hooks/useWatcherFamilyNoteReply";
+import { Avatar } from "@/components/ui/Avatar";
 import { useLanguage } from "@/components/LanguageProvider";
 import { SlowConnectionNotice } from "@/components/SlowConnectionNotice";
 import { useAuthUser } from "@/hooks/useAuthUser";
 import { useFamilyConnection } from "@/hooks/useFamilyConnection";
+import { useFamilyRoles } from "@/hooks/useFamilyRoles";
+import { useUserRole } from "@/hooks/useUserRole";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { useSlowConnection } from "@/hooks/useSlowConnection";
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
+import {
+  needsFamilyConnect,
+  showFamilyDashboardHome,
+} from "@/lib/family-member-flow";
+import { formatWatcherFollowSubtitle } from "@/lib/family-roles";
 import { getTimeGreeting } from "@/lib/i18n/messages";
+import { resolveHomeDisplayFields } from "@/lib/profile-display";
 import {
   demoHomeScreenData,
+  buildPreviewHomeScreenData,
   type HomeScreenData,
+  type HomeScreenPreviewMockData,
 } from "@/lib/home-screen";
-import type { HomeScreenResponse, HomeSectionKey } from "@/lib/home-data";
+import type { HomeScreenResponse } from "@/lib/home-data";
 
 const featureCards = [
   {
@@ -39,7 +55,7 @@ const featureCards = [
     subtitleKey: "lab" as const,
   },
   {
-    href: "/dashboard",
+    href: "/family/connect",
     icon: Users,
     titleKey: "home.family" as const,
     subtitleKey: "family" as const,
@@ -52,30 +68,162 @@ const featureCards = [
   },
 ];
 
-export function HomeScreen() {
+export type HomeScreenProps = {
+  previewMode?: boolean;
+  mockData?: HomeScreenPreviewMockData;
+};
+
+export function HomeScreen({
+  previewMode = false,
+  mockData,
+}: HomeScreenProps = {}) {
+  if (previewMode && mockData) {
+    return <HomeScreenPreview mockData={mockData} />;
+  }
+
+  return <HomeScreenConnected />;
+}
+
+function HomeScreenPreview({ mockData }: { mockData: HomeScreenPreviewMockData }) {
+  const { t } = useLanguage();
+  const data = buildPreviewHomeScreenData(mockData);
+
+  return (
+    <div className="mx-auto w-full max-w-app bg-background pointer-events-none select-none">
+      <header className="sticky top-0 z-20 shrink-0 rounded-b-[2rem] bg-primary px-5 pb-6 pt-6 text-white shadow-[var(--warm-shadow)]">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-[1.75rem] font-bold leading-tight">
+              Guten Morgen, {mockData.firstName} 👋
+            </h1>
+            <p className="text-body mt-2 text-white/90">Schön, dass du da bist!</p>
+          </div>
+
+          <Avatar
+            url={null}
+            name={mockData.firstName}
+            initials={data.initials}
+            size={44}
+            bordered
+          />
+        </div>
+      </header>
+
+      <div className="px-5 pb-5 pt-3">
+        <div className="flex flex-col gap-3">
+          <MedicationStreakCard
+            streak={mockData.streak}
+            subtitleOverride="nicht aufhören!"
+          />
+
+          <section>
+            <div className="grid grid-cols-2 gap-3">
+            {featureCards.map((card) => {
+              const isFamilyCard = card.subtitleKey === "family";
+              const isPassportCard = card.subtitleKey === "passport";
+              const subtitle = getPreviewCardSubtitle(card.subtitleKey, mockData, t);
+              const familyCard = isFamilyCard ? data.family.card : null;
+              const passport = data.healthPassport;
+
+              return (
+                <div
+                  key={card.href}
+                  className="noor-card relative flex min-h-[120px] flex-col p-4"
+                >
+                  {isPassportCard ? (
+                    <span
+                      aria-hidden="true"
+                      style={{
+                        position: "absolute",
+                        top: 12,
+                        right: 12,
+                        width: 10,
+                        height: 10,
+                        borderRadius: "50%",
+                        backgroundColor: passport.dotColor ?? "#A32D2D",
+                      }}
+                    />
+                  ) : null}
+                  <span
+                    className="flex h-12 w-12 items-center justify-center rounded-2xl"
+                    style={{
+                      backgroundColor: isFamilyCard
+                        ? familyCard?.iconBackground
+                        : "#E1F5EE",
+                      color: isFamilyCard ? familyCard?.iconColor : "#1D9E75",
+                    }}
+                    aria-hidden="true"
+                  >
+                    <card.icon size={26} strokeWidth={2.2} />
+                  </span>
+                  <h2 className="home-card-title mt-3 min-w-0 truncate font-bold text-[#085041]">
+                    {t(card.titleKey)}
+                  </h2>
+                  <p
+                    className={`card-subtitle home-card-subtitle mt-1 ${
+                      isFamilyCard && !familyCard?.subtitleColor ? "text-muted" : ""
+                    } ${card.subtitleKey === "lab" ? "whitespace-nowrap" : ""}`}
+                    style={{
+                      color: isFamilyCard ? familyCard?.subtitleColor : undefined,
+                    }}
+                  >
+                    {subtitle}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HomeScreenConnected() {
+  const router = useRouter();
   const { language, t } = useLanguage();
   const { user, isLoading: isAuthLoading } = useAuthUser();
   const { connection, isLoading: isConnectionLoading } = useFamilyConnection();
-  const { mode, setViewMode } = useHomeViewModeContext();
+  const { roles, isLoading: isRolesLoading } = useFamilyRoles();
+  const profileRole = useUserRole();
   const isOnline = useOnlineStatus();
-  const [now, setNow] = useState(new Date());
+  const [now, setNow] = useState<Date | null>(null);
   const [homeData, setHomeData] = useState<HomeScreenData | null>(null);
-  const [sectionErrors, setSectionErrors] = useState<
-    Partial<Record<HomeSectionKey, string>>
-  >({});
+  const { note: patientFamilyNote, dismiss: dismissPatientFamilyNote } =
+    usePatientFamilyNote();
+  const { reply: watcherFamilyNoteReply, dismiss: dismissWatcherFamilyNoteReply } =
+    useWatcherFamilyNoteReply();
   const [isLoading, setIsLoading] = useState(true);
   const [hasLoadError, setHasLoadError] = useState(false);
   const isSlow = useSlowConnection(isLoading);
   const useDemoFallback = !process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const showSwitcher = connection.connected;
-  const isFamilyView = showSwitcher && mode === "family";
+  const isFamilyMemberHome = showFamilyDashboardHome(profileRole, roles);
+  const awaitingFamilyConnect = needsFamilyConnect(profileRole, roles);
+  // Always show Familie on patient home — subtitle reflects invite vs connected.
+  const visibleFeatureCards = featureCards;
+  const watchedPatientName =
+    connection.patientName ||
+    roles.watching[0]?.patientName ||
+    "Ihrem Angehörigen";
 
   useEffect(() => {
-    if (isFamilyView) return;
-
+    setNow(new Date());
     const timer = window.setInterval(() => setNow(new Date()), 60_000);
     return () => window.clearInterval(timer);
-  }, [isFamilyView]);
+  }, []);
+
+  useEffect(() => {
+    if (isAuthLoading || isRolesLoading || profileRole === null) return;
+    if (!awaitingFamilyConnect) return;
+    router.replace("/family/connect");
+  }, [
+    awaitingFamilyConnect,
+    isAuthLoading,
+    isRolesLoading,
+    profileRole,
+    router,
+  ]);
 
   useEffect(() => {
     void fetch("/api/check-in", { method: "POST" });
@@ -84,7 +232,6 @@ export function HomeScreen() {
   async function loadHomeData() {
     setIsLoading(true);
     setHasLoadError(false);
-    setSectionErrors({});
 
     try {
       const response = await fetchWithTimeout("/api/home");
@@ -109,9 +256,7 @@ export function HomeScreen() {
         );
       }
 
-      const { sectionErrors: nextSectionErrors, ...data } = payload as HomeScreenResponse;
-      setHomeData(data);
-      setSectionErrors(nextSectionErrors ?? {});
+      setHomeData(payload as HomeScreenResponse);
     } catch (error) {
       console.error("Home page client load failed:", error);
 
@@ -128,127 +273,206 @@ export function HomeScreen() {
 
   useEffect(() => {
     if (isAuthLoading) return;
+    if (!useDemoFallback && !user?.id) {
+      console.log("No user ID yet:", user);
+      return;
+    }
     void loadHomeData();
-  }, [isAuthLoading]);
+  }, [isAuthLoading, user?.id, useDemoFallback]);
 
-  const greeting = useMemo(
-    () => getTimeGreeting(language, now),
-    [language, now],
-  );
+  const displayProfile = useMemo(() => {
+    const metadata = user?.user_metadata as {
+      first_name?: string;
+      last_name?: string;
+    } | undefined;
+    const authFallback = resolveHomeDisplayFields({
+      profile: null,
+      metadata,
+      email: user?.email,
+    });
 
-  const shell = (header: React.ReactNode, main: React.ReactNode) => (
-    <div className="mx-auto flex w-full max-w-app flex-col bg-background">
-      {header}
-      {main}
+    if (!homeData) {
+      return { ...authFallback, avatarUrl: null };
+    }
+
+    return {
+      firstName: homeData.firstName || authFallback.firstName,
+      lastName: homeData.lastName || authFallback.lastName,
+      initials: homeData.initials || authFallback.initials,
+      avatarUrl: homeData.avatarUrl,
+    };
+  }, [homeData, user]);
+
+  const greeting = useMemo(() => {
+    const referenceDate = now ?? new Date(2026, 0, 1, 12, 0, 0, 0);
+    return getTimeGreeting(language, referenceDate);
+  }, [language, now]);
+
+  const patientFamilyNoteCard = patientFamilyNote ? (
+    <FamilyNoteHomeCard
+      note={patientFamilyNote}
+      onDismiss={dismissPatientFamilyNote}
+    />
+  ) : null;
+
+  const watcherFamilyNoteReplyCard = watcherFamilyNoteReply ? (
+    <FamilyNoteReplyHomeCard
+      reply={watcherFamilyNoteReply}
+      onDismiss={dismissWatcherFamilyNoteReply}
+    />
+  ) : null;
+
+  const shell = (header: React.ReactNode, scrollContent: React.ReactNode) => (
+    <div className="mx-auto w-full max-w-app bg-background">
+      <header className="sticky top-0 z-20 shrink-0 rounded-b-[2rem] bg-primary px-5 pb-6 pt-6 text-white shadow-[var(--warm-shadow)]">
+        {header}
+      </header>
+      <div className="px-5 pb-5 pt-3">
+        <div className="flex flex-col gap-3">{scrollContent}</div>
+      </div>
     </div>
   );
 
   if (!isAuthLoading && !user && !useDemoFallback) {
     return shell(
-      <header className="rounded-b-[2rem] bg-primary px-5 pb-6 pt-6 text-white shadow-[var(--warm-shadow)]">
-        <h1 className="text-[1.75rem] font-bold leading-tight">{greeting} 👋</h1>
-      </header>,
-      <main className="flex-1 px-5 pt-5">
-        <ConnectionErrorState
-          isOffline={!isOnline}
-          onRetry={() => window.location.assign("/login")}
-        />
-      </main>,
+      <h1 className="text-[1.75rem] font-bold leading-tight">{greeting} 👋</h1>,
+      <ConnectionErrorState
+        isOffline={!isOnline}
+        onRetry={() => window.location.assign("/login")}
+      />,
     );
   }
 
-  if (isAuthLoading || isLoading || (showSwitcher && isConnectionLoading)) {
+  if (
+    isAuthLoading ||
+    isRolesLoading ||
+    profileRole === null ||
+    awaitingFamilyConnect ||
+    (isFamilyMemberHome && isConnectionLoading) ||
+    (!isFamilyMemberHome && isLoading)
+  ) {
     return shell(
-      <header className="rounded-b-[2rem] bg-primary px-5 pb-6 pt-6 text-white shadow-[var(--warm-shadow)]">
+      <>
         <h1 className="text-[1.75rem] font-bold leading-tight">{greeting} 👋</h1>
         <p className="text-body mt-2 text-white/90">{t("common.oneMoment")}</p>
-      </header>,
-      <main className="flex-1 px-5 pt-5">
+      </>,
+      <>
         <CardListSkeleton />
         {isSlow ? (
           <SlowConnectionNotice message={t("common.slowConnection")} />
         ) : null}
-      </main>,
+      </>,
     );
   }
 
-  if (hasLoadError || !homeData) {
+  if (!isFamilyMemberHome && (hasLoadError || !homeData)) {
     return shell(
-      <header className="rounded-b-[2rem] bg-primary px-5 pb-6 pt-6 text-white shadow-[var(--warm-shadow)]">
-        <h1 className="text-[1.75rem] font-bold leading-tight">{greeting} 👋</h1>
-      </header>,
-      <main className="flex-1 px-5 pt-5">
-        <ConnectionErrorState
-          isOffline={!isOnline}
-          onRetry={loadHomeData}
-        />
-      </main>,
+      <h1 className="text-[1.75rem] font-bold leading-tight">{greeting} 👋</h1>,
+      <ConnectionErrorState
+        isOffline={!isOnline}
+        onRetry={loadHomeData}
+      />,
     );
   }
 
   return shell(
-    <header className="rounded-b-[2rem] bg-primary px-5 pb-6 pt-6 text-white shadow-[var(--warm-shadow)]">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-[1.75rem] font-bold leading-tight">
-            {isFamilyView
-              ? `Familie — ${connection.displayLabel}`
-              : `${greeting}, ${homeData.firstName} 👋`}
-          </h1>
-          <p className="text-body mt-2 text-white/90">
-            {isFamilyView
-              ? `Für ${connection.patientName}`
-              : getGreetingSubtitle(homeData, now)}
-          </p>
-          {showSwitcher ? (
-            <HomeModeSwitcher
-              mode={mode}
-              familyLabel={connection.displayLabel}
-              onChange={setViewMode}
-            />
-          ) : null}
-        </div>
-
-        <Link
-          href="/settings"
-          className="btn-touch h-12 w-12 shrink-0 rounded-full bg-white text-base font-bold text-primary shadow-sm"
-          aria-label={t("home.openProfile")}
-        >
-          {homeData.initials}
-        </Link>
+    <div className="flex items-start justify-between gap-4">
+      <div>
+        <h1 className="text-[1.75rem] font-bold leading-tight">
+          {isFamilyMemberHome
+            ? watchedPatientName
+            : `${greeting}, ${displayProfile.firstName} 👋`}
+        </h1>
+        <p className="text-body mt-2 text-white/90">
+          {isFamilyMemberHome
+            ? `Für ${watchedPatientName}`
+            : getGreetingSubtitle(
+                homeData!,
+                now ?? new Date(2026, 0, 1, 12, 0, 0, 0),
+              )}
+        </p>
       </div>
-    </header>,
-    <main className="flex-1 px-5 pt-5">
-      {isFamilyView ? (
-        <FamilyDashboardPanel className="mt-2" showConnectLink={false} />
+
+      <Link
+        href="/settings"
+        className="btn-touch shrink-0 rounded-full shadow-sm"
+        aria-label={t("home.openProfile")}
+      >
+        <Avatar
+          url={displayProfile.avatarUrl}
+          name={`${displayProfile.firstName} ${displayProfile.lastName}`.trim()}
+          initials={displayProfile.initials}
+          size={44}
+          bordered
+        />
+      </Link>
+    </div>,
+    <>
+      {watcherFamilyNoteReplyCard}
+      {patientFamilyNoteCard}
+
+      {isFamilyMemberHome ? (
+        <FamilyDashboardPanel showConnectLink={false} />
       ) : (
         <>
-          {sectionErrors.profile ? (
-            <SectionErrorNotice message="Profil konnte gerade nicht geladen werden." />
-          ) : null}
+          <StatusBanner data={homeData!} t={t} />
 
-          <StatusBanner
-            data={homeData}
-            t={t}
-            hasError={Boolean(sectionErrors.medication)}
-          />
+          <MedicationStreakCard streak={homeData!.medicationStreak ?? 0} />
 
-          {sectionErrors.medication ? (
-            <SectionErrorNotice message="Medikamentenstatus ist gerade nicht verfügbar." />
-          ) : null}
-
-          <section className="mt-6">
+          <section>
             <div className="grid grid-cols-2 gap-3">
-              {featureCards.map((card) => {
+              {visibleFeatureCards.map((card) => {
                 const isFamilyCard = card.subtitleKey === "family";
-                const familyCard = isFamilyCard ? homeData.family.card : null;
+                const isPassportCard = card.subtitleKey === "passport";
+                const familyConnected =
+                  roles.watching.length > 0 ||
+                  homeData!.family.watchers.length > 0 ||
+                  roles.watchers.length > 0;
+                const familyCard = isFamilyCard
+                  ? familyConnected
+                    ? {
+                        ...homeData!.family.card,
+                        mode: "patient" as const,
+                        iconBackground: "#E1F5EE",
+                        iconColor: "#1D9E75",
+                      }
+                    : homeData!.family.card
+                  : null;
+                const familySubtitle = isFamilyCard
+                  ? getFamilyCardSubtitle(
+                      homeData!,
+                      roles.watchers,
+                      roles.watching,
+                    )
+                  : null;
+                const passport = homeData!.healthPassport;
+                const showPassportBadge =
+                  isFamilyCard &&
+                  roles.isWatcher &&
+                  homeData!.family.watchedPatientHealthPassportAvailable;
+                const showFamilyNoteBadge =
+                  isFamilyCard && Boolean(patientFamilyNote);
 
                 return (
                   <Link
                     key={card.href}
                     href={card.href}
-                    className="noor-card flex min-h-[120px] flex-col p-4 transition-colors hover:border-primary/30 active:scale-[0.98]"
+                    className="noor-card relative flex min-h-[120px] flex-col p-4 transition-colors hover:border-primary/30 active:scale-[0.98]"
                   >
+                    {isPassportCard ? (
+                      <span
+                        aria-hidden="true"
+                        style={{
+                          position: "absolute",
+                          top: 12,
+                          right: 12,
+                          width: 10,
+                          height: 10,
+                          borderRadius: "50%",
+                          backgroundColor: passport.dotColor ?? "#A32D2D",
+                        }}
+                      />
+                    ) : null}
                     <span
                       className="flex h-12 w-12 items-center justify-center rounded-2xl"
                       style={{
@@ -265,26 +489,74 @@ export function HomeScreen() {
                     {t(card.titleKey)}
                   </h2>
                   <p
-                    className={`home-card-subtitle mt-1 ${
+                    className={`card-subtitle home-card-subtitle mt-1 ${
                       isFamilyCard && !familyCard?.subtitleColor ? "text-muted" : ""
-                    } ${card.subtitleKey === "passport" || card.subtitleKey === "lab" ? "whitespace-nowrap" : ""}`}
+                    } ${card.subtitleKey === "lab" ? "whitespace-nowrap" : ""}`}
                       style={{
                         color: isFamilyCard ? familyCard?.subtitleColor : undefined,
                       }}
                     >
                       {isFamilyCard
-                        ? getFamilyCardSubtitle(homeData, sectionErrors)
-                        : getCardSubtitle(card.subtitleKey, homeData, t, sectionErrors)}
+                        ? familySubtitle
+                        : getCardSubtitle(card.subtitleKey, homeData!, t)}
                     </p>
+                    {showPassportBadge ? (
+                      <p
+                        style={{
+                          fontSize: 12,
+                          color: "#1D9E75",
+                          marginTop: 6,
+                          fontWeight: 600,
+                        }}
+                      >
+                        🏥 Pass verfügbar
+                      </p>
+                    ) : null}
+                    {showFamilyNoteBadge ? (
+                      <p
+                        style={{
+                          fontSize: 12,
+                          color: "#1D9E75",
+                          marginTop: 6,
+                          fontWeight: 600,
+                        }}
+                      >
+                        💌 Nachricht von {patientFamilyNote!.senderFirstName}
+                      </p>
+                    ) : null}
                   </Link>
                 );
               })}
             </div>
           </section>
+
+          <HomeTodayActivityCard activity={homeData!.todayActivity} />
         </>
       )}
-    </main>,
+    </>,
   );
+}
+
+function getPreviewCardSubtitle(
+  key: (typeof featureCards)[number]["subtitleKey"],
+  mockData: HomeScreenPreviewMockData,
+  t: ReturnType<typeof useLanguage>["t"],
+) {
+  if (key === "medication") {
+    return mockData.medicationsConfirmed
+      ? t("home.allConfirmed")
+      : t("home.confirmedCount", { confirmed: 0, total: 2 });
+  }
+
+  if (key === "lab") {
+    return t("home.lastLab", { date: mockData.lastLabDate });
+  }
+
+  if (key === "family") {
+    return mockData.familyStatus;
+  }
+
+  return "Vollständig ✓";
 }
 
 function getGreetingSubtitle(data: HomeScreenData, now: Date) {
@@ -351,17 +623,11 @@ function MedicationReminderBanner({
 function StatusBanner({
   data,
   t,
-  hasError = false,
 }: {
   data: HomeScreenData;
   t: ReturnType<typeof useLanguage>["t"];
-  hasError?: boolean;
 }) {
   const { medication } = data;
-
-  if (hasError) {
-    return null;
-  }
 
   if (medication.total === 0) {
     return (
@@ -388,26 +654,38 @@ function StatusBanner({
 
 function getFamilyCardSubtitle(
   data: HomeScreenData,
-  sectionErrors: Partial<Record<HomeSectionKey, string>> = {},
+  roleWatchers: Array<{ watcherFirstName: string }> = [],
+  roleWatching: Array<{ patientFirstName: string }> = [],
 ) {
-  if (sectionErrors.family) {
-    return "Familienstatus gerade nicht verfügbar";
+  if (roleWatching.length > 1) {
+    return `${roleWatching.length} Angehörige im Blick`;
   }
 
-  return data.family.card.subtitle;
+  if (roleWatching.length === 1) {
+    return `${roleWatching[0]?.patientFirstName ?? "Angehörige"} im Blick`;
+  }
+
+  const homeNames = data.family.watchers.map(
+    (watcher) => watcher.watcherFirstName,
+  );
+  if (homeNames.length > 0) {
+    return formatWatcherFollowSubtitle(homeNames);
+  }
+
+  const roleNames = roleWatchers.map((watcher) => watcher.watcherFirstName);
+  if (roleNames.length > 0) {
+    return formatWatcherFollowSubtitle(roleNames);
+  }
+
+  return data.family.card.subtitle || "Familie einladen →";
 }
 
 function getCardSubtitle(
   key: (typeof featureCards)[number]["subtitleKey"],
   data: HomeScreenData,
   t: ReturnType<typeof useLanguage>["t"],
-  sectionErrors: Partial<Record<HomeSectionKey, string>> = {},
 ) {
   if (key === "medication") {
-    if (sectionErrors.medication) {
-      return "Status gerade nicht verfügbar";
-    }
-
     if (data.medication.total === 0) {
       return "Noch keine Medikamente";
     }
@@ -423,10 +701,6 @@ function getCardSubtitle(
   }
 
   if (key === "lab") {
-    if (sectionErrors.labResult) {
-      return "Laborwerte gerade nicht verfügbar";
-    }
-
     if (data.labResult.hasResult && data.labResult.lastDate) {
       return t("home.lastLab", { date: data.labResult.lastDate });
     }
@@ -435,23 +709,13 @@ function getCardSubtitle(
   }
 
   if (key === "family") {
-    return getFamilyCardSubtitle(data, sectionErrors);
+    return getFamilyCardSubtitle(data);
   }
 
-  return data.healthPassport.complete
-    ? t("home.passportComplete")
-    : sectionErrors.healthPassport
-      ? "Status gerade nicht verfügbar"
-      : t("home.passportIncomplete");
-}
-
-function SectionErrorNotice({ message }: { message: string }) {
   return (
-    <p
-      className="mb-4 rounded-2xl border border-warning/30 bg-warning-light px-4 py-3 text-base text-warning"
-      role="status"
-    >
-      {message}
-    </p>
+    data.healthPassport.subtitle ||
+    (data.healthPassport.complete
+      ? t("home.passportComplete")
+      : t("home.passportIncomplete"))
   );
 }

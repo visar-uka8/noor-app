@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { createSupabaseDataClient } from "@/lib/supabase-data";
-import type { LabResultRecord } from "@/types/lab-results";
+import { listLabResultsForUser } from "@/lib/lab-results-db";
 
 export const runtime = "nodejs";
 
@@ -21,15 +21,7 @@ export async function GET() {
     }
 
     const supabase = createSupabaseDataClient() ?? authSupabase;
-    const { data, error } = await supabase
-      .from("lab_results")
-      .select(
-        "id, file_url, ai_analysis, created_at, normal_count, watch_count, high_count",
-      )
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: false })
-      .limit(20)
-      .returns<LabResultRecord[]>();
+    const { data, error } = await listLabResultsForUser(supabase, user.id);
 
     console.log("Lab results fetch:", {
       userId: user.id,

@@ -28,12 +28,17 @@ const emptyDashboard: FamilyDashboardData = {
   overallStatus: "green",
   overallStatusText: "Alles okay heute ✓",
   medications: [],
+  medicationStreak: 0,
   lastCheckIn: null,
   lastCheckInText: "Noch keine Aktivität heute",
+  todayActivities: [],
+  todayActivityText: null,
   latestLabResult: null,
+  healthPassportAvailable: false,
 };
 
 type FamilyDashboardPanelProps = {
+  patientId?: string;
   showConnectLink?: boolean;
   className?: string;
 };
@@ -50,8 +55,11 @@ type LabResultRow = {
   created_at: string;
 };
 
-async function fetchDashboardData() {
-  const response = await fetchWithTimeout("/api/family-dashboard");
+async function fetchDashboardData(patientId?: string) {
+  const query = patientId
+    ? `?patientId=${encodeURIComponent(patientId)}`
+    : "";
+  const response = await fetchWithTimeout(`/api/family-dashboard${query}`);
 
   if (!response.ok) {
     throw new Error("Family dashboard request failed.");
@@ -62,6 +70,7 @@ async function fetchDashboardData() {
 }
 
 function FamilyDashboardPanelComponent({
+  patientId,
   showConnectLink = true,
   className = "mt-6",
 }: FamilyDashboardPanelProps) {
@@ -91,7 +100,7 @@ function FamilyDashboardPanelComponent({
     }
 
     try {
-      const data = await fetchDashboardData();
+      const data = await fetchDashboardData(patientId);
       setDashboard(data);
       setHasLoadError(false);
       hasLoadedOnceRef.current = true;
@@ -107,7 +116,12 @@ function FamilyDashboardPanelComponent({
         setIsLoading(false);
       }
     }
-  }, []);
+  }, [patientId]);
+
+  useEffect(() => {
+    hasLoadedOnceRef.current = false;
+    setDashboard(null);
+  }, [patientId]);
 
   useEffect(() => {
     const supabase = createClient();
@@ -121,7 +135,7 @@ function FamilyDashboardPanelComponent({
       let data: FamilyDashboardData | null = null;
 
       try {
-        data = await fetchDashboardData();
+        data = await fetchDashboardData(patientId);
         if (!cancelled) {
           setDashboard(data);
           setHasLoadError(false);
@@ -141,18 +155,18 @@ function FamilyDashboardPanelComponent({
 
       if (cancelled) return;
 
-      const patientId = data?.member?.patientId;
-      if (!patientId) return;
+      const subscribedPatientId = patientId ?? data?.member?.patientId;
+      if (!subscribedPatientId) return;
 
       channel = supabase
-        .channel(`family-dashboard-${patientId}`)
+        .channel(`family-dashboard-${subscribedPatientId}`)
         .on(
           "postgres_changes",
           {
             event: "*",
             schema: "public",
             table: "medication_confirmations",
-            filter: `user_id=eq.${patientId}`,
+            filter: `user_id=eq.${subscribedPatientId}`,
           },
           (payload) => {
             const row = payload.new as MedicationConfirmationRow | null;
@@ -169,7 +183,7 @@ function FamilyDashboardPanelComponent({
             event: "*",
             schema: "public",
             table: "lab_results",
-            filter: `user_id=eq.${patientId}`,
+            filter: `user_id=eq.${subscribedPatientId}`,
           },
           (payload) => {
             const row = payload.new as LabResultRow | null;
@@ -186,7 +200,7 @@ function FamilyDashboardPanelComponent({
             event: "UPDATE",
             schema: "public",
             table: "profiles",
-            filter: `id=eq.${patientId}`,
+            filter: `id=eq.${subscribedPatientId}`,
           },
           (payload) => {
             const row = payload.new as ProfileCheckInRow | null;
@@ -208,7 +222,7 @@ function FamilyDashboardPanelComponent({
         void supabase.removeChannel(channel);
       }
     };
-  }, [patchDashboard]);
+  }, [patchDashboard, patientId]);
 
   if (isLoading && !hasLoadedOnceRef.current) {
     return (
@@ -252,7 +266,7 @@ function FamilyDashboardPanelComponent({
 
       <FamilyEmailNotifications
         patientFirstName={dashboard.member.firstName}
-        patientLabel={dashboard.member.displayLabel}
+        relationshipLabel={dashboard.member.relationship}
       />
 
       {showConnectLink ? (

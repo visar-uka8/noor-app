@@ -4,7 +4,7 @@ import { SettingsScreen } from "@/components/SettingsScreen";
 export default function SettingsPage() {
   return (
     <div className="flex flex-col">
-      <AppHeader title="Profil" />
+      <AppHeader showBack title="Profil" />
       <SettingsScreen />
     </div>
   );

@@ -1,12 +1,9 @@
-import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
+import { createSupabaseDataClient } from "@/lib/supabase-data";
+import { resolveWatcherPatientLink } from "@/lib/family-links-query";
 import { formatLabResultDate } from "@/types/lab-results";
 
 export const runtime = "nodejs";
-
-type FamilyLink = {
-  patient_id: string;
-};
 
 type StoredLabResult = {
   id: string;
@@ -15,7 +12,7 @@ type StoredLabResult = {
   file_url: string;
 };
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const authSupabase = await createClient();
     const {
@@ -27,17 +24,13 @@ export async function GET() {
       return Response.json({ error: "Bitte melden Sie sich an." }, { status: 401 });
     }
 
+    const patientId = new URL(request.url).searchParams.get("patientId");
     const supabase = createSupabaseDataClient() ?? authSupabase;
-    const { data: familyLink, error: linkError } = await supabase
-      .from("family_links")
-      .select("patient_id")
-      .eq("family_member_id", user.id)
-      .eq("active", true)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle<FamilyLink>();
-
-    if (linkError) throw linkError;
+    const familyLink = await resolveWatcherPatientLink(
+      supabase,
+      user.id,
+      patientId,
+    );
 
     if (!familyLink) {
       return Response.json(
@@ -78,17 +71,4 @@ export async function GET() {
       { status: 500 },
     );
   }
-}
-
-function createSupabaseDataClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseKey =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ??
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-  if (!supabaseUrl || !supabaseKey) return null;
-
-  return createAdminClient(supabaseUrl, supabaseKey, {
-    auth: { persistSession: false },
-  });
 }

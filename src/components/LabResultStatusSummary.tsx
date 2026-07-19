@@ -1,21 +1,37 @@
 "use client";
 
-import { getLabAnalysisCounts } from "@/lib/parse-lab-analysis";
+import { getLabResultStatusDisplay } from "@/lib/parse-lab-analysis";
 import type { LabResultRecord } from "@/types/lab-results";
 
 export function LabResultStatusSummary({ result }: { result: LabResultRecord }) {
-  const counts = getLabAnalysisCounts(result.ai_analysis, result);
-  const hasCounts = counts.normal + counts.watch + counts.high > 0;
+  const display = getLabResultStatusDisplay(result);
 
-  if (!hasCounts) {
+  if (display.mode === "tap") {
     return (
-      <p className="text-body mt-3 text-muted">Analyse verfügbar — tippen zum Ansehen</p>
+      <p
+        style={{
+          margin: 0,
+          textAlign: "left",
+          fontSize: "14px",
+          color: "#88856F",
+        }}
+      >
+        Analyse verfügbar — tippen zum Ansehen
+      </p>
     );
   }
 
+  const { counts } = display;
+
   return (
     <div
-      className="mt-3 flex flex-wrap items-center gap-2"
+      style={{
+        display: "flex",
+        justifyContent: "flex-start",
+        gap: "8px",
+        marginTop: 0,
+        flexWrap: "wrap",
+      }}
       aria-label={`${counts.normal} normal, ${counts.watch} beachten, ${counts.high} erhöht`}
     >
       {counts.normal > 0 ? (

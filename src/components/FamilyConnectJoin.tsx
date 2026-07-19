@@ -4,6 +4,8 @@ import { CheckCircle2, Loader2, UsersRound } from "lucide-react";
 import { useRouter } from "next/navigation";
 import type { FormEvent } from "react";
 import { useEffect, useState } from "react";
+import { notifyFamilyConnectionsChanged } from "@/lib/family-links-query";
+import { supabase } from "@/lib/supabase";
 import {
   familyInviteErrors,
   familyRelationships,
@@ -18,6 +20,10 @@ export function FamilyConnectJoin() {
   const [code, setCode] = useState("");
   const [relationship, setRelationship] = useState<FamilyRelationship>("Tochter");
   const [patientName, setPatientName] = useState("");
+  const [previewPatientName, setPreviewPatientName] = useState<string | null>(
+    null,
+  );
+  const [isLookingUp, setIsLookingUp] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -25,12 +31,64 @@ export function FamilyConnectJoin() {
     if (step !== "success") return;
 
     const timer = window.setTimeout(() => {
-      window.localStorage.setItem("noor-home-view-mode", "family");
       router.push("/");
-    }, 1800);
+    }, 2800);
 
     return () => window.clearTimeout(timer);
   }, [step, router]);
+
+  useEffect(() => {
+    if (code.length !== 6) {
+      setPreviewPatientName(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function lookupPatient() {
+      setIsLookingUp(true);
+
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+
+        const response = await fetch(
+          `/api/family-invites/lookup?code=${encodeURIComponent(code)}`,
+          {
+            credentials: "include",
+            headers: session?.access_token
+              ? { Authorization: `Bearer ${session.access_token}` }
+              : {},
+          },
+        );
+
+        const data = (await response.json().catch(() => null)) as {
+          found?: boolean;
+          patientName?: string | null;
+          ownCode?: boolean;
+        } | null;
+
+        if (cancelled) return;
+
+        if (response.ok && data?.found && data.patientName && !data.ownCode) {
+          setPreviewPatientName(data.patientName);
+        } else {
+          setPreviewPatientName(null);
+        }
+      } catch {
+        if (!cancelled) setPreviewPatientName(null);
+      } finally {
+        if (!cancelled) setIsLookingUp(false);
+      }
+    }
+
+    void lookupPatient();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [code]);
 
   async function connectFamily(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -38,9 +96,33 @@ export function FamilyConnectJoin() {
     setErrorMessage(null);
 
     try {
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+
+      if (userError) {
+        console.error("Connect auth error:", userError);
+      }
+
+      if (!user) {
+        setErrorMessage("Bitte melden Sie sich an.");
+        return;
+      }
+
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
       const response = await fetch("/api/family-invites/connect", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          ...(session?.access_token
+            ? { Authorization: `Bearer ${session.access_token}` }
+            : {}),
+        },
         body: JSON.stringify({ code, relationship }),
       });
 
@@ -62,14 +144,20 @@ export function FamilyConnectJoin() {
         return;
       }
 
-      setPatientName(data.patientName ?? "Ihrem Angehörigen");
+      setPatientName(
+        data.patientName ?? previewPatientName ?? "Ihrem Angehörigen",
+      );
+      notifyFamilyConnectionsChanged();
       setStep("success");
-    } catch {
+    } catch (error) {
+      console.error("Family connect failed:", error);
       setErrorMessage(familyInviteErrors.invalid);
     } finally {
       setIsLoading(false);
     }
   }
+
+  const displayPatientName = previewPatientName ?? "Ihrem Angehörigen";
 
   if (step === "success") {
     return (
@@ -83,14 +171,17 @@ export function FamilyConnectJoin() {
         <h2 className="mt-5 text-2xl font-bold text-foreground">
           Verbunden mit {patientName} ✓
         </h2>
+        <p className="mt-3 text-[15px] leading-relaxed text-[#085041]">
+          Sie sehen jetzt deren Medikamente, Laborwerte und Gesundheitsstatus.
+        </p>
         <p className="mt-2 text-base leading-relaxed text-muted">
-          Sie werden zum Familien-Dashboard weitergeleitet...
+          Sie werden zur Startseite weitergeleitet...
         </p>
         <a
-          href="/dashboard"
+          href="/"
           className="mt-6 flex min-h-12 w-full items-center justify-center rounded-2xl bg-primary px-5 py-4 text-base font-semibold text-white transition-colors hover:bg-primary-dark active:scale-[0.98]"
         >
-          Zum Familien-Dashboard
+          Zur Startseite
         </a>
       </section>
     );
@@ -106,7 +197,24 @@ export function FamilyConnectJoin() {
       </div>
 
       <h2 className="mt-5 text-2xl font-bold text-foreground">Code eingeben</h2>
-      <p className="mt-2 text-base leading-relaxed text-muted">
+
+      <div
+        className="mt-3 rounded-2xl border border-[#E4E2DB] bg-[#F7F6F2] px-4 py-3"
+        role="status"
+      >
+        <p className="text-[15px] font-semibold leading-relaxed text-[#085041]">
+          Sie verbinden sich als Familienmitglied.
+        </p>
+        <p className="mt-1 text-[14px] leading-relaxed text-[#555555]">
+          Sie werden die Gesundheit von{" "}
+          <span className="font-semibold text-[#085041]">
+            {isLookingUp ? "…" : displayPatientName}
+          </span>{" "}
+          im Blick behalten können.
+        </p>
+      </div>
+
+      <p className="mt-3 text-base leading-relaxed text-muted">
         Geben Sie den 6-stelligen Code ein, den Sie von Ihrem Angehörigen
         erhalten haben.
       </p>

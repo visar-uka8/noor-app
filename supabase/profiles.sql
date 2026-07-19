@@ -20,3 +20,21 @@ alter table public.profiles
 
 alter table public.profiles
   add column if not exists notification_preferences jsonb not null default '{"emailNotifications": true}'::jsonb;
+
+alter table public.profiles
+  add column if not exists avatar_url text;
+
+alter table public.profiles
+  add column if not exists gender text;
+
+alter table public.profiles
+  add column if not exists height_cm integer;
+
+alter table public.profiles
+  add column if not exists weight_kg decimal(5, 2);
+
+alter table public.profiles
+  add column if not exists activity_level text;
+
+alter table public.profiles
+  add column if not exists sport_types text[];

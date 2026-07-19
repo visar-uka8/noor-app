@@ -3,6 +3,12 @@ import type {
   StoredConfirmation,
   StoredMedication,
 } from "@/types/medication";
+import type { StoredActivityLog } from "@/types/activity-log";
+import {
+  formatFamilyActivitySummaryFromLogs,
+  formatFamilyCardActivitySubtitleFromLogs,
+  type ActivityLogSummaryInput,
+} from "@/types/activity-log";
 import { formatLabResultDate } from "@/types/lab-results";
 import {
   expandMedicationsToDailyDoses,
@@ -34,6 +40,7 @@ export type FamilyDashboardMember = {
   name: string;
   relationship: string;
   phone: string;
+  avatarUrl?: string | null;
 };
 
 export type FamilyLatestLabResult = {
@@ -49,9 +56,13 @@ export type FamilyDashboardData = {
   overallStatus: FamilyOverallStatus;
   overallStatusText: string;
   medications: FamilyMedicationItem[];
+  medicationStreak: number;
   lastCheckIn: string | null;
   lastCheckInText: string;
+  todayActivities: StoredActivityLog[];
+  todayActivityText: string | null;
   latestLabResult: FamilyLatestLabResult | null;
+  healthPassportAvailable: boolean;
 };
 
 export const overallStatusCopy: Record<
@@ -77,10 +88,21 @@ export const overallStatusCopy: Record<
 
 export function buildOverallStatusText(
   status: FamilyOverallStatus,
-  displayLabel: string,
+  patientFirstName: string,
+  todayActivities: ActivityLogSummaryInput[] = [],
+  patientLabel?: string,
 ) {
+  if (todayActivities.length > 0 && patientLabel) {
+    return (
+      formatFamilyActivitySummaryFromLogs(patientLabel, todayActivities) ??
+      overallStatusCopy[status].text
+    );
+  }
+
+  const displayName = patientFirstName.trim() || "Angehörige";
+
   if (status === "green") {
-    return `${displayLabel} hat alle Medikamente heute genommen ✓`;
+    return `${displayName} hat alle Medikamente heute genommen ✓`;
   }
 
   return overallStatusCopy[status].text;
@@ -134,6 +156,8 @@ export function applyMedicationConfirmationChange(
     overallStatus,
     overallStatusText: buildOverallStatusText(
       overallStatus,
+      dashboard.member.firstName,
+      dashboard.todayActivities,
       dashboard.member.displayLabel,
     ),
   };
@@ -173,11 +197,21 @@ export function buildFamilyDashboardData(input: {
   member: FamilyDashboardMember;
   medications: StoredMedication[];
   confirmations: StoredConfirmation[];
+  medicationStreak?: number;
   lastCheckIn: string | null;
+  todayActivities?: StoredActivityLog[];
   latestLabResult: FamilyLatestLabResult | null;
+  healthPassportAvailable?: boolean;
 }): FamilyDashboardData {
   const medications = buildMedicationItems(input.medications, input.confirmations);
   const overallStatus = getOverallStatus(medications);
+  const todayActivities = input.todayActivities ?? [];
+  const todayActivityText = todayActivities.length
+    ? formatFamilyActivitySummaryFromLogs(
+        input.member.displayLabel,
+        todayActivities,
+      )
+    : null;
 
   return {
     connected: true,
@@ -185,13 +219,57 @@ export function buildFamilyDashboardData(input: {
     overallStatus,
     overallStatusText: buildOverallStatusText(
       overallStatus,
+      input.member.firstName,
+      todayActivities,
       input.member.displayLabel,
     ),
     medications,
+    medicationStreak: input.medicationStreak ?? 0,
     lastCheckIn: input.lastCheckIn,
     lastCheckInText: formatCheckInText(input.lastCheckIn),
+    todayActivities,
+    todayActivityText,
     latestLabResult: input.latestLabResult,
+    healthPassportAvailable: input.healthPassportAvailable ?? false,
   };
+}
+
+export function buildFamilyMemberCardSubtitle(input: {
+  patientLabel: string;
+  medication: {
+    total: number;
+    confirmed: number;
+    pending: number;
+    missed: number;
+    status: "green" | "amber" | "red";
+  };
+  todayActivity?: ActivityLogSummaryInput[] | null;
+}) {
+  if (input.todayActivity?.length) {
+    return (
+      formatFamilyCardActivitySubtitleFromLogs(
+        input.patientLabel,
+        input.todayActivity,
+      ) ?? `${input.patientLabel}: Aktiv heute ✓`
+    );
+  }
+
+  const { patientLabel, medication } = input;
+
+  if (medication.total === 0 || medication.status === "green") {
+    return `${patientLabel}: Alles okay ✓`;
+  }
+
+  if (medication.status === "red") {
+    return `${patientLabel}: Dosis vergessen`;
+  }
+
+  const pendingText =
+    medication.pending === 1
+      ? "1 Dosis ausstehend"
+      : `${medication.pending} Dosen ausstehend`;
+
+  return `${patientLabel}: ${pendingText}`;
 }
 
 export function buildMedicationItems(
@@ -267,6 +345,10 @@ export function getCaretakerLabel(firstName: string) {
   return "Mama";
 }
 
+export function getFamilyToggleLabel(firstName?: string | null) {
+  return firstName?.trim() || "Familie";
+}
+
 export function getPatientRelationshipLabel(relationship: string) {
   if (relationship === "Sohn" || relationship === "Tochter") {
     return "Mutter";
@@ -316,7 +398,7 @@ export const demoFamilyDashboard = buildFamilyDashboardData({
   member: {
     firstName: "Renate",
     patientId: "demo-patient",
-    displayLabel: "Mama",
+    displayLabel: "Renate",
     name: "Renate Leka",
     relationship: "Mutter",
     phone: "+493012345678",
@@ -354,6 +436,7 @@ export const demoFamilyDashboard = buildFamilyDashboardData({
     analysis:
       "Die meisten Werte sehen gut aus und Sie können beruhigt sein. Ein Wert sollte mit Ihrem Arzt besprochen werden.",
   },
+  healthPassportAvailable: true,
 });
 
 function getScheduledAtForDemoMorning() {

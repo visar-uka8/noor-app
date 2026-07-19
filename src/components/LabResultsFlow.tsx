@@ -7,10 +7,11 @@ import { LabResultAnalysis } from "@/components/LabResultAnalysis";
 import { LabResultHistory } from "@/components/LabResultHistory";
 import { useHomeViewModeContext } from "@/components/HomeViewModeContext";
 import { useLanguage } from "@/components/LanguageProvider";
-import { SlowConnectionNotice } from "@/components/SlowConnectionNotice";
 import { useFamilyConnection } from "@/hooks/useFamilyConnection";
-import { useSlowConnection } from "@/hooks/useSlowConnection";
+import { useFamilyRoles } from "@/hooks/useFamilyRoles";
+import { useUserRole } from "@/hooks/useUserRole";
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
+import { isFamilyMemberAccount } from "@/lib/family-member-flow";
 import {
   fileWithResolvedType,
   isAcceptedLabFile,
@@ -21,6 +22,14 @@ import {
   type LabAnalysisResult,
   type LabResultRecord,
 } from "@/types/lab-results";
+
+type AnalyzingHintPhase = 0 | 1 | 2;
+
+const analyzingHintKeys = [
+  "lab.analyzingHint",
+  "lab.analyzingHintAlmost",
+  "lab.analyzingHintLong",
+] as const;
 
 type FlowStep = "upload" | "analyzing" | "results" | "error";
 
@@ -41,8 +50,12 @@ export function LabResultsFlow() {
   const { t } = useLanguage();
   const { mode, hasFamilyConnection } = useHomeViewModeContext();
   const { connection } = useFamilyConnection();
+  const { roles } = useFamilyRoles();
+  const profileRole = useUserRole();
+  const isFamilyMember = isFamilyMemberAccount(profileRole, roles);
   const isFamilyView =
-    mode === "family" && hasFamilyConnection && connection.connected;
+    connection.connected &&
+    (isFamilyMember || (mode === "family" && hasFamilyConnection));
   const historyEndpoint = isFamilyView
     ? "/api/family-dashboard/lab-results"
     : "/api/lab-results";
@@ -57,8 +70,10 @@ export function LabResultsFlow() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
+  const [saveWarning, setSaveWarning] = useState("");
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
-  const isAnalyzingSlow = useSlowConnection(step === "analyzing");
+  const [analyzingHintPhase, setAnalyzingHintPhase] =
+    useState<AnalyzingHintPhase>(0);
 
   useEffect(() => {
     setStep("upload");
@@ -66,6 +81,7 @@ export function LabResultsFlow() {
     setSelectedFile(null);
     setPreviewUrl(null);
     setErrorMessage("");
+    setSaveWarning("");
     if (previewUrlRef.current) {
       URL.revokeObjectURL(previewUrlRef.current);
       previewUrlRef.current = null;
@@ -91,6 +107,25 @@ export function LabResultsFlow() {
 
     window.addEventListener("beforeunload", handleBeforeUnload);
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [step]);
+
+  useEffect(() => {
+    if (step !== "analyzing") return;
+
+    setAnalyzingHintPhase(0);
+
+    const almostDoneTimer = window.setTimeout(() => {
+      setAnalyzingHintPhase(1);
+    }, 20_000);
+
+    const longWaitTimer = window.setTimeout(() => {
+      setAnalyzingHintPhase(2);
+    }, 45_000);
+
+    return () => {
+      window.clearTimeout(almostDoneTimer);
+      window.clearTimeout(longWaitTimer);
+    };
   }, [step]);
 
   function handleFileSelect(event: React.ChangeEvent<HTMLInputElement>) {
@@ -120,6 +155,7 @@ export function LabResultsFlow() {
     setSelectedFile(normalized);
     setStep("upload");
     setErrorMessage("");
+    setSaveWarning("");
 
     if (normalized.type.startsWith("image/")) {
       const objectUrl = URL.createObjectURL(normalized);
@@ -133,7 +169,11 @@ export function LabResultsFlow() {
   }
 
   function openHistoryResult(record: LabResultRecord) {
-    setAnalysisResult({ analysis: record.ai_analysis });
+    setAnalysisResult({
+      analysis: record.ai_analysis,
+      labResultId: record.id,
+      createdAt: record.created_at,
+    });
     setStep("results");
   }
 
@@ -182,8 +222,27 @@ export function LabResultsFlow() {
         return;
       }
 
-      setAnalysisResult(payload as LabAnalysisResult);
-      setHistoryRefreshKey((current) => current + 1);
+      const result = payload as LabAnalysisResult;
+
+      if (result.saveFailed) {
+        console.error("Lab result save failed — full details:", {
+          saveError: result.saveError,
+          saveErrorCode: result.saveErrorCode,
+          saveErrorDetails: result.saveErrorDetails,
+          saveErrorHint: result.saveErrorHint,
+          saveDebug: result.saveDebug,
+        });
+        setSaveWarning(
+          `${t("lab.saveFailed")}${result.saveError ? ` (${result.saveErrorCode ?? "error"}: ${result.saveError})` : ""}`,
+        );
+      } else {
+        setSaveWarning("");
+      }
+
+      setAnalysisResult(result);
+      if (!result.saveFailed) {
+        setHistoryRefreshKey((current) => current + 1);
+      }
       setStep("results");
     } catch (error) {
       if (
@@ -216,10 +275,9 @@ export function LabResultsFlow() {
             <p className="mt-6 text-2xl font-semibold text-foreground">
               {t("lab.analyzing")}
             </p>
-            <p className="mt-2 text-lg text-muted">{t("lab.analyzingHint")}</p>
-            {isAnalyzingSlow ? (
-              <SlowConnectionNotice message={t("lab.slowHint")} />
-            ) : null}
+            <p className="mt-2 text-lg text-muted">
+              {t(analyzingHintKeys[analyzingHintPhase])}
+            </p>
           </div>
         </main>
       </div>
@@ -227,7 +285,20 @@ export function LabResultsFlow() {
   }
 
   if (step === "results") {
-    return analysisResult ? <LabResultAnalysis result={analysisResult} /> : null;
+    return (
+      <>
+        {saveWarning ? (
+          <ErrorBanner
+            message={saveWarning}
+            actionLabel={t("common.retry")}
+            onAction={() =>
+              selectedFile ? void analyzeFile(selectedFile) : setStep("upload")
+            }
+          />
+        ) : null}
+        {analysisResult ? <LabResultAnalysis result={analysisResult} /> : null}
+      </>
+    );
   }
 
   if (step === "error") {
@@ -364,7 +435,7 @@ export function LabResultsFlow() {
         </>
       ) : (
         <p className="rounded-2xl border border-border bg-background px-4 py-3 text-base text-muted">
-          {connection.displayLabel} kann ihre Befunde selbst hochladen
+          {connection.toggleLabel} kann ihre Befunde selbst hochladen
         </p>
       )}
 
@@ -372,6 +443,7 @@ export function LabResultsFlow() {
         refreshKey={historyRefreshKey}
         onSelect={openHistoryResult}
         resultsEndpoint={historyEndpoint}
+        allowDelete={!isFamilyView}
       />
     </main>
   );

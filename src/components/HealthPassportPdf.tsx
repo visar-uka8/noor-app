@@ -6,6 +6,9 @@ import {
   View,
 } from "@react-pdf/renderer";
 import {
+  formatEmergencyVaccinationLine,
+} from "@/lib/vaccination-status";
+import {
   frequencyLabels,
   type HealthPassportData,
   type MedicationFrequency,
@@ -126,6 +129,32 @@ export function HealthPassportPdf({
             .map((allergy) => (
               <Text key={allergy.id} style={styles.item}>
                 {allergy.allergen} — {allergy.reaction || "—"}
+              </Text>
+            ))}
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Erkrankungen</Text>
+          {passport.conditions
+            .filter((condition) => condition.name.trim())
+            .map((condition) => (
+              <Text key={condition.id} style={styles.item}>
+                {condition.name}
+                {condition.since.trim() ? ` — ${condition.since.trim()}` : ""}
+                {condition.treatment.trim()
+                  ? ` — Behandlung: ${condition.treatment.trim()}`
+                  : ""}
+              </Text>
+            ))}
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Impfungen</Text>
+          {passport.vaccinations
+            .filter((vaccination) => vaccination.name.trim())
+            .map((vaccination) => (
+              <Text key={vaccination.id} style={styles.item}>
+                {formatEmergencyVaccinationLine(vaccination) || vaccination.name}
               </Text>
             ))}
         </View>

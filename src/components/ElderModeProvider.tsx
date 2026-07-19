@@ -7,32 +7,43 @@ import {
   useMemo,
   useState,
 } from "react";
+import {
+  applyFontSizePreference,
+  readFontSizePreference,
+  type FontSizePreference,
+} from "@/lib/font-size";
 
 type ElderModeContextValue = {
   elderMode: boolean;
+  fontSize: FontSizePreference;
   setElderMode: (enabled: boolean) => void;
+  setFontSize: (size: FontSizePreference) => void;
 };
 
 const ElderModeContext = createContext<ElderModeContextValue | null>(null);
-const storageKey = "noor-elder-mode";
 
 export function ElderModeProvider({ children }: { children: React.ReactNode }) {
-  const [elderMode, setElderModeState] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return window.localStorage.getItem(storageKey) === "true";
-  });
+  const [fontSize, setFontSizeState] = useState<FontSizePreference>("normal");
 
   useEffect(() => {
-    document.documentElement.classList.toggle("elder-mode", elderMode);
-    window.localStorage.setItem(storageKey, String(elderMode));
-  }, [elderMode]);
+    const preference = readFontSizePreference();
+    setFontSizeState(preference);
+    applyFontSizePreference(preference);
+  }, []);
+
+  useEffect(() => {
+    applyFontSizePreference(fontSize);
+  }, [fontSize]);
 
   const value = useMemo(
     () => ({
-      elderMode,
-      setElderMode: setElderModeState,
+      elderMode: fontSize === "large",
+      fontSize,
+      setElderMode: (enabled: boolean) =>
+        setFontSizeState(enabled ? "large" : "normal"),
+      setFontSize: setFontSizeState,
     }),
-    [elderMode],
+    [fontSize],
   );
 
   return (

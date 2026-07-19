@@ -70,6 +70,23 @@ create unique index if not exists medication_confirmations_user_med_scheduled_id
   on public.medication_confirmations (user_id, medication_id, scheduled_at)
   where medication_id is not null;
 
+-- >>> activity_logs.sql
+create table if not exists public.activity_logs (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  date date not null default current_date,
+  activity_type text not null,
+  duration_minutes integer,
+  note text,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists activity_logs_user_created_idx
+  on public.activity_logs (user_id, date desc);
+
+create index if not exists activity_logs_user_date_created_idx
+  on public.activity_logs (user_id, date, created_at);
+
 -- >>> notifications.sql
 create table if not exists public.notifications (
   id uuid primary key default gen_random_uuid(),
@@ -141,6 +158,8 @@ create table if not exists public.health_passports (
   personal jsonb not null,
   medications jsonb not null default '[]'::jsonb,
   allergies jsonb not null default '[]'::jsonb,
+  conditions jsonb not null default '[]'::jsonb,
+  vaccinations jsonb not null default '[]'::jsonb,
   surgeries jsonb not null default '[]'::jsonb,
   emergency_contact jsonb not null,
   updated_at timestamptz not null default now()
@@ -246,6 +265,47 @@ create table if not exists public.appointments (
 
 create index if not exists appointments_patient_id_scheduled_at_idx
   on public.appointments (patient_id, scheduled_at desc);
+
+-- >>> family_notes.sql
+create table if not exists public.family_notes (
+  id uuid default gen_random_uuid() primary key,
+  from_user_id uuid not null references public.profiles(id) on delete cascade,
+  to_user_id uuid not null references public.profiles(id) on delete cascade,
+  message text not null,
+  read_at timestamptz,
+  reply_message text,
+  replied_at timestamptz,
+  seen_by_sender_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists family_notes_to_user_unread_idx
+  on public.family_notes (to_user_id, created_at desc)
+  where read_at is null;
+
+alter table public.family_notes enable row level security;
+
+drop policy if exists "Users read own family notes" on public.family_notes;
+drop policy if exists "Watchers insert family notes" on public.family_notes;
+drop policy if exists "Patients mark notes read" on public.family_notes;
+
+create policy "Users read own family notes"
+  on public.family_notes for select
+  using (auth.uid() = from_user_id or auth.uid() = to_user_id);
+
+create policy "Watchers insert family notes"
+  on public.family_notes for insert
+  with check (auth.uid() = from_user_id);
+
+create policy "Patients update family notes"
+  on public.family_notes for update
+  using (auth.uid() = to_user_id)
+  with check (auth.uid() = to_user_id);
+
+create policy "Senders mark replies seen"
+  on public.family_notes for update
+  using (auth.uid() = from_user_id)
+  with check (auth.uid() = from_user_id);
 
 -- Auto-create profile rows when a new auth user signs up.
 create or replace function public.handle_new_user()

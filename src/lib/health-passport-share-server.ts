@@ -1,5 +1,11 @@
 import { createClient as createAdminClient } from "@supabase/supabase-js";
+import {
+  queryHealthPassportRow,
+} from "@/lib/health-passport-db";
+import { normalizeStoredConditions } from "@/lib/health-passport-load";
+import { toPassportMedications } from "@/lib/health-passport-medications";
 import { buildShareUrl } from "@/lib/health-passport-share";
+import { loadActiveMedications } from "@/lib/medication-data";
 import type { HealthPassportData } from "@/types/health-passport";
 
 type StoredShare = {
@@ -15,12 +21,14 @@ type StoredPassport = {
   personal: HealthPassportData["personal"];
   medications: HealthPassportData["medications"];
   allergies: HealthPassportData["allergies"];
+  vaccinations?: HealthPassportData["vaccinations"];
+  conditions?: HealthPassportData["conditions"];
   surgeries: HealthPassportData["surgeries"];
   emergency_contact: HealthPassportData["emergencyContact"];
 };
 
 export type SharedPassportResult =
-  | { error: string }
+  | { error: string; code: "invalid" | "expired" | "missing" | "unavailable" }
   | {
       passport: HealthPassportData;
       share: {
@@ -36,35 +44,62 @@ export async function getSharedPassportByToken(
   const supabase = createSupabaseDataClient();
 
   if (!supabase) {
-    return { error: "Notfall-Link ist lokal noch nicht verfügbar." as const };
+    return {
+      error: "Notfall-Link ist lokal noch nicht verfügbar.",
+      code: "unavailable",
+    };
+  }
+
+  const normalizedToken = token.trim();
+
+  if (!normalizedToken) {
+    return {
+      error: "Dieser Link ist nicht mehr gültig",
+      code: "invalid",
+    };
   }
 
   const { data: share, error: shareError } = await supabase
     .from("health_passport_shares")
     .select("id, patient_id, token, expires_at, viewed_at")
-    .eq("token", token)
+    .eq("token", normalizedToken)
     .maybeSingle<StoredShare>();
 
   if (shareError) throw shareError;
 
   if (!share) {
-    return { error: "Dieser Notfall-Link ist ungültig." as const };
+    return {
+      error: "Dieser Link ist nicht mehr gültig",
+      code: "invalid",
+    };
   }
 
   if (new Date(share.expires_at).getTime() < Date.now()) {
-    return { error: "Dieser Notfall-Link ist abgelaufen." as const };
+    return {
+      error: "Dieser Link ist nicht mehr gültig",
+      code: "expired",
+    };
   }
 
-  const { data: passport, error: passportError } = await supabase
-    .from("health_passports")
-    .select("user_id, personal, medications, allergies, surgeries, emergency_contact")
-    .eq("user_id", share.patient_id)
-    .maybeSingle<StoredPassport>();
-
-  if (passportError) throw passportError;
+  const { data: passport, vaccinationsSupported, conditionsSupported } =
+    await queryHealthPassportRow<StoredPassport>(supabase, share.patient_id);
 
   if (!passport) {
-    return { error: "Gesundheitspass nicht gefunden." as const };
+    return {
+      error: "Gesundheitspass nicht gefunden.",
+      code: "missing",
+    };
+  }
+
+  let medications = passport.medications;
+  try {
+    const activeMedications = await loadActiveMedications(
+      share.patient_id,
+      supabase,
+    );
+    medications = toPassportMedications(activeMedications);
+  } catch (error) {
+    console.error("Shared passport medication sync failed:", error);
   }
 
   if (!share.viewed_at) {
@@ -78,8 +113,16 @@ export async function getSharedPassportByToken(
     passport: {
       userId: passport.user_id,
       personal: passport.personal,
-      medications: passport.medications,
+      medications,
       allergies: passport.allergies,
+      conditions:
+        conditionsSupported && "conditions" in passport
+          ? normalizeStoredConditions(passport.conditions)
+          : [],
+      vaccinations:
+        vaccinationsSupported && "vaccinations" in passport
+          ? (passport.vaccinations ?? [])
+          : [],
       surgeries: passport.surgeries,
       emergencyContact: passport.emergency_contact,
     } satisfies HealthPassportData,

@@ -3,24 +3,20 @@
 import { FlaskConical, House, Pill, UserRound, UsersRound } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useHomeViewModeContext } from "@/components/HomeViewModeContext";
 import { useLanguage } from "@/components/LanguageProvider";
 import { useUserRole } from "@/hooks/useUserRole";
+import { useFamilyMemberNav } from "@/lib/family-member-flow";
 
 export function AppBottomNav() {
   const pathname = usePathname();
   const { t } = useLanguage();
-  const role = useUserRole();
-  const { mode, hasFamilyConnection } = useHomeViewModeContext();
+  const profileRole = useUserRole();
+  const familyMemberNav = useFamilyMemberNav(profileRole);
 
-  const isFamilyNav =
-    role === "family_member" ||
-    (hasFamilyConnection && mode === "family");
-
-  const items = isFamilyNav
+  const items = familyMemberNav
     ? [
-        { href: "/", label: "Familie", icon: UsersRound },
-        { href: "/lab-results", label: "Laborwerte", icon: FlaskConical },
+        { href: "/", label: t("nav.family"), icon: UsersRound },
+        { href: "/lab-results", label: t("nav.lab"), icon: FlaskConical },
         { href: "/settings", label: t("nav.profile"), icon: UserRound },
       ]
     : [
@@ -37,15 +33,14 @@ export function AppBottomNav() {
     >
       <div
         className={`grid gap-1 ${
-          items.length === 3 ? "grid-cols-3" : "grid-cols-4"
+          familyMemberNav ? "grid-cols-3" : "grid-cols-4"
         }`}
       >
         {items.map((item) => {
           const Icon = item.icon;
           const isActive =
             item.href === "/"
-              ? pathname === "/" ||
-                pathname.startsWith("/dashboard")
+              ? pathname === "/" || pathname.startsWith("/dashboard")
               : pathname.startsWith(item.href);
 
           return (
@@ -62,7 +57,7 @@ export function AppBottomNav() {
                 className={isActive ? "text-primary" : "text-muted"}
                 aria-hidden="true"
               />
-              <span className="mt-1">{item.label}</span>
+              <span className="nav-label mt-1">{item.label}</span>
             </Link>
           );
         })}

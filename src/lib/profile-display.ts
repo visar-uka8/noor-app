@@ -24,5 +24,32 @@ export function getProfileInitials(
   firstName?: string | null,
   lastName?: string | null,
 ) {
-  return `${firstName?.[0] ?? ""}${lastName?.[0] ?? ""}`.trim().toUpperCase();
+  const first = firstName?.[0]?.toUpperCase() ?? "";
+  const last = lastName?.[0]?.toUpperCase() ?? "";
+  return first + last || "N";
+}
+
+export function resolveHomeDisplayFields(input: {
+  profile?: ProfileNameFields | null;
+  metadata?: AuthMetadata | null;
+  email?: string | null;
+}) {
+  const { profile, metadata, email } = input;
+
+  const firstName =
+    profile?.first_name?.trim() ||
+    metadata?.first_name?.trim() ||
+    email?.split("@")[0] ||
+    "Nutzer";
+
+  const lastName =
+    profile?.last_name?.trim() || metadata?.last_name?.trim() || "";
+
+  const initials =
+    (
+      (profile?.first_name?.[0] ?? metadata?.first_name?.[0] ?? "") +
+      (profile?.last_name?.[0] ?? metadata?.last_name?.[0] ?? "")
+    ).toUpperCase() || "N";
+
+  return { firstName, lastName, initials };
 }

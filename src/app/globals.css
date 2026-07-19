@@ -48,6 +48,10 @@
   --max-width-app: var(--app-max-width);
 }
 
+html {
+  scroll-behavior: smooth;
+}
+
 html,
 body {
   height: 100%;
@@ -76,6 +80,7 @@ body {
 
 .app-scroll-main {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
@@ -294,7 +299,8 @@ h4,
   font-size: 17px !important;
 }
 
-.home-card-subtitle {
+.home-card-subtitle,
+.card-subtitle {
   font-size: 13px !important;
 }
 
@@ -363,71 +369,219 @@ h4,
   min-height: 130px;
 }
 
-.elder-mode .medication-button-name {
-  font-size: 22px;
+.elder-mode .medication-button-name,
+.elder-mode .med-name {
+  font-size: 22px !important;
 }
 
-.elder-mode .medication-button-time {
-  font-size: 17px;
+.elder-mode .medication-button-time,
+.elder-mode .med-time {
+  font-size: 17px !important;
+}
+
+.elder-mode .body-text,
+.elder-mode .text-body,
+.elder-mode p,
+.elder-mode .instruction-text {
+  font-size: 17px !important;
+  line-height: 1.7 !important;
+}
+
+.elder-mode .lab-analysis-text,
+.elder-mode .lab-value-explanation,
+.elder-mode .analysis-markdown {
+  font-size: 17px !important;
+  line-height: 1.8 !important;
 }
 
 .elder-mode .lab-value-name {
-  font-size: 18px;
-}
-
-.elder-mode .lab-value-explanation {
-  font-size: 17px;
-  line-height: 1.8;
-}
-
-.elder-mode .body-text {
-  font-size: 17px;
-}
-
-.toggle-track {
-  position: relative;
-  width: 51px;
-  height: 31px;
-  flex-shrink: 0;
-  border: none;
-  border-radius: 16px;
-  padding: 0;
-  cursor: pointer;
-  transition: background-color 200ms ease;
-}
-
-.toggle-track[data-checked="false"] {
-  background-color: #e4e2db;
-}
-
-.toggle-track[data-checked="true"] {
-  background-color: #1d9e75;
-}
-
-.toggle-thumb {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 27px;
-  height: 27px;
-  border-radius: 50%;
-  background-color: #ffffff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
-  transition: left 200ms ease;
-}
-
-.toggle-track[data-checked="true"] .toggle-thumb {
-  left: 22px;
-}
-
-.elder-mode .instruction-text {
-  font-size: 16px;
-}
-
-.elder-mode .health-passport-label {
-  font-size: 16px;
+  font-size: 18px !important;
 }
 
 .elder-mode .health-passport-input {
-  font-size: 18px;
+  font-size: 18px !important;
+}
+
+.elder-mode .health-passport-label,
+.elder-mode .form-label {
+  font-size: 16px !important;
+}
+
+/* These must NEVER change size */
+.elder-mode .home-card-title,
+.elder-mode .nav-label,
+.elder-mode .badge,
+.elder-mode .card-subtitle,
+.elder-mode .home-card-subtitle {
+  font-size: inherit !important;
+}
+
+/* Landing page animations */
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes gradientShift {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.animate-fade-up {
+  animation: fadeUp 0.7s ease both;
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.7s ease both;
+}
+
+.animate-scale-in {
+  animation: scaleIn 0.6s ease both;
+}
+
+.phone-float {
+  animation: float 4s ease-in-out infinite;
+}
+
+.phone-float-offset {
+  animation: float 4s ease-in-out 1s infinite;
+}
+
+.animate-fade-in.phone-float {
+  animation:
+    fadeIn 0.7s ease both,
+    float 4s ease-in-out 1s infinite;
+}
+
+.animate-fade-in.phone-float.delay-300 {
+  animation:
+    fadeIn 0.7s ease 0.3s both,
+    float 4s ease-in-out 1.3s infinite;
+}
+
+.delay-100 {
+  animation-delay: 0.1s;
+}
+
+.delay-200 {
+  animation-delay: 0.2s;
+}
+
+.delay-300 {
+  animation-delay: 0.3s;
+}
+
+.delay-400 {
+  animation-delay: 0.4s;
+}
+
+.delay-500 {
+  animation-delay: 0.5s;
+}
+
+.delay-600 {
+  animation-delay: 0.6s;
+}
+
+.scroll-animate {
+  opacity: 0;
+  transform: translateY(20px);
+  transition:
+    opacity 0.6s ease,
+    transform 0.6s ease;
+}
+
+.scroll-animate.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.scroll-animate.scroll-scale {
+  transform: scale(0.92);
+}
+
+.scroll-animate.scroll-scale.visible {
+  transform: scale(1);
+}
+
+.scroll-animate.delay-1 {
+  transition-delay: 0.1s;
+}
+
+.scroll-animate.delay-2 {
+  transition-delay: 0.2s;
+}
+
+.scroll-animate.delay-3 {
+  transition-delay: 0.3s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .animate-fade-up,
+  .animate-fade-in,
+  .animate-scale-in,
+  .phone-float,
+  .phone-float-offset,
+  .animate-fade-in.phone-float {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+
+  .scroll-animate {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+
+  .scroll-animate.scroll-scale {
+    transform: none;
+  }
 }

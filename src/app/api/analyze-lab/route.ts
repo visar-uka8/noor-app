@@ -1,8 +1,11 @@
 import { createClient } from "@/lib/supabase/server";
-import { createSupabaseDataClient } from "@/lib/supabase-data";
+import { createSupabaseDataClient, isUsingServiceRoleClient } from "@/lib/supabase-data";
 import { resolveLabFileType } from "@/lib/lab-file";
+import { insertLabResult } from "@/lib/lab-results-db";
+import { loadRecentActivityLogs } from "@/lib/activity-log-data";
 import { uploadLabResultFile } from "@/lib/lab-storage";
 import { analyzeLabDocument, getLabAiProvider } from "@/lib/lab-analyze";
+import { notifyLabResultAlerts } from "@/lib/notifications";
 import { getLabAnalysisCounts } from "@/lib/parse-lab-analysis";
 import type { LabAnalysisResult } from "@/types/lab-results";
 
@@ -146,11 +149,39 @@ export async function POST(request: Request) {
 
     const base64File = Buffer.from(await file.arrayBuffer()).toString("base64");
 
+    const { data: profile } = await authSupabase
+      .from("profiles")
+      .select(
+        "date_of_birth, gender, height_cm, weight_kg, activity_level, sport_types",
+      )
+      .eq("id", user.id)
+      .maybeSingle();
+
+    let conditions: Array<{ name: string; since?: string; treatment?: string }> =
+      [];
+    try {
+      const { data: passportRow } = await authSupabase
+        .from("health_passports")
+        .select("conditions")
+        .eq("user_id", user.id)
+        .maybeSingle<{ conditions?: Array<{ name: string; since?: string; treatment?: string }> }>();
+
+      conditions = passportRow?.conditions ?? [];
+    } catch (conditionsError) {
+      console.warn("Lab analyze: conditions unavailable", conditionsError);
+    }
+
+    const recentActivity = await loadRecentActivityLogs(user.id, authSupabase);
+    console.log("Lab analyze recent activity:", recentActivity.length);
+
     console.log("Step 3: Calling AI API...");
     const analysis = await analyzeLabDocument({
       language,
       mediaType,
       base64File,
+      profile,
+      conditions,
+      recentActivity,
     });
     console.log("Step 4: Analysis received", analysis.length, "chars");
 
@@ -177,23 +208,26 @@ export async function POST(request: Request) {
     });
 
     const dataClient = createSupabaseDataClient() ?? authSupabase;
-    const now = new Date().toISOString();
-    const { data, error: saveError } = await dataClient
-      .from("lab_results")
-      .insert({
+    const insertClientType = isUsingServiceRoleClient()
+      ? "service_role"
+      : "user_session";
+
+    console.log("Step 5b: Supabase client", insertClientType);
+
+    const { data, error: saveError, debug: saveDebug } = await insertLabResult(
+      dataClient,
+      {
         user_id: user.id,
         file_url: fileUrl,
         ai_analysis: analysis,
         normal_count: counts.normal,
         watch_count: counts.watch,
         high_count: counts.high,
-        created_at: now,
-      })
-      .select("id, created_at, normal_count, watch_count, high_count")
-      .single();
+      },
+      { client: insertClientType },
+    );
 
-    console.log("Step 6: Save result", data, saveError);
-    console.log("Supabase insert result:", data, saveError);
+    console.log("Step 6: Save result", data, saveError, saveDebug);
 
     if (saveError) {
       console.error("Lab result save failed", {
@@ -202,15 +236,22 @@ export async function POST(request: Request) {
         details: saveError.details,
         hint: saveError.hint,
       });
-      return Response.json(
-        {
-          error: errorMessage(language, "saveFailed"),
-          code: "save_failed",
-          details: saveError.message,
-        },
-        { status: 500 },
-      );
+      return Response.json({
+        analysis,
+        saveFailed: true,
+        saveError: saveError.message,
+        saveErrorCode: saveError.code,
+        saveErrorDetails: saveError.details ?? undefined,
+        saveErrorHint: saveError.hint ?? undefined,
+        saveDebug,
+      } satisfies LabAnalysisResult);
     }
+
+    void notifyLabResultAlerts(dataClient, user.id, data.id, counts).catch(
+      (notificationError) => {
+        console.error("Lab result notification failed", notificationError);
+      },
+    );
 
     return Response.json({
       analysis,

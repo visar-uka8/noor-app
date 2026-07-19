@@ -16,14 +16,17 @@ export async function GET(
     const result = await getSharedPassportByToken(token);
 
     if ("error" in result) {
-      const message = result.error;
-      const status = message.includes("abgelaufen")
-        ? 410
-        : message.includes("ungültig") || message.includes("nicht gefunden")
-          ? 404
-          : 503;
+      const status =
+        result.code === "expired"
+          ? 410
+          : result.code === "invalid" || result.code === "missing"
+            ? 404
+            : 503;
 
-      return Response.json({ error: message }, { status });
+      return Response.json(
+        { error: result.error, code: result.code },
+        { status },
+      );
     }
 
     return Response.json(result);

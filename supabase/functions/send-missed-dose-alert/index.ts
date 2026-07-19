@@ -9,12 +9,13 @@ type MissedDoseAlertPayload = {
   scheduled_time?: string;
   family_emails?: string[];
   family_email?: string;
+  family_member_name?: string;
 };
 
 const doseLabels = {
-  morning: "morgendliche",
-  midday: "mittägliche",
-  evening: "abendliche",
+  morning: "Morgens",
+  midday: "Mittags",
+  evening: "Abends",
 };
 
 serve(async (request) => {
@@ -32,6 +33,7 @@ serve(async (request) => {
       scheduled_time,
       family_emails,
       family_email,
+      family_member_name,
     } = payload;
 
     if (!patient_id || !patient_name || !medication_name || !dose_time || !scheduled_time) {
@@ -66,6 +68,7 @@ serve(async (request) => {
         dose_time,
         scheduled_time,
         family_email: recipient,
+        family_member_name: family_member_name ?? "Familie",
         supabase,
       });
 
@@ -87,38 +90,54 @@ async function sendMissedDoseEmail(input: {
   dose_time: "morning" | "midday" | "evening";
   scheduled_time: string;
   family_email: string;
+  family_member_name: string;
   supabase: ReturnType<typeof createClient>;
 }) {
   const resendApiKey = Deno.env.get("RESEND_API_KEY");
   const fromEmail =
-    Deno.env.get("RESEND_FROM_EMAIL") ?? "Noor <notifications@noor.health>";
+    Deno.env.get("RESEND_FROM_EMAIL") ?? "Noor <benachrichtigungen@noorhealth.de>";
 
   if (!resendApiKey) {
     console.warn("RESEND_API_KEY is not configured.");
     return false;
   }
 
+  const dedupeKey = `${input.medication_name}:${input.dose_time}:${input.scheduled_time}`;
   const { start, end } = getTodayRange();
   const { data: alreadySent, error: dedupeError } = await input.supabase
-    .from("notifications_sent")
+    .from("email_notifications_log")
     .select("id")
     .eq("patient_id", input.patient_id)
-    .eq("family_email", input.family_email)
-    .eq("medication_name", input.medication_name)
-    .eq("dose_time", input.dose_time)
+    .eq("recipient_email", input.family_email)
+    .eq("notification_type", "medication_missed")
+    .eq("dedupe_key", dedupeKey)
     .gte("sent_at", start.toISOString())
     .lt("sent_at", end.toISOString())
     .maybeSingle();
 
-  if (dedupeError) throw dedupeError;
-  if (alreadySent) return false;
+  if (dedupeError) {
+    const legacy = await input.supabase
+      .from("notifications_sent")
+      .select("id")
+      .eq("patient_id", input.patient_id)
+      .eq("family_email", input.family_email)
+      .eq("medication_name", input.medication_name)
+      .eq("dose_time", input.dose_time)
+      .gte("sent_at", start.toISOString())
+      .lt("sent_at", end.toISOString())
+      .maybeSingle();
 
-  const subject = `Noor: ${input.patient_name} hat ihre Medikamente noch nicht genommen`;
-  const body = `Hallo,
+    if (legacy.data) return false;
+  } else if (alreadySent) {
+    return false;
+  }
 
-${input.patient_name} hat die ${doseLabels[input.dose_time]} Dosis (${input.medication_name}) noch nicht bestätigt.
+  const doseSlotLabel = doseLabels[input.dose_time];
+  const subject = `⚠️ ${input.patient_name} hat eine Dosis noch nicht bestätigt`;
+  const text = `Hallo ${input.family_member_name},
 
-Die Dosis war um ${input.scheduled_time} Uhr geplant.
+${input.patient_name} hat die ${doseSlotLabel}-Dosis noch nicht bestätigt:
+💊 ${input.medication_name} — fällig um ${input.scheduled_time} Uhr
 
 Es könnte sich lohnen kurz anzurufen.
 
@@ -134,7 +153,7 @@ Es könnte sich lohnen kurz anzurufen.
       from: fromEmail,
       to: input.family_email,
       subject,
-      text: body,
+      text,
     }),
   });
 
@@ -143,15 +162,23 @@ Es könnte sich lohnen kurz anzurufen.
     throw new Error(`Resend failed: ${details}`);
   }
 
-  const { error } = await input.supabase.from("notifications_sent").insert({
+  const { error } = await input.supabase.from("email_notifications_log").insert({
     patient_id: input.patient_id,
-    family_email: input.family_email,
-    medication_name: input.medication_name,
-    dose_time: input.dose_time,
+    recipient_email: input.family_email,
+    notification_type: "medication_missed",
+    dedupe_key: dedupeKey,
     sent_at: new Date().toISOString(),
   });
 
-  if (error) throw error;
+  if (error) {
+    await input.supabase.from("notifications_sent").insert({
+      patient_id: input.patient_id,
+      family_email: input.family_email,
+      medication_name: input.medication_name,
+      dose_time: input.dose_time,
+      sent_at: new Date().toISOString(),
+    });
+  }
 
   return true;
 }
