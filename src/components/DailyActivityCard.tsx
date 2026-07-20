@@ -13,7 +13,13 @@ import {
   type StoredActivityLog,
 } from "@/types/activity-log";
 
-export function DailyActivityCard() {
+export function DailyActivityCard({
+  embedded = false,
+  onSaved,
+}: {
+  embedded?: boolean;
+  onSaved?: () => void;
+}) {
   const router = useRouter();
   const [selectedType, setSelectedType] = useState<ActivityType | null>(null);
   const [durationMinutes, setDurationMinutes] = useState<number | null>(null);
@@ -107,6 +113,7 @@ export function DailyActivityCard() {
       setShowSavedMessage(true);
       await fetchTodayLogs();
       router.refresh();
+      onSaved?.();
       window.setTimeout(() => setShowSavedMessage(false), 2500);
     } catch (error) {
       setSaveError(
@@ -128,13 +135,14 @@ export function DailyActivityCard() {
     }
   }
 
-  return (
-    <section
-      className="noor-card p-5"
-      aria-label="Aktivität heute"
-    >
-      <h2 className="heading-lg">Aktivität heute</h2>
-      <p className="text-body mt-1 text-muted">Wie aktiv waren Sie heute?</p>
+  const content = (
+    <>
+      {!embedded ? (
+        <>
+          <h2 className="heading-lg">Aktivität heute</h2>
+          <p className="text-body mt-1 text-muted">Wie aktiv waren Sie heute?</p>
+        </>
+      ) : null}
 
       {isLoading ? (
         <p className="text-body mt-4 flex items-center gap-2 text-muted">
@@ -262,6 +270,16 @@ export function DailyActivityCard() {
           ) : null}
         </>
       )}
+    </>
+  );
+
+  if (embedded) {
+    return <div aria-label="Aktivität heute">{content}</div>;
+  }
+
+  return (
+    <section className="noor-card p-5" aria-label="Aktivität heute">
+      {content}
     </section>
   );
 }

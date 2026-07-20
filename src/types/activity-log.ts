@@ -170,28 +170,36 @@ export function formatHomeActivitySubtitle(
   return "Heute eingetragen ✓";
 }
 
+export function buildHomeActivityWeekSummary(
+  logs: Array<Pick<StoredActivityLog, "date" | "duration_minutes">>,
+) {
+  return {
+    activeDays: new Set(logs.map((entry) => entry.date)).size,
+    totalMinutes: logs.reduce(
+      (sum, entry) => sum + (entry.duration_minutes ?? 0),
+      0,
+    ),
+  };
+}
+
+export function formatHomeActivityWeekSubtitle(week: {
+  activeDays: number;
+  totalMinutes: number;
+}) {
+  return `Diese Woche: ${week.activeDays} von 7 Tagen aktiv · ${week.totalMinutes} Min. gesamt`;
+}
+
 export function buildHomeTodayActivitySummary(
   logs: ActivityLogSummaryInput[],
+  week: { activeDays: number; totalMinutes: number } = {
+    activeDays: 0,
+    totalMinutes: 0,
+  },
 ) {
+  const weekSubtitle = formatHomeActivityWeekSubtitle(week);
+
   if (logs.length === 0) {
     return null;
-  }
-
-  if (logs.length === 1) {
-    const log = logs[0];
-    return {
-      activityType: log.activity_type,
-      emoji: getActivityTypeEmoji(log.activity_type),
-      title: getActivityTypeTitle(log.activity_type),
-      durationMinutes: log.duration_minutes,
-      subtitle: formatHomeActivitySubtitle(
-        log.activity_type,
-        log.duration_minutes,
-      ),
-      shortLabel: formatTodayActivityShortLabel(log.activity_type),
-      count: 1,
-      totalMinutes: log.duration_minutes ?? 0,
-    };
   }
 
   const totalMinutes = sumActivityMinutes(logs);
@@ -200,15 +208,17 @@ export function buildHomeTodayActivitySummary(
   return {
     activityType: mostIntenseType,
     emoji: getActivityTypeEmoji(mostIntenseType),
-    title: formatJoinedActivityTitles(logs),
+    title:
+      totalMinutes > 0
+        ? `Aktiv heute — ${totalMinutes} Min.`
+        : "Aktiv heute",
     durationMinutes: totalMinutes > 0 ? totalMinutes : null,
-    subtitle: formatHomeActivitySubtitle(mostIntenseType, null, {
-      multiple: true,
-      totalMinutes,
-    }),
+    subtitle: weekSubtitle,
     shortLabel: formatTodayActivityShortLabelFromLogs(logs),
     count: logs.length,
     totalMinutes,
+    weekActiveDays: week.activeDays,
+    weekTotalMinutes: week.totalMinutes,
   };
 }
 

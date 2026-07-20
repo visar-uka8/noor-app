@@ -1,7 +1,8 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 
-const MISSED_GRACE_MINUTES = 90;
+const PATIENT_MISSED_REMINDER_MINUTES = 15;
+const FAMILY_MISSED_ALERT_MINUTES = 30;
 
 type MedicationRow = {
   id: string;
@@ -54,98 +55,189 @@ serve(async (request) => {
       ...new Set((medications ?? []).map((medication: MedicationRow) => medication.user_id)),
     ];
 
-    let alertsSent = 0;
+    let patientEmailsSent = 0;
+    let familyEmailsSent = 0;
 
     for (const patientId of patientIds) {
       const patientMedications = (medications ?? []).filter(
         (medication: MedicationRow) => medication.user_id === patientId,
       );
       const confirmations = await loadTodayConfirmations(supabase, patientId);
-      const missedDoses = findMissedDoses(patientMedications, confirmations);
-
-      if (missedDoses.length === 0) continue;
-
       const patientProfile = await loadPatientProfile(supabase, patientId);
+      const patientEmail = await loadPatientNotificationEmail(supabase, patientId);
       const familyEmails = await loadFamilyNotificationEmails(supabase, patientId);
 
-      if (familyEmails.length === 0) continue;
+      for (const medication of patientMedications) {
+        const times = normalizeMedicationTimes(medication.times);
 
-      for (const dose of missedDoses) {
-        await ensureMissedConfirmation(supabase, patientId, dose, confirmations);
+        for (const entry of times) {
+          const scheduledAt = getScheduledAtForTime(entry.time);
+          const overdueMinutes = getMinutesOverdue(entry.time);
+          const medicationName = `${medication.name.trim()} ${medication.dosage.trim()}`.trim();
+          const confirmation = confirmations.find(
+            (item) =>
+              item.medication_id === medication.id &&
+              item.dose_time === entry.slot &&
+              new Date(item.scheduled_at).getTime() === scheduledAt.getTime(),
+          );
 
-        const response = await fetch(
-          `${supabaseUrl}/functions/v1/send-missed-dose-alert`,
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${serviceRoleKey}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              patient_id: patientId,
-              patient_name: patientProfile.name,
-              medication_name: dose.medication_name,
-              dose_time: dose.dose_time,
-              scheduled_time: dose.scheduled_time,
-              family_emails: familyEmails,
-            }),
-          },
-        );
+          if (confirmation?.confirmed_at) continue;
 
-        if (response.ok) {
-          const result = await response.json();
-          if (result.sentCount > 0) alertsSent += result.sentCount;
+          const dedupeKey = `${medication.id}:${entry.slot}:${scheduledAt.toISOString()}`;
+
+          if (
+            patientEmail &&
+            overdueMinutes >= PATIENT_MISSED_REMINDER_MINUTES
+          ) {
+            const sent = await sendPatientReminderEmail({
+              supabase,
+              patientId,
+              patientName: patientProfile.firstName,
+              patientEmail,
+              medicationName,
+              doseTime: entry.slot,
+              scheduledTime: formatTime(scheduledAt),
+              dedupeKey,
+            });
+
+            if (sent) patientEmailsSent += 1;
+          }
+
+          if (
+            familyEmails.length > 0 &&
+            overdueMinutes >= FAMILY_MISSED_ALERT_MINUTES
+          ) {
+            await ensureMissedConfirmation(
+              supabase,
+              patientId,
+              {
+                medication_id: medication.id,
+                medication_name: medicationName,
+                dose_time: entry.slot,
+                scheduled_at: scheduledAt.toISOString(),
+              },
+              confirmations,
+            );
+
+            for (const familyEmail of familyEmails) {
+              const response = await fetch(
+                `${supabaseUrl}/functions/v1/send-missed-dose-alert`,
+                {
+                  method: "POST",
+                  headers: {
+                    Authorization: `Bearer ${serviceRoleKey}`,
+                    "Content-Type": "application/json",
+                  },
+                  body: JSON.stringify({
+                    patient_id: patientId,
+                    patient_name: patientProfile.name,
+                    medication_name: medicationName,
+                    dose_time: entry.slot,
+                    scheduled_time: formatTime(scheduledAt),
+                    family_emails: [familyEmail],
+                    dedupe_key: dedupeKey,
+                  }),
+                },
+              );
+
+              if (response.ok) {
+                const result = await response.json();
+                if (result.sentCount > 0) familyEmailsSent += result.sentCount;
+              }
+            }
+          }
         }
       }
     }
 
-    return json({ checkedPatients: patientIds.length, alertsSent });
+    return json({
+      checkedPatients: patientIds.length,
+      patientEmailsSent,
+      familyEmailsSent,
+    });
   } catch (error) {
     console.error("check-missed-doses failed", error);
     return json({ error: "Missed dose check failed" }, 500);
   }
 });
 
-function findMissedDoses(
-  medications: MedicationRow[],
-  confirmations: ConfirmationRow[],
-) {
-  const missed: Array<{
-    medication_id: string;
-    medication_name: string;
-    dose_time: "morning" | "midday" | "evening";
-    scheduled_at: string;
-    scheduled_time: string;
-  }> = [];
+async function sendPatientReminderEmail(input: {
+  supabase: ReturnType<typeof createClient>;
+  patientId: string;
+  patientName: string;
+  patientEmail: string;
+  medicationName: string;
+  doseTime: "morning" | "midday" | "evening";
+  scheduledTime: string;
+  dedupeKey: string;
+}) {
+  const resendApiKey = Deno.env.get("RESEND_API_KEY");
+  const fromEmail =
+    Deno.env.get("RESEND_FROM_EMAIL") ?? "Noor <benachrichtigungen@noorhealth.de>";
 
-  for (const medication of medications) {
-    const times = normalizeMedicationTimes(medication.times);
-
-    for (const entry of times) {
-      const scheduledAt = getScheduledAtForTime(entry.time);
-      if (!isDoseMissed(scheduledAt)) continue;
-
-      const medicationName = `${medication.name.trim()} ${medication.dosage.trim()}`.trim();
-      const confirmation = confirmations.find(
-        (item) =>
-          item.medication_id === medication.id &&
-          item.dose_time === entry.slot &&
-          new Date(item.scheduled_at).getTime() === scheduledAt.getTime(),
-      );
-
-      if (confirmation?.confirmed_at) continue;
-
-      missed.push({
-        medication_id: medication.id,
-        medication_name: medicationName,
-        dose_time: entry.slot,
-        scheduled_at: scheduledAt.toISOString(),
-        scheduled_time: formatTime(scheduledAt),
-      });
-    }
+  if (!resendApiKey) {
+    console.warn("RESEND_API_KEY is not configured.");
+    return false;
   }
 
-  return missed;
+  const { start, end } = getTodayRange();
+  const { data: alreadySent } = await input.supabase
+    .from("email_notifications_log")
+    .select("id")
+    .eq("patient_id", input.patientId)
+    .eq("recipient_email", input.patientEmail)
+    .eq("notification_type", "medication_missed_patient")
+    .eq("dedupe_key", input.dedupeKey)
+    .gte("sent_at", start.toISOString())
+    .lt("sent_at", end.toISOString())
+    .maybeSingle();
+
+  if (alreadySent) return false;
+
+  const doseLabels = {
+    morning: "Morgens",
+    midday: "Mittags",
+    evening: "Abends",
+  };
+  const doseSlotLabel = doseLabels[input.doseTime];
+  const subject = `💊 Erinnerung: ${doseSlotLabel}-Dosis noch offen`;
+  const text = `Hallo ${input.patientName},
+
+Sie haben Ihre ${doseSlotLabel}-Dosis noch nicht bestätigt:
+💊 ${input.medicationName} — fällig um ${input.scheduledTime} Uhr
+
+Bitte öffnen Sie Noor und tippen Sie auf die Dosis, sobald Sie sie eingenommen haben.
+
+— Noor`;
+
+  const resendResponse = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${resendApiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: fromEmail,
+      to: input.patientEmail,
+      subject,
+      text,
+    }),
+  });
+
+  if (!resendResponse.ok) {
+    const details = await resendResponse.text();
+    throw new Error(`Resend failed: ${details}`);
+  }
+
+  await input.supabase.from("email_notifications_log").insert({
+    patient_id: input.patientId,
+    recipient_email: input.patientEmail,
+    notification_type: "medication_missed_patient",
+    dedupe_key: input.dedupeKey,
+    sent_at: new Date().toISOString(),
+  });
+
+  return true;
 }
 
 async function ensureMissedConfirmation(
@@ -217,9 +309,40 @@ async function loadPatientProfile(
 
   if (error) throw error;
 
-  const firstName = data?.first_name?.trim() || "Patient";
+  const firstName = data?.first_name?.trim() || "Sie";
   const lastName = data?.last_name?.trim() || "";
-  return { name: `${firstName} ${lastName}`.trim() };
+  return {
+    firstName,
+    name: `${firstName} ${lastName}`.trim(),
+  };
+}
+
+async function loadPatientNotificationEmail(
+  supabase: ReturnType<typeof createClient>,
+  patientId: string,
+) {
+  const { data: profile, error: profileError } = await supabase
+    .from("profiles")
+    .select("notification_preferences")
+    .eq("id", patientId)
+    .maybeSingle<{ notification_preferences: NotificationPreferences | null }>();
+
+  if (profileError) throw profileError;
+
+  if (!isEmailNotificationsEnabled(profile?.notification_preferences)) {
+    return null;
+  }
+
+  const { data: userData, error: userError } = await supabase.auth.admin.getUserById(
+    patientId,
+  );
+
+  if (userError) {
+    console.error("Patient email lookup failed", userError);
+    return null;
+  }
+
+  return userData.user?.email?.trim() ?? null;
 }
 
 async function loadFamilyNotificationEmails(
@@ -315,10 +438,9 @@ function getScheduledAtForTime(timeValue: string, baseDate = new Date()) {
   return scheduledAt;
 }
 
-function isDoseMissed(scheduledAt: Date) {
-  const missedAfter = new Date(scheduledAt);
-  missedAfter.setMinutes(missedAfter.getMinutes() + MISSED_GRACE_MINUTES);
-  return Date.now() > missedAfter.getTime();
+function getMinutesOverdue(timeValue: string, now = Date.now()) {
+  const scheduledAt = getScheduledAtForTime(timeValue);
+  return Math.max(0, (now - scheduledAt.getTime()) / (1000 * 60));
 }
 
 function formatTime(value: Date) {

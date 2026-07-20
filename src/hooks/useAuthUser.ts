@@ -11,14 +11,15 @@ export function useAuthUser() {
   useEffect(() => {
     let cancelled = false;
 
-    async function loadUser() {
-      if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
-        setIsLoading(false);
-        return;
-      }
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
+      setIsLoading(false);
+      return;
+    }
 
+    const supabase = createClient();
+
+    async function loadUser() {
       try {
-        const supabase = createClient();
         const {
           data: { user: currentUser },
           error,
@@ -41,8 +42,17 @@ export function useAuthUser() {
 
     void loadUser();
 
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!cancelled) {
+        setUser(session?.user ?? null);
+      }
+    });
+
     return () => {
       cancelled = true;
+      subscription.unsubscribe();
     };
   }, []);
 

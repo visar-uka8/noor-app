@@ -1,15 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ErrorBanner, ErrorState, PageSkeleton } from "@/components/AppStates";
 import { ProfileHealthFields } from "@/components/ProfileHealthFields";
+import { loadProfileEditRow } from "@/lib/load-settings-profile";
+import {
+  mergeProfileHealthSources,
+  readProfileHealthMetadata,
+} from "@/lib/profile-health-metadata";
 import { resolveProfileNames } from "@/lib/profile-display";
 import { createClient } from "@/lib/supabase/client";
 import {
   emptyProfileHealthData,
   isValidHeightCm,
   isValidWeightKg,
-  profileHealthFromRow,
   type ProfileHealthData,
 } from "@/types/profile-health";
 
@@ -35,9 +39,10 @@ export function ProfileEditScreen() {
   const [loadFailed, setLoadFailed] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveWarning, setSaveWarning] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  async function loadProfile() {
+  const loadProfile = useCallback(async () => {
     setIsLoading(true);
     setLoadFailed(false);
 
@@ -52,16 +57,11 @@ export function ProfileEditScreen() {
         throw new Error("User not authenticated.");
       }
 
-      const { data: profileData, error: profileError } = await supabase
-        .from("profiles")
-        .select(
-          "first_name, last_name, role, date_of_birth, gender, height_cm, weight_kg, activity_level, sport_types",
-        )
-        .eq("id", user.id)
-        .maybeSingle();
+      const { profile: profileData, error: profileError } =
+        await loadProfileEditRow(supabase, user.id);
 
       if (profileError) {
-        throw profileError;
+        console.error("Profile edit load error:", profileError);
       }
 
       const metadata = user.user_metadata as
@@ -77,20 +77,24 @@ export function ProfileEditScreen() {
         firstName,
         lastName,
         email: user.email ?? "",
-        health: profileHealthFromRow(profileData),
+        health: mergeProfileHealthSources(
+          profileData,
+          readProfileHealthMetadata(
+            user.user_metadata as Record<string, unknown> | undefined,
+          ),
+        ),
       });
-    } catch {
-      if (process.env.NEXT_PUBLIC_SUPABASE_URL) {
-        setLoadFailed(true);
-      }
+    } catch (error) {
+      console.error("Profile edit screen load failed:", error);
+      setLoadFailed(true);
     } finally {
       setIsLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
     void loadProfile();
-  }, []);
+  }, [loadProfile]);
 
   async function saveProfile(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -111,6 +115,7 @@ export function ProfileEditScreen() {
 
     setIsSaving(true);
     setSaveError(null);
+    setSaveWarning(null);
 
     try {
       const response = await fetch("/api/profiles", {
@@ -140,13 +145,21 @@ export function ProfileEditScreen() {
 
       const body = (await response.json().catch(() => null)) as {
         error?: string;
+        details?: string;
+        warning?: string;
       } | null;
 
       if (!response.ok) {
-        throw new Error(body?.error ?? "Save failed.");
+        throw new Error(
+          body?.error ??
+            body?.details ??
+            "Profil konnte nicht gespeichert werden.",
+        );
       }
 
       setSaved(true);
+      setSaveWarning(body?.warning ?? null);
+      await loadProfile();
       window.setTimeout(() => setSaved(false), 1800);
     } catch (error) {
       setSaveError(
@@ -155,6 +168,7 @@ export function ProfileEditScreen() {
           : "Profil konnte nicht gespeichert werden. Bitte versuchen Sie es erneut.",
       );
       setSaved(false);
+      setSaveWarning(null);
     } finally {
       setIsSaving(false);
     }
@@ -167,7 +181,7 @@ export function ProfileEditScreen() {
   if (loadFailed) {
     return (
       <main className="mx-auto flex w-full max-w-app flex-1 flex-col px-5 py-6">
-        <ErrorState onRetry={loadProfile} />
+        <ErrorState onRetry={() => void loadProfile()} />
       </main>
     );
   }
@@ -183,70 +197,81 @@ export function ProfileEditScreen() {
         />
       ) : null}
 
-      <main className="mx-auto flex w-full max-w-app flex-1 flex-col px-5 py-6">
-        <form onSubmit={saveProfile} className="space-y-5">
-          <label className="block">
-            <span className="mb-2 block text-base font-semibold text-foreground">
-              Vorname
-            </span>
-            <input
-              type="text"
-              required
-              value={profile.firstName}
-              onChange={(event) =>
-                setProfile((current) => ({
-                  ...current,
-                  firstName: event.target.value,
-                }))
-              }
-              className="min-h-12 w-full rounded-2xl border border-border bg-surface px-4 text-base text-foreground outline-none focus:border-primary"
-            />
-          </label>
+      <main className="mx-auto flex w-full max-w-app flex-1 flex-col gap-5 px-5 py-6">
+        <form onSubmit={saveProfile} className="flex flex-col gap-5">
+          <section className="noor-card space-y-5 p-5">
+            <h2 className="heading-lg">Persönliche Daten</h2>
 
-          <label className="block">
-            <span className="mb-2 block text-base font-semibold text-foreground">
-              Nachname
-            </span>
-            <input
-              type="text"
-              required
-              value={profile.lastName}
-              onChange={(event) =>
-                setProfile((current) => ({
-                  ...current,
-                  lastName: event.target.value,
-                }))
-              }
-              className="min-h-12 w-full rounded-2xl border border-border bg-surface px-4 text-base text-foreground outline-none focus:border-primary"
-            />
-          </label>
+            <label className="block">
+              <span className="mb-2 block text-base font-semibold text-foreground">
+                Vorname
+              </span>
+              <input
+                type="text"
+                required
+                value={profile.firstName}
+                onChange={(event) =>
+                  setProfile((current) => ({
+                    ...current,
+                    firstName: event.target.value,
+                  }))
+                }
+                className="min-h-12 w-full rounded-2xl border border-border bg-background px-4 py-3 text-base font-normal outline-none focus:border-primary"
+              />
+            </label>
 
-          <label className="block">
-            <span className="mb-2 block text-base font-semibold text-foreground">
-              E-Mail
-            </span>
-            <input
-              type="email"
-              readOnly
-              value={profile.email}
-              className="min-h-12 w-full rounded-2xl border border-border bg-background px-4 text-base text-muted"
-            />
-            <span className="mt-2 block text-sm text-muted">
-              Die E-Mail-Adresse kann hier nicht geändert werden.
-            </span>
-          </label>
+            <label className="block">
+              <span className="mb-2 block text-base font-semibold text-foreground">
+                Nachname
+              </span>
+              <input
+                type="text"
+                required
+                value={profile.lastName}
+                onChange={(event) =>
+                  setProfile((current) => ({
+                    ...current,
+                    lastName: event.target.value,
+                  }))
+                }
+                className="min-h-12 w-full rounded-2xl border border-border bg-background px-4 py-3 text-base font-normal outline-none focus:border-primary"
+              />
+            </label>
 
-          <div className="border-t border-border pt-5">
-            <ProfileHealthFields
-              value={profile.health}
-              onChange={(health) =>
-                setProfile((current) => ({
-                  ...current,
-                  health,
-                }))
-              }
-            />
-          </div>
+            <label className="block">
+              <span className="mb-2 block text-base font-semibold text-foreground">
+                E-Mail
+              </span>
+              <input
+                type="email"
+                readOnly
+                value={profile.email}
+                className="min-h-12 w-full rounded-2xl border border-border bg-background px-4 py-3 text-base text-muted"
+              />
+              <span className="mt-2 block text-sm text-muted">
+                Die E-Mail-Adresse kann hier nicht geändert werden.
+              </span>
+            </label>
+          </section>
+
+          <section className="noor-card p-5">
+            <h2 className="heading-lg">Gesundheitsangaben</h2>
+            <p className="text-body mt-2 text-muted">
+              Diese Angaben helfen uns, Ihre Laborwerte besser einzuordnen. Sie
+              können sie jederzeit aktualisieren.
+            </p>
+            <div className="mt-5">
+              <ProfileHealthFields
+                value={profile.health}
+                onChange={(health) =>
+                  setProfile((current) => ({
+                    ...current,
+                    health,
+                  }))
+                }
+              />
+            </div>
+          </section>
 
           <button
             type="submit"
@@ -264,6 +289,12 @@ export function ProfileEditScreen() {
               Profil gespeichert ✓
             </p>
           )}
+
+          {saveWarning ? (
+            <p className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-relaxed text-amber-950">
+              {saveWarning}
+            </p>
+          ) : null}
         </form>
       </main>
     </>

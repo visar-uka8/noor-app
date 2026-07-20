@@ -19,7 +19,7 @@ export function AppHeader({
   const { t } = useLanguage();
 
   return (
-    <header className="sticky top-0 z-10 border-b border-border bg-surface/95 backdrop-blur-sm">
+    <header className="sticky top-0 z-30 border-b border-border bg-surface/95 backdrop-blur-sm">
       <div className="mx-auto flex max-w-app items-center gap-4 px-5 py-4">
         {showBack ? (
           <Link

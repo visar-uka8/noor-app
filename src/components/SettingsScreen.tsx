@@ -471,6 +471,9 @@ export function SettingsScreen() {
             >
               {t("settings.editProfile")}
             </Link>
+            <p className="text-body mt-2 text-muted">
+              Größe, Gewicht, Geschlecht, Sport und mehr
+            </p>
           </div>
         </section>
 

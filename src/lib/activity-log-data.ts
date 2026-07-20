@@ -122,6 +122,40 @@ export async function loadRecentActivityLogs(
   >;
 }
 
+export async function loadActivityHistoryLogs(
+  userId: string,
+  supabase: SupabaseClient,
+  daysBack = 400,
+) {
+  const startDate = new Date();
+  startDate.setDate(startDate.getDate() - daysBack);
+
+  const { data, error } = await supabase
+    .from("activity_logs")
+    .select("*")
+    .eq("user_id", userId)
+    .gte("date", getTodayDateString(startDate))
+    .order("date", { ascending: false })
+    .returns<StoredActivityLog[]>();
+
+  if (error && isMissingActivityLogsTableError(error)) {
+    console.warn(
+      "activity_logs table missing — run supabase/migration_activity_logs.sql",
+    );
+    return [];
+  }
+
+  if (error) throw error;
+
+  return (data ?? []).sort((left, right) => {
+    if (left.date !== right.date) {
+      return right.date.localeCompare(left.date);
+    }
+
+    return right.created_at.localeCompare(left.created_at);
+  });
+}
+
 export async function insertActivityLog(
   userId: string,
   supabase: SupabaseClient,

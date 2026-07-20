@@ -1,10 +1,16 @@
 import { createSupabaseDataClient } from "@/lib/supabase-data";
 import {
+  FAMILY_MISSED_ALERT_MINUTES,
+  PATIENT_MISSED_REMINDER_MINUTES,
+} from "@/lib/medication-notification-timing";
+import {
   getDoseSlotLabel,
   getFamilyMemberRecipients,
+  getPatientMedicationRecipient,
   getProfileFirstName,
   logNotificationSent,
   sendMedicationMissedAlert,
+  sendMedicationMissedPatientReminder,
   wasNotificationSentToday,
 } from "@/lib/notifications";
 import {
@@ -12,11 +18,10 @@ import {
   findConfirmationForDose,
   formatMedicationConfirmationName,
   getScheduledAtForTime,
-  isDoseMissed,
+  isDoseOverdueBy,
   normalizeMedicationTimes,
   parseStoredMedication,
 } from "@/lib/medication-schedule";
-import type { MedicationTimeSlot } from "@/types/medication";
 
 export const runtime = "nodejs";
 
@@ -45,7 +50,8 @@ export async function GET(request: Request) {
       ...new Set((medications ?? []).map((medication) => medication.user_id)),
     ];
 
-    let emailsSent = 0;
+    let patientEmailsSent = 0;
+    let familyEmailsSent = 0;
 
     for (const patientId of patientIds) {
       const patientMedications = (medications ?? [])
@@ -53,18 +59,19 @@ export async function GET(request: Request) {
         .map(parseStoredMedication);
       const confirmations = await loadTodayConfirmations(supabase, patientId);
       const patientName = await getProfileFirstName(supabase, patientId);
-      const recipients = await getFamilyMemberRecipients(
+      const patientRecipient = await getPatientMedicationRecipient(
+        supabase,
+        patientId,
+      );
+      const familyRecipients = await getFamilyMemberRecipients(
         supabase,
         patientId,
         "medications",
       );
 
-      if (recipients.length === 0) continue;
-
       for (const medication of patientMedications) {
         for (const entry of normalizeMedicationTimes(medication.times)) {
           const scheduledAt = getScheduledAtForTime(entry.time);
-          if (!isDoseMissed(scheduledAt)) continue;
 
           const dose = expandMedicationsToDailyDoses([medication]).find(
             (item) => item.slot === entry.slot && item.time === entry.time,
@@ -77,49 +84,143 @@ export async function GET(request: Request) {
 
           const dedupeKey = `${medication.id}:${entry.slot}:${scheduledAt.toISOString()}`;
 
-          for (const recipient of recipients) {
+          if (
+            patientRecipient &&
+            isDoseOverdueBy(entry.time, PATIENT_MISSED_REMINDER_MINUTES)
+          ) {
             const alreadySent = await wasNotificationSentToday(supabase, {
               patientId,
-              recipientEmail: recipient.email,
-              notificationType: "medication_missed",
+              recipientEmail: patientRecipient.email,
+              notificationType: "medication_missed_patient",
               dedupeKey,
             });
 
-            if (alreadySent) continue;
+            if (!alreadySent) {
+              const result = await sendMedicationMissedPatientReminder({
+                patientName: patientRecipient.firstName,
+                patientEmail: patientRecipient.email,
+                doseSlotLabel: getDoseSlotLabel(entry.slot),
+                medicationName: formatMedicationConfirmationName(
+                  medication.name,
+                  medication.dosage,
+                ),
+                scheduledTime: entry.time,
+              });
 
-            const result = await sendMedicationMissedAlert({
-              familyMemberName: recipient.firstName,
-              familyEmail: recipient.email,
-              patientName,
-              doseSlotLabel: getDoseSlotLabel(entry.slot),
-              medicationName: formatMedicationConfirmationName(
+              if (result.sent) {
+                await logNotificationSent(supabase, {
+                  patientId,
+                  recipientEmail: patientRecipient.email,
+                  notificationType: "medication_missed_patient",
+                  dedupeKey,
+                });
+                patientEmailsSent += 1;
+              }
+            }
+          }
+
+          if (
+            familyRecipients.length > 0 &&
+            isDoseOverdueBy(entry.time, FAMILY_MISSED_ALERT_MINUTES)
+          ) {
+            await ensureMissedConfirmation(
+              supabase,
+              patientId,
+              medication.id,
+              entry.slot,
+              formatMedicationConfirmationName(
                 medication.name,
                 medication.dosage,
               ),
-              scheduledTime: entry.time,
-            });
+              scheduledAt,
+              confirmations,
+            );
 
-            if (!result.sent) continue;
+            for (const recipient of familyRecipients) {
+              const alreadySent = await wasNotificationSentToday(supabase, {
+                patientId,
+                recipientEmail: recipient.email,
+                notificationType: "medication_missed",
+                dedupeKey,
+              });
 
-            await logNotificationSent(supabase, {
-              patientId,
-              recipientEmail: recipient.email,
-              notificationType: "medication_missed",
-              dedupeKey,
-            });
+              if (alreadySent) continue;
 
-            emailsSent += 1;
+              const result = await sendMedicationMissedAlert({
+                familyMemberName: recipient.firstName,
+                familyEmail: recipient.email,
+                patientName,
+                doseSlotLabel: getDoseSlotLabel(entry.slot),
+                medicationName: formatMedicationConfirmationName(
+                  medication.name,
+                  medication.dosage,
+                ),
+                scheduledTime: entry.time,
+              });
+
+              if (!result.sent) continue;
+
+              await logNotificationSent(supabase, {
+                patientId,
+                recipientEmail: recipient.email,
+                notificationType: "medication_missed",
+                dedupeKey,
+              });
+
+              familyEmailsSent += 1;
+            }
           }
         }
       }
     }
 
-    return Response.json({ checkedPatients: patientIds.length, emailsSent });
+    return Response.json({
+      checkedPatients: patientIds.length,
+      patientEmailsSent,
+      familyEmailsSent,
+    });
   } catch (error) {
     console.error("Missed dose cron failed", error);
 
     return Response.json({ error: "Missed dose check failed." }, { status: 500 });
   }
+}
+
+async function ensureMissedConfirmation(
+  supabase: NonNullable<ReturnType<typeof createSupabaseDataClient>>,
+  patientId: string,
+  medicationId: string,
+  doseTime: string,
+  medicationName: string,
+  scheduledAt: Date,
+  confirmations: Awaited<ReturnType<typeof loadTodayConfirmations>>,
+) {
+  const existing = confirmations.find(
+    (item) =>
+      item.medication_id === medicationId &&
+      item.dose_time === doseTime &&
+      new Date(item.scheduled_at).getTime() === scheduledAt.getTime(),
+  );
+
+  if (existing) {
+    if (!existing.missed) {
+      await supabase
+        .from("medication_confirmations")
+        .update({ missed: true })
+        .eq("id", existing.id);
+    }
+    return;
+  }
+
+  await supabase.from("medication_confirmations").insert({
+    user_id: patientId,
+    medication_id: medicationId,
+    medication_name: medicationName,
+    dose_time: doseTime,
+    scheduled_at: scheduledAt.toISOString(),
+    confirmed_at: null,
+    missed: true,
+  });
 }
 
 async function loadTodayConfirmations(

@@ -1,6 +1,11 @@
 import { createClient as createServerSupabaseClient } from "@/lib/supabase/server";
 import { getAuthenticatedUser } from "@/lib/supabase/request-auth";
 import { normalizeProfileHealthFields } from "@/lib/profile-health";
+import {
+  isMissingColumnError,
+  logSupabaseError,
+} from "@/lib/load-settings-profile";
+import { saveProfileUpdatesWithFallback } from "@/lib/profile-save";
 import { createSupabaseDataClient } from "@/lib/supabase-data";
 import type { Profile, UserRole } from "@/types/profiles";
 
@@ -172,57 +177,108 @@ export async function PATCH(request: Request) {
     const updates = { ...settingsUpdates, ...healthUpdates };
     const supabase = adminClient ?? (await createServerSupabaseClient());
 
-    const { data: existing, error: existingError } = await supabase
-      .from("profiles")
-      .select("id, first_name, last_name")
-      .eq("id", payload.id)
-      .maybeSingle();
+    const existing = await loadExistingProfileRow(supabase, payload.id);
 
-    if (existingError) throw existingError;
+    const metadata = user?.user_metadata as
+      | { first_name?: string; last_name?: string }
+      | undefined;
+    const firstName =
+      settingsUpdates.first_name ??
+      existing?.first_name ??
+      metadata?.first_name?.trim() ??
+      "Nutzer";
+    const lastName =
+      settingsUpdates.last_name ??
+      existing?.last_name ??
+      metadata?.last_name?.trim() ??
+      "";
 
-    if (existing) {
-      const { error } = await supabase
-        .from("profiles")
-        .update(updates)
-        .eq("id", payload.id);
+    const saveResult = await saveProfileUpdatesWithFallback(
+      supabase,
+      payload.id,
+      updates,
+      {
+        existing: Boolean(existing),
+        insertBase: {
+          id: payload.id,
+          first_name: firstName,
+          last_name: lastName,
+          elder_mode: false,
+          language: "de",
+          role: existing?.role ?? null,
+        },
+        userMetadata: user?.user_metadata as Record<string, unknown> | undefined,
+        allowHealthMetadataFallback: Boolean(adminClient),
+      },
+    );
 
-      if (error) throw error;
-    } else {
-      const metadata = user?.user_metadata as
-        | { first_name?: string; last_name?: string }
-        | undefined;
-      const firstName =
-        settingsUpdates.first_name ??
-        metadata?.first_name?.trim() ??
-        "Nutzer";
-      const lastName =
-        settingsUpdates.last_name ?? metadata?.last_name?.trim() ?? "";
-
-      const { error } = await supabase.from("profiles").insert({
-        id: payload.id,
-        first_name: firstName,
-        last_name: lastName,
-        elder_mode: false,
-        language: "de",
-        ...updates,
-      });
-
-      if (error) throw error;
+    if (!saveResult.ok) {
+      return Response.json(
+        {
+          error:
+            saveResult.message ||
+            "Einstellungen konnten gerade nicht gespeichert werden.",
+        },
+        { status: 500 },
+      );
     }
 
-    return Response.json({ stored: true, profile: { id: payload.id, ...updates } });
+    return Response.json({
+      stored: true,
+      profile: { id: payload.id, ...updates },
+      warning: saveResult.warning,
+      healthFieldsSaved: saveResult.healthFieldsSaved,
+    });
   } catch (error) {
     console.error("Profile settings save failed", error);
 
-    return Response.json(
-      { error: "Einstellungen konnten gerade nicht gespeichert werden." },
-      { status: 500 },
-    );
+    const message =
+      error instanceof Error && error.message.trim().length > 0
+        ? error.message
+        : "Einstellungen konnten gerade nicht gespeichert werden.";
+
+    return Response.json({ error: message }, { status: 500 });
   }
 }
 
 function createSupabaseAdminClient() {
   return createSupabaseDataClient();
+}
+
+const existingProfileColumnSets = [
+  "id, first_name, last_name, role",
+  "id, first_name, last_name",
+  "id, first_name",
+] as const;
+
+async function loadExistingProfileRow(
+  supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
+  userId: string,
+) {
+  for (const columns of existingProfileColumnSets) {
+    const { data, error } = await supabase
+      .from("profiles")
+      .select(columns)
+      .eq("id", userId)
+      .maybeSingle<{
+        id: string;
+        first_name?: string | null;
+        last_name?: string | null;
+        role?: string | null;
+      }>();
+
+    if (!error) {
+      return data;
+    }
+
+    logSupabaseError(`Existing profile lookup (${columns})`, error);
+
+    if (!isMissingColumnError(error)) {
+      throw error;
+    }
+  }
+
+  return null;
 }
 
 function normalizeProfile(payload: ProfilePayload) {

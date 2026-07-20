@@ -10,6 +10,10 @@ import {
   isPublicProductionHost,
   PREVIEW_COOKIE,
 } from "@/lib/site-gate";
+import {
+  needsRegistrationOnboarding,
+  REGISTRATION_ONBOARDING_PATH,
+} from "@/lib/registration-onboarding";
 
 const ALLOWED_WHEN_GATED = [
   "/coming-soon",
@@ -19,12 +23,16 @@ const ALLOWED_WHEN_GATED = [
   "/landing",
   "/login",
   "/register",
+  "/forgot-password",
+  "/reset-password",
   "/auth/callback",
 ];
 
 const PUBLIC_PATHS = [
   "/login",
   "/register",
+  "/forgot-password",
+  "/reset-password",
   "/shared",
   "/notfall",
   "/coming-soon",
@@ -126,8 +134,37 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
 
-  if (user && (pathname === "/login" || pathname === "/register")) {
+  let profileRole: string | null | undefined;
+
+  if (user) {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("id", user.id)
+      .maybeSingle();
+
+    profileRole = profile?.role;
+  }
+
+  const onboardingIncomplete = user
+    ? needsRegistrationOnboarding({ role: profileRole ?? null })
+    : false;
+  const isRegisterOnboarding =
+    pathname === "/register" &&
+    (searchParams.get("onboarding") === "1" || onboardingIncomplete);
+
+  if (user && pathname === "/login") {
+    return NextResponse.redirect(
+      new URL(onboardingIncomplete ? REGISTRATION_ONBOARDING_PATH : "/", request.url),
+    );
+  }
+
+  if (user && pathname === "/register" && !isRegisterOnboarding) {
     return NextResponse.redirect(new URL("/", request.url));
+  }
+
+  if (user && onboardingIncomplete && !isRegisterOnboarding && !isPublic) {
+    return NextResponse.redirect(new URL(REGISTRATION_ONBOARDING_PATH, request.url));
   }
 
   const hasPreviewCookie = request.cookies.get(PREVIEW_COOKIE)?.value === "1";

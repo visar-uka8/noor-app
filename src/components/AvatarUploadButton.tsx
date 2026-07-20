@@ -228,7 +228,7 @@ export function AvatarUploadButton({
             alignItems: "center",
             justifyContent: "center",
             cursor: isUploading ? "wait" : "pointer",
-            zIndex: 10,
+            zIndex: 1,
             padding: 0,
           }}
         >

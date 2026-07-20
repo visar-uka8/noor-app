@@ -2,19 +2,20 @@
 
 import { useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { APP_BASE_URL } from "@/lib/site-gate";
+import { getLandingSignedInRedirectUrl } from "@/lib/site-gate";
 
 export function LandingAuthRedirect() {
   useEffect(() => {
     const supabase = createClient();
+    const redirectUrl = getLandingSignedInRedirectUrl();
 
     async function redirectIfSignedIn() {
       const {
         data: { user },
       } = await supabase.auth.getUser();
 
-      if (user) {
-        window.location.href = APP_BASE_URL;
+      if (user && redirectUrl) {
+        window.location.href = redirectUrl;
       }
     }
 
@@ -23,8 +24,8 @@ export function LandingAuthRedirect() {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session?.user) {
-        window.location.href = APP_BASE_URL;
+      if (session?.user && redirectUrl) {
+        window.location.href = redirectUrl;
       }
     });
 

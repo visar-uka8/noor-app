@@ -1,13 +1,20 @@
 "use client";
 
 import Link from "next/link";
+import { formatHomeActivityWeekSubtitle } from "@/types/activity-log";
 import type { HomeScreenData } from "@/lib/home-screen";
 
 type HomeTodayActivityCardProps = {
   activity: HomeScreenData["todayActivity"];
+  week: HomeScreenData["activityWeek"];
 };
 
-export function HomeTodayActivityCard({ activity }: HomeTodayActivityCardProps) {
+export function HomeTodayActivityCard({
+  activity,
+  week,
+}: HomeTodayActivityCardProps) {
+  const weekSubtitle = formatHomeActivityWeekSubtitle(week);
+
   if (!activity) {
     return (
       <section
@@ -45,7 +52,9 @@ export function HomeTodayActivityCard({ activity }: HomeTodayActivityCardProps) 
                 color: "#88856F",
               }}
             >
-              Noch keine Aktivität eingetragen
+              {week.activeDays > 0
+                ? weekSubtitle
+                : "Noch keine Aktivität eingetragen"}
             </p>
           </div>
         </div>

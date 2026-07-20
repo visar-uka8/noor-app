@@ -53,3 +53,28 @@ export function isAppLaunched(): boolean {
 export function getPreviewSecret(): string | undefined {
   return process.env.SITE_PREVIEW_SECRET;
 }
+
+function isLocalDevHost(host: string): boolean {
+  const hostname = host.split(":")[0].toLowerCase();
+  return hostname === "localhost" || hostname === "127.0.0.1";
+}
+
+/** Where signed-in users go after visiting the marketing landing page. null = stay on landing (local preview). */
+export function getLandingSignedInRedirectUrl(): string | null {
+  if (typeof window === "undefined") {
+    return APP_BASE_URL;
+  }
+
+  if (
+    isLocalDevHost(window.location.host) &&
+    window.location.pathname === "/landing"
+  ) {
+    return null;
+  }
+
+  if (isMarketingHost(window.location.host) && !isLocalDevHost(window.location.host)) {
+    return APP_BASE_URL;
+  }
+
+  return "/";
+}

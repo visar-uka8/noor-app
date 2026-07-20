@@ -17,14 +17,20 @@ export function LoginForm() {
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   useEffect(() => {
     const authError = searchParams.get("error");
+    const resetSuccess = searchParams.get("reset");
 
     if (authError === "confirmation_failed") {
       setErrorMessage(
         "E-Mail-Bestätigung ist fehlgeschlagen. Bitte registrieren Sie sich erneut oder kontaktieren Sie den Support.",
       );
+    }
+
+    if (resetSuccess === "success") {
+      setSuccessMessage("Ihr Passwort wurde erfolgreich geändert. Sie können sich jetzt anmelden.");
     }
   }, [searchParams]);
 
@@ -73,6 +79,12 @@ export function LoginForm() {
 
   return (
     <AuthShell>
+      {successMessage ? (
+        <div className="noor-card mb-4 border border-primary/20 bg-primary-light p-5 text-sm leading-relaxed text-foreground">
+          {successMessage}
+        </div>
+      ) : null}
+
       {errorMessage ? (
         <ErrorBanner
           message={errorMessage}
@@ -107,7 +119,14 @@ export function LoginForm() {
         </button>
 
         <div className="mt-5 flex flex-col gap-3 text-center text-base">
-          <Link href="#" className="font-semibold text-primary">
+          <Link
+            href={
+              email.trim()
+                ? `/forgot-password?email=${encodeURIComponent(email.trim())}`
+                : "/forgot-password"
+            }
+            className="font-semibold text-primary"
+          >
             Passwort vergessen?
           </Link>
           <p className="text-muted">

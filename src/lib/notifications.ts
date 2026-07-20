@@ -196,6 +196,51 @@ Alles gut heute.
   });
 }
 
+export async function sendMedicationMissedPatientReminder(input: {
+  patientName: string;
+  patientEmail: string;
+  doseSlotLabel: string;
+  medicationName: string;
+  scheduledTime: string;
+}) {
+  const subject = `💊 Erinnerung: ${input.doseSlotLabel}-Dosis noch offen`;
+  const text = `Hallo ${input.patientName},
+
+Sie haben Ihre ${input.doseSlotLabel}-Dosis noch nicht bestätigt:
+💊 ${input.medicationName} — fällig um ${input.scheduledTime} Uhr
+
+Bitte öffnen Sie Noor und tippen Sie auf die Dosis, sobald Sie sie eingenommen haben.
+
+— Noor`;
+
+  const html = renderNoorEmailHtml(
+    [
+      paragraph(`Hallo ${input.patientName},`),
+      paragraph(
+        `Sie haben Ihre ${input.doseSlotLabel}-Dosis noch nicht bestätigt:`,
+      ),
+      paragraph(
+        `💊 ${input.medicationName} — fällig um ${input.scheduledTime} Uhr`,
+      ),
+      paragraph(
+        "Bitte öffnen Sie Noor und tippen Sie auf die Dosis, sobald Sie sie eingenommen haben.",
+      ),
+      signature(),
+    ].join(""),
+    {
+      label: "Medikamente öffnen",
+      href: `${getAppUrl()}/medication`,
+    },
+  );
+
+  return sendEmail({
+    to: input.patientEmail,
+    subject,
+    html,
+    text,
+  });
+}
+
 export async function sendMedicationMissedAlert(input: {
   familyMemberName: string;
   familyEmail: string;
@@ -347,6 +392,34 @@ export async function getProfileFirstName(
 
   if (error) throw error;
   return data?.first_name?.trim() || "Familie";
+}
+
+export async function getPatientMedicationRecipient(
+  supabase: SupabaseClient,
+  patientId: string,
+) {
+  const { data: profile, error: profileError } = await supabase
+    .from("profiles")
+    .select("first_name, notification_preferences")
+    .eq("id", patientId)
+    .maybeSingle<{
+      first_name: string | null;
+      notification_preferences: Record<string, unknown> | null;
+    }>();
+
+  if (profileError) throw profileError;
+
+  if (!isNotificationEnabled(profile?.notification_preferences, "medications")) {
+    return null;
+  }
+
+  const email = await getUserEmail(supabase, patientId);
+  if (!email) return null;
+
+  return {
+    email,
+    firstName: profile?.first_name?.trim() || "Sie",
+  };
 }
 
 export async function getFamilyMemberRecipients(

@@ -41,6 +41,25 @@ export type DashboardProfileRow = {
   avatar_url?: string | null;
 };
 
+export type ProfileEditRow = {
+  first_name?: string | null;
+  last_name?: string | null;
+  role?: string | null;
+  date_of_birth?: string | null;
+  gender?: string | null;
+  height_cm?: number | null;
+  weight_kg?: number | string | null;
+  activity_level?: string | null;
+  sport_types?: string[] | null;
+};
+
+const profileEditColumnSets = [
+  "first_name, last_name, role, date_of_birth, gender, height_cm, weight_kg, activity_level, sport_types",
+  "first_name, last_name, role, date_of_birth",
+  "first_name, last_name, role",
+  "first_name, last_name",
+] as const;
+
 export function logSupabaseError(context: string, error: unknown) {
   if (!error || typeof error !== "object") {
     console.error(`${context}:`, error);
@@ -91,6 +110,19 @@ export async function loadDashboardProfileRow(
     supabase,
     userId,
     dashboardProfileColumnSets,
+    context,
+  );
+}
+
+export async function loadProfileEditRow(
+  supabase: SupabaseClient,
+  userId: string,
+  context = "Profile edit load",
+): Promise<{ profile: ProfileEditRow | null; error: unknown | null }> {
+  return loadProfileRowWithFallback<ProfileEditRow>(
+    supabase,
+    userId,
+    profileEditColumnSets,
     context,
   );
 }

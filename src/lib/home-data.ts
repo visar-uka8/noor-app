@@ -15,8 +15,11 @@ import {
   getInitials,
   type HomeScreenData,
 } from "@/lib/home-screen";
-import { loadTodayActivityLogs } from "@/lib/activity-log-data";
-import { buildHomeTodayActivitySummary } from "@/types/activity-log";
+import { loadTodayActivityLogs, loadRecentActivityLogs } from "@/lib/activity-log-data";
+import {
+  buildHomeActivityWeekSummary,
+  buildHomeTodayActivitySummary,
+} from "@/types/activity-log";
 import {
   buildWatcherFollowText,
   getWatcherId,
@@ -27,8 +30,18 @@ import {
 } from "@/lib/family-links-query";
 import {
   loadUserProfileRow,
+  loadProfileEditRow,
   logSupabaseError,
 } from "@/lib/load-settings-profile";
+import {
+  getProfileHealthCompletionPercent,
+  getProfileHealthMissingLabels,
+  isProfileHealthIncompleteFromRow,
+} from "@/lib/profile-health-completion";
+import {
+  mergeProfileHealthSources,
+  readProfileHealthMetadata,
+} from "@/lib/profile-health-metadata";
 import { resolveHomeDisplayFields } from "@/lib/profile-display";
 import { loadHealthPassportForUser } from "@/lib/health-passport-load";
 import { isHealthPassportAvailable } from "@/lib/health-passport-completion";
@@ -55,6 +68,7 @@ export async function buildHomeScreenResponse(
   });
 
   const profile = await loadProfileSafe(user, supabase);
+  const profileEdit = await loadProfileEditSafe(user.id, supabase);
   const medications = await loadMedicationsSafe(user.id, supabase);
   const confirmations = await loadConfirmationsSafe(user.id, supabase);
 
@@ -79,6 +93,8 @@ export async function buildHomeScreenResponse(
 
   const labResult = await loadLabResultSafe(user.id, supabase);
   const todayActivityLogs = await loadTodayActivityLogsSafe(user.id, supabase);
+  const weekActivityLogs = await loadRecentActivityLogsSafe(user.id, supabase);
+  const activityWeek = buildHomeActivityWeekSummary(weekActivityLogs);
   const family = await loadFamilyCardSafe(user.id, supabase, todayActivityLogs);
   const passport = await loadHealthPassportForUser(user.id, supabase);
   const watchedPatientHealthPassportAvailable =
@@ -96,6 +112,21 @@ export async function buildHomeScreenResponse(
     email: user.email,
   });
 
+  const profileHealthUserMetadata = await loadAuthUserMetadataSafe(
+    user.id,
+    supabase,
+    user.user_metadata,
+  );
+  const profileHealthMetadata = readProfileHealthMetadata(profileHealthUserMetadata);
+  const profileHealth = mergeProfileHealthSources(
+    profileEdit,
+    profileHealthMetadata,
+  );
+  const profileHealthIncomplete = isProfileHealthIncompleteFromRow(
+    profileEdit,
+    profileHealthMetadata,
+  );
+
   const payload: HomeScreenResponse = {
     firstName,
     lastName,
@@ -112,13 +143,44 @@ export async function buildHomeScreenResponse(
       watchedPatientHealthPassportAvailable,
     },
     healthPassport: buildHomeHealthPassportSummary(passport),
-    todayActivity: buildHomeTodayActivitySummary(todayActivityLogs),
+    todayActivity: buildHomeTodayActivitySummary(todayActivityLogs, activityWeek),
+    activityWeek,
     unreadFamilyNote,
+    profileHealthIncomplete,
+    profileHealthProgress: profileHealthIncomplete
+      ? {
+          percent: getProfileHealthCompletionPercent(profileHealth),
+          missingLabels: getProfileHealthMissingLabels(profileHealth),
+        }
+      : null,
   };
 
   console.log("Home page data:", payload);
 
   return payload;
+}
+
+async function loadAuthUserMetadataSafe(
+  userId: string,
+  supabase: SupabaseClient,
+  fallback: Record<string, unknown> | null | undefined,
+) {
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    return fallback;
+  }
+
+  try {
+    const { data, error } = await supabase.auth.admin.getUserById(userId);
+
+    if (error || !data.user?.user_metadata) {
+      return fallback;
+    }
+
+    return data.user.user_metadata as Record<string, unknown>;
+  } catch (error) {
+    console.error("Home auth metadata load failed:", error);
+    return fallback;
+  }
 }
 
 async function loadProfileSafe(user: AuthUser, supabase: SupabaseClient) {
@@ -136,6 +198,20 @@ async function loadProfileSafe(user: AuthUser, supabase: SupabaseClient) {
   if (error) {
     logSupabaseError("Home profile query failed", error);
     return null;
+  }
+
+  return profile;
+}
+
+async function loadProfileEditSafe(userId: string, supabase: SupabaseClient) {
+  const { profile, error } = await loadProfileEditRow(
+    supabase,
+    userId,
+    "Home profile health load",
+  );
+
+  if (error) {
+    logSupabaseError("Home profile health query failed", error);
   }
 
   return profile;
@@ -202,6 +278,15 @@ async function loadLabResultSafe(userId: string, supabase: SupabaseClient) {
     hasResult: Boolean(data?.created_at),
     lastDate: formatHomeLabDate(data?.created_at ?? null),
   };
+}
+
+async function loadRecentActivityLogsSafe(userId: string, supabase: SupabaseClient) {
+  try {
+    return await loadRecentActivityLogs(userId, supabase);
+  } catch (error) {
+    console.error("Home recent activity log query failed:", error);
+    return [];
+  }
 }
 
 async function loadTodayActivityLogsSafe(userId: string, supabase: SupabaseClient) {

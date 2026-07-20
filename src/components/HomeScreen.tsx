@@ -13,6 +13,8 @@ import { FamilyNoteHomeCard } from "@/components/FamilyNoteHomeCard";
 import { FamilyNoteReplyHomeCard } from "@/components/FamilyNoteReplyHomeCard";
 import { FamilyDashboardPanel } from "@/components/FamilyDashboardPanel";
 import { HomeTodayActivityCard } from "@/components/HomeTodayActivityCard";
+import { EmailConfirmationPromptCard } from "@/components/EmailConfirmationPromptCard";
+import { ProfileHealthPromptCard } from "@/components/ProfileHealthPromptCard";
 import { MedicationStreakCard } from "@/components/MedicationStreakCard";
 import { usePatientFamilyNote } from "@/hooks/usePatientFamilyNote";
 import { useWatcherFamilyNoteReply } from "@/hooks/useWatcherFamilyNoteReply";
@@ -87,6 +89,7 @@ export function HomeScreen({
 function HomeScreenPreview({ mockData }: { mockData: HomeScreenPreviewMockData }) {
   const { t } = useLanguage();
   const data = buildPreviewHomeScreenData(mockData);
+  const previewNow = new Date(2026, 5, 20, 10, 0, 0, 0);
 
   return (
     <div className="mx-auto w-full max-w-app bg-background pointer-events-none select-none">
@@ -96,7 +99,9 @@ function HomeScreenPreview({ mockData }: { mockData: HomeScreenPreviewMockData }
             <h1 className="text-[1.75rem] font-bold leading-tight">
               Guten Morgen, {mockData.firstName} 👋
             </h1>
-            <p className="text-body mt-2 text-white/90">Schön, dass du da bist!</p>
+            <p className="text-body mt-2 text-white/90">
+              {getGreetingSubtitle(data, previewNow)}
+            </p>
           </div>
 
           <Avatar
@@ -111,10 +116,7 @@ function HomeScreenPreview({ mockData }: { mockData: HomeScreenPreviewMockData }
 
       <div className="px-5 pb-5 pt-3">
         <div className="flex flex-col gap-3">
-          <MedicationStreakCard
-            streak={mockData.streak}
-            subtitleOverride="nicht aufhören!"
-          />
+          <MedicationStreakCard streak={mockData.streak} />
 
           <section>
             <div className="grid grid-cols-2 gap-3">
@@ -174,6 +176,11 @@ function HomeScreenPreview({ mockData }: { mockData: HomeScreenPreviewMockData }
             })}
           </div>
         </section>
+
+          <HomeTodayActivityCard
+            activity={data.todayActivity}
+            week={data.activityWeek}
+          />
         </div>
       </div>
     </div>
@@ -395,7 +402,7 @@ function HomeScreenConnected() {
 
       <Link
         href="/settings"
-        className="btn-touch shrink-0 rounded-full shadow-sm"
+        className="btn-touch shrink-0 rounded-full"
         aria-label={t("home.openProfile")}
       >
         <Avatar
@@ -416,6 +423,15 @@ function HomeScreenConnected() {
       ) : (
         <>
           <StatusBanner data={homeData!} t={t} />
+
+          {!user?.email_confirmed_at ? <EmailConfirmationPromptCard /> : null}
+
+          {homeData!.profileHealthIncomplete && user?.id ? (
+            <ProfileHealthPromptCard
+              userId={user.id}
+              missingLabels={homeData!.profileHealthProgress?.missingLabels ?? []}
+            />
+          ) : null}
 
           <MedicationStreakCard streak={homeData!.medicationStreak ?? 0} />
 
@@ -530,7 +546,10 @@ function HomeScreenConnected() {
             </div>
           </section>
 
-          <HomeTodayActivityCard activity={homeData!.todayActivity} />
+          <HomeTodayActivityCard
+            activity={homeData!.todayActivity}
+            week={homeData!.activityWeek}
+          />
         </>
       )}
     </>,

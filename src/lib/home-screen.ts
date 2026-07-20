@@ -74,8 +74,19 @@ export type HomeScreenData = {
     shortLabel: string;
     count: number;
     totalMinutes: number;
+    weekActiveDays: number;
+    weekTotalMinutes: number;
   } | null;
+  activityWeek: {
+    activeDays: number;
+    totalMinutes: number;
+  };
   unreadFamilyNote: PatientFamilyNote | null;
+  profileHealthIncomplete: boolean;
+  profileHealthProgress: {
+    percent: number;
+    missingLabels: string[];
+  } | null;
 };
 
 export function getTimeGreeting(date: Date) {
@@ -238,6 +249,22 @@ export type HomeScreenPreviewMockData = {
   medicationsConfirmed: boolean;
   lastLabDate: string;
   familyStatus: string;
+  activityWeek?: {
+    activeDays: number;
+    totalMinutes: number;
+  };
+};
+
+export const landingHomePreviewMock: HomeScreenPreviewMockData = {
+  firstName: "Hans",
+  streak: 5,
+  medicationsConfirmed: true,
+  lastLabDate: "5. Juni",
+  familyStatus: "Maria folgt mit 💚",
+  activityWeek: {
+    activeDays: 4,
+    totalMinutes: 85,
+  },
 };
 
 export function buildPreviewHomeScreenData(
@@ -293,7 +320,10 @@ export function buildPreviewHomeScreenData(
       hasOverdueVaccination: false,
     },
     todayActivity: null,
+    activityWeek: mock.activityWeek ?? { activeDays: 0, totalMinutes: 0 },
     unreadFamilyNote: null,
+    profileHealthIncomplete: false,
+    profileHealthProgress: null,
   };
 }
 
@@ -344,5 +374,8 @@ export const demoHomeScreenData: HomeScreenData = {
     hasOverdueVaccination: false,
   },
   todayActivity: null,
+  activityWeek: { activeDays: 0, totalMinutes: 0 },
   unreadFamilyNote: null,
+  profileHealthIncomplete: false,
+  profileHealthProgress: null,
 };

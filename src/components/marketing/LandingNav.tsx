@@ -2,10 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { APP_BASE_URL } from "@/lib/site-gate";
-
-const loginUrl = `${APP_BASE_URL}/login`;
-const registerUrl = `${APP_BASE_URL}/register`;
+const loginUrl = "/login";
+const registerUrl = "/register";
 
 export function LandingNav() {
   const [scrolled, setScrolled] = useState(false);

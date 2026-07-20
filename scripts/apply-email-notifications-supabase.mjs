@@ -110,7 +110,7 @@ where jobname = 'check-missed-doses';
 
 select cron.schedule(
   'check-missed-doses',
-  '*/15 * * * *',
+  '*/10 * * * *',
   $$
   select net.http_post(
     url := '${supabaseUrl}/functions/v1/check-missed-doses',

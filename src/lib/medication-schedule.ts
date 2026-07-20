@@ -7,9 +7,10 @@ import type {
   StoredMedication,
 } from "@/types/medication";
 import { defaultTimeSlotValues, timeSlotLabels } from "@/types/medication";
+import { MISSED_GRACE_MINUTES } from "@/lib/medication-notification-timing";
 
 const UPCOMING_LEAD_MINUTES = 30;
-const MISSED_GRACE_MINUTES = 90;
+export { MISSED_GRACE_MINUTES };
 export const EARLY_CONFIRM_THRESHOLD_MINUTES = 120;
 
 export type DoseVisualState = "confirmed" | "due" | "missed" | "upcoming";
@@ -24,6 +25,21 @@ export function getDoseDiffMinutes(
   scheduled.setHours(hours, minutes, 0, 0);
 
   return (scheduled.getTime() - current.getTime()) / (1000 * 60);
+}
+
+export function getMinutesOverdue(
+  scheduledTime: string,
+  now: Date | number = Date.now(),
+) {
+  return Math.max(0, -getDoseDiffMinutes(scheduledTime, now));
+}
+
+export function isDoseOverdueBy(
+  scheduledTime: string,
+  thresholdMinutes: number,
+  now: Date | number = Date.now(),
+) {
+  return getMinutesOverdue(scheduledTime, now) >= thresholdMinutes;
 }
 
 export function isDoseMoreThanTwoHoursEarly(

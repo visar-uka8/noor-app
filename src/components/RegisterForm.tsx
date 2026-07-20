@@ -2,13 +2,15 @@
 
 import { Heart, Loader2, UsersRound } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useState } from "react";
 import { ErrorBanner } from "@/components/AppStates";
 import { AuthInput, AuthPasswordInput } from "@/components/AuthInput";
 import { AuthShell } from "@/components/AuthShell";
 import { ProfileHealthFields } from "@/components/ProfileHealthFields";
-import { APP_BASE_URL, getAuthCallbackUrl } from "@/lib/site-gate";
+import { getRegistrationConfirmUrl } from "@/lib/registration-onboarding";
+import { formatAuthError } from "@/lib/auth-errors";
+import { APP_BASE_URL } from "@/lib/site-gate";
 import { supabase } from "@/lib/supabase";
 import {
   emptyProfileHealthData,
@@ -75,7 +77,7 @@ function formatRegistrationError(error: unknown) {
   const message = error.message.toLowerCase();
 
   if (message.includes("rate limit")) {
-    return "Zu viele Versuche in kurzer Zeit. Bitte warten Sie 10–15 Minuten und versuchen Sie es erneut.";
+    return formatAuthError(error, "signup", error.message);
   }
 
   if (
@@ -90,43 +92,117 @@ function formatRegistrationError(error: unknown) {
 }
 
 async function getRegistrationAuthHeaders(
-  email: string,
-  password: string,
+  email?: string,
+  password?: string,
 ): Promise<Record<string, string>> {
   let {
     data: { session },
   } = await supabase.auth.getSession();
 
-  if (!session) {
-    const { error } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password,
-    });
+  if (session?.access_token) {
+    return { Authorization: `Bearer ${session.access_token}` };
+  }
 
-    if (error) {
-      if (isEmailNotConfirmedError(error)) {
-        throw new Error(
-          "Bitte bestätigen Sie zuerst Ihre E-Mail-Adresse. Prüfen Sie Ihr Postfach und melden Sie sich danach an.",
-        );
-      }
+  if (!email || !password) {
+    return {};
+  }
 
-      throw new Error(
-        "Anmeldung nach der Registrierung fehlgeschlagen. Bitte melden Sie sich an und versuchen Sie es erneut.",
-      );
+  const { error } = await supabase.auth.signInWithPassword({
+    email: email.trim(),
+    password,
+  });
+
+  if (error) {
+    if (isEmailNotConfirmedError(error)) {
+      return {};
     }
 
-    ({
-      data: { session },
-    } = await supabase.auth.getSession());
+    throw new Error(
+      "Anmeldung nach der Registrierung fehlgeschlagen. Bitte melden Sie sich an und versuchen Sie es erneut.",
+    );
   }
+
+  ({
+    data: { session },
+  } = await supabase.auth.getSession());
 
   return session?.access_token
     ? { Authorization: `Bearer ${session.access_token}` }
     : {};
 }
 
+async function establishRegistrationSession(
+  userId: string,
+  registrationEmail?: string,
+  registrationPassword?: string,
+) {
+  if (!registrationEmail || !registrationPassword) {
+    return;
+  }
+
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  if (session) {
+    return;
+  }
+
+  const { error } = await supabase.auth.signInWithPassword({
+    email: registrationEmail.trim(),
+    password: registrationPassword,
+  });
+
+  if (!error) {
+    return;
+  }
+
+  if (!isEmailNotConfirmedError(error)) {
+    console.error("Registration sign-in failed:", error.message);
+    return;
+  }
+
+  const response = await fetch("/api/auth/onboarding-session", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      email: registrationEmail.trim(),
+      password: registrationPassword,
+      userId,
+    }),
+  });
+
+  if (!response.ok) {
+    console.error("Onboarding session setup failed:", await response.text());
+  }
+}
+
+function profileToHealthData(
+  profile: {
+    date_of_birth?: string | null;
+    gender?: string | null;
+    height_cm?: number | null;
+    weight_kg?: number | string | null;
+    activity_level?: string | null;
+    sport_types?: string[] | null;
+  } | null,
+): ProfileHealthData {
+  if (!profile) return emptyProfileHealthData;
+
+  return {
+    dateOfBirth: profile.date_of_birth ?? "",
+    gender: (profile.gender as ProfileHealthData["gender"]) ?? "",
+    heightCm: profile.height_cm ? String(profile.height_cm) : "",
+    weightKg: profile.weight_kg ? String(profile.weight_kg) : "",
+    activityLevel: (profile.activity_level as ProfileHealthData["activityLevel"]) ?? "",
+    sportTypes: (profile.sport_types as ProfileHealthData["sportTypes"]) ?? [],
+  };
+}
+
 export function RegisterForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [step, setStep] = useState<RegistrationStep>("form");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -138,7 +214,88 @@ export function RegisterForm() {
   const [pendingProfile, setPendingProfile] =
     useState<PendingRegistrationProfile | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isResumingOnboarding, setIsResumingOnboarding] = useState(false);
+  const [awaitingEmailConfirmation, setAwaitingEmailConfirmation] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session) {
+        setAwaitingEmailConfirmation(false);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (searchParams.get("onboarding") !== "1") return;
+
+    let cancelled = false;
+
+    async function resumeOnboarding() {
+      setIsResumingOnboarding(true);
+      setErrorMessage(null);
+
+      try {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+
+        if (!user || cancelled) return;
+
+        const response = await fetch(`/api/profiles?userId=${user.id}`);
+        const body = (await response.json()) as {
+          profile: {
+            first_name?: string;
+            last_name?: string;
+            role?: UserRole | null;
+            date_of_birth?: string | null;
+            gender?: string | null;
+            height_cm?: number | null;
+            weight_kg?: number | string | null;
+            activity_level?: string | null;
+            sport_types?: string[] | null;
+          } | null;
+        };
+
+        if (body.profile?.role) {
+          router.replace("/");
+          return;
+        }
+
+        setPendingProfile({
+          id: user.id,
+          firstName:
+            body.profile?.first_name ??
+            String(user.user_metadata?.first_name ?? ""),
+          lastName:
+            body.profile?.last_name ??
+            String(user.user_metadata?.last_name ?? ""),
+        });
+        setHealthData(profileToHealthData(body.profile));
+        setStep("profile-setup");
+      } catch {
+        if (!cancelled) {
+          setErrorMessage(
+            "Registrierung konnte nicht fortgesetzt werden. Bitte versuchen Sie es erneut.",
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setIsResumingOnboarding(false);
+        }
+      }
+    }
+
+    void resumeOnboarding();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [router, searchParams]);
 
   async function register(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -156,7 +313,7 @@ export function RegisterForm() {
         email,
         password,
         options: {
-          emailRedirectTo: getAuthCallbackUrl(),
+          emailRedirectTo: getRegistrationConfirmUrl(),
           data: {
             first_name: firstName,
             last_name: lastName,
@@ -167,10 +324,7 @@ export function RegisterForm() {
       if (error) throw error;
       if (!data.user) throw new Error("No user returned from Supabase.");
 
-      if (!data.session) {
-        await getRegistrationAuthHeaders(email, password);
-      }
-
+      setAwaitingEmailConfirmation(!data.session);
       setPendingProfile({
         id: data.user.id,
         firstName,
@@ -179,6 +333,56 @@ export function RegisterForm() {
       setStep("profile-setup");
     } catch (error) {
       setErrorMessage(formatRegistrationError(error));
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function resumeRegistration() {
+    setErrorMessage(null);
+
+    if (!email.trim() || !password) {
+      setErrorMessage("Bitte E-Mail und Passwort Ihres bestehenden Kontos eingeben.");
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      const response = await fetch("/api/auth/resume-registration", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: email.trim(),
+          password,
+        }),
+      });
+
+      const body = (await response.json().catch(() => null)) as {
+        error?: string;
+        complete?: boolean;
+      } | null;
+
+      if (!response.ok) {
+        throw new Error(
+          body?.error ?? "Registrierung konnte nicht fortgesetzt werden.",
+        );
+      }
+
+      if (body?.complete) {
+        redirectAfterRegistration("/");
+        return;
+      }
+
+      router.push("/register?onboarding=1");
+      router.refresh();
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Registrierung konnte nicht fortgesetzt werden.",
+      );
     } finally {
       setIsLoading(false);
     }
@@ -205,7 +409,10 @@ export function RegisterForm() {
 
     try {
       if (!options?.skip) {
-        const authHeaders = await getRegistrationAuthHeaders(email, password);
+        const authHeaders = await getRegistrationAuthHeaders(
+          email || undefined,
+          password || undefined,
+        );
 
         const response = await fetch("/api/profiles", {
           method: "PATCH",
@@ -248,15 +455,16 @@ export function RegisterForm() {
     setIsLoading(true);
 
     const destination = role === "family_member" ? "/family/connect" : "/";
+    const userId = pendingProfile.id;
 
     try {
       const {
         data: { user },
       } = await supabase.auth.getUser();
 
-      const userId = user?.id ?? pendingProfile.id;
+      const resolvedUserId = user?.id ?? pendingProfile.id;
       const profileRow = {
-        id: userId,
+        id: resolvedUserId,
         first_name: pendingProfile.firstName,
         last_name: pendingProfile.lastName,
         role,
@@ -272,7 +480,10 @@ export function RegisterForm() {
         .select("id, role, first_name, last_name");
 
       if (error) {
-        const authHeaders = await getRegistrationAuthHeaders(email, password);
+        const authHeaders = await getRegistrationAuthHeaders(
+          email || undefined,
+          password || undefined,
+        );
 
         const response = await fetch("/api/profiles", {
           method: "POST",
@@ -282,7 +493,7 @@ export function RegisterForm() {
             ...authHeaders,
           },
           body: JSON.stringify({
-            id: userId,
+            id: resolvedUserId,
             first_name: pendingProfile.firstName,
             last_name: pendingProfile.lastName,
             role,
@@ -308,10 +519,26 @@ export function RegisterForm() {
         error instanceof Error ? error.message : error,
       );
     } finally {
+      await establishRegistrationSession(
+        userId,
+        email || undefined,
+        password || undefined,
+      );
       setIsLoading(false);
       router.refresh();
       redirectAfterRegistration(destination);
     }
+  }
+
+  if (isResumingOnboarding) {
+    return (
+      <AuthShell subtitle="Registrierung wird fortgesetzt…">
+        <section className="noor-card flex items-center justify-center gap-2 p-8 text-muted">
+          <Loader2 size={22} className="animate-spin" aria-hidden="true" />
+          Einen Moment bitte…
+        </section>
+      </AuthShell>
+    );
   }
 
   if (pendingProfile && step === "profile-setup") {
@@ -319,6 +546,13 @@ export function RegisterForm() {
       <AuthShell
         subtitle="Diese Angaben helfen uns Ihre Gesundheitsdaten besser einzuordnen."
       >
+        {awaitingEmailConfirmation ? (
+          <div className="mb-4 rounded-2xl border border-primary/20 bg-primary-light px-4 py-3 text-sm text-foreground">
+            Wir haben Ihnen eine Bestätigungs-E-Mail gesendet. Sie können die
+            Registrierung trotzdem fortsetzen — bestätigen Sie Ihre E-Mail bitte
+            zeitnah.
+          </div>
+        ) : null}
         {errorMessage ? (
           <ErrorBanner
             message={errorMessage}
@@ -350,7 +584,7 @@ export function RegisterForm() {
             onClick={() => void saveProfileSetup({ skip: true })}
             className="mt-4 w-full text-center text-sm font-semibold text-muted transition-colors hover:text-foreground disabled:opacity-70"
           >
-            Überspringen — später ausfüllen
+            Überspringen — später unter Profil bearbeiten
           </button>
         </section>
       </AuthShell>
@@ -430,6 +664,21 @@ export function RegisterForm() {
           {isLoading && <Loader2 size={22} className="animate-spin" />}
           Konto erstellen
         </button>
+
+        <button
+          type="button"
+          disabled={isLoading}
+          onClick={() => void resumeRegistration()}
+          className="btn-touch mt-3 w-full rounded-2xl border-2 border-border bg-surface px-4 py-3 text-base font-semibold text-muted transition-colors hover:text-foreground disabled:opacity-70"
+        >
+          Registrierung fortsetzen
+        </button>
+
+        <p className="mt-4 text-center text-sm leading-relaxed text-muted">
+          Konto schon angelegt, aber noch nicht fertig? E-Mail und Passwort
+          eingeben und oben „Registrierung fortsetzen“ wählen — es wird keine
+          neue Bestätigungs-E-Mail verschickt.
+        </p>
 
         <p className="mt-5 text-center text-base text-muted">
           Bereits registriert?{" "}

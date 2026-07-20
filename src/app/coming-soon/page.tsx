@@ -1,5 +1,10 @@
+import { Suspense } from "react";
 import { RegisterForm } from "@/components/RegisterForm";
 
 export default function ComingSoonPage() {
-  return <RegisterForm />;
+  return (
+    <Suspense fallback={null}>
+      <RegisterForm />
+    </Suspense>
+  );
 }
