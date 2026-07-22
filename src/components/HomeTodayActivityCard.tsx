@@ -1,105 +1,64 @@
 "use client";
 
-import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { HomeWaterProgress } from "@/components/WaterQuickLog";
 import { formatHomeActivityWeekSubtitle } from "@/types/activity-log";
 import type { HomeScreenData } from "@/lib/home-screen";
 
 type HomeTodayActivityCardProps = {
   activity: HomeScreenData["todayActivity"];
   week: HomeScreenData["activityWeek"];
+  waterToday: HomeScreenData["waterToday"];
 };
 
 export function HomeTodayActivityCard({
   activity,
   week,
+  waterToday,
 }: HomeTodayActivityCardProps) {
+  const router = useRouter();
   const weekSubtitle = formatHomeActivityWeekSubtitle(week);
 
-  if (!activity) {
-    return (
-      <section
-        className="flex items-center justify-between gap-4"
-        style={{
-          backgroundColor: "#FFFFFF",
-          border: "0.5px solid #E4E2DB",
-          borderRadius: "16px",
-          padding: "16px",
-        }}
-        aria-label="Aktivität heute"
-      >
-        <div className="flex min-w-0 items-center gap-3">
-          <span
-            aria-hidden="true"
-            style={{ fontSize: "32px", lineHeight: 1, flexShrink: 0 }}
-          >
-            🏃
-          </span>
-          <div className="min-w-0">
-            <p
-              style={{
-                margin: 0,
-                fontSize: "15px",
-                fontWeight: 600,
-                color: "#085041",
-              }}
-            >
-              Aktivität heute
-            </p>
-            <p
-              style={{
-                margin: "2px 0 0",
-                fontSize: "13px",
-                color: "#88856F",
-              }}
-            >
-              {week.activeDays > 0
-                ? weekSubtitle
-                : "Noch keine Aktivität eingetragen"}
-            </p>
-          </div>
-        </div>
-
-        <Link
-          href="/activity"
-          className="shrink-0 transition-opacity hover:opacity-80"
-          style={{
-            backgroundColor: "#E1F5EE",
-            color: "#1D9E75",
-            borderRadius: "20px",
-            padding: "6px 14px",
-            fontSize: "13px",
-            fontWeight: 600,
-            textDecoration: "none",
-            whiteSpace: "nowrap",
-          }}
-        >
-          + Eintragen
-        </Link>
-      </section>
-    );
+  function navigateToActivity() {
+    router.push("/activity");
   }
 
+  function handleKeyDown(event: React.KeyboardEvent) {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      navigateToActivity();
+    }
+  }
+
+  const emoji = activity?.emoji ?? "🏃";
+  const title = activity?.title ?? "Aktivität heute";
+  const subtitle =
+    activity?.subtitle ??
+    (week.activeDays > 0
+      ? weekSubtitle
+      : "Noch keine Aktivität eingetragen");
+
   return (
-    <Link
-      href="/activity"
-      className="flex items-center justify-between gap-4 transition-opacity hover:opacity-95"
-      style={{
-        backgroundColor: "#E1F5EE",
-        border: "0.5px solid #1D9E75",
-        borderRadius: "16px",
-        padding: "16px",
-        textDecoration: "none",
-      }}
-      aria-label="Aktivität heute bearbeiten"
+    <section
+      role="button"
+      tabIndex={0}
+      onClick={navigateToActivity}
+      onKeyDown={handleKeyDown}
+      className="noor-card flex flex-col gap-3 p-4 transition-colors hover:border-primary/30 active:scale-[0.98]"
+      style={{ cursor: "pointer" }}
+      aria-label={
+        activity ? "Aktivitätsverlauf ansehen" : "Aktivität ansehen und eintragen"
+      }
     >
-      <div className="flex min-w-0 items-center gap-3">
+      <div className="flex items-center gap-3">
         <span
           aria-hidden="true"
-          style={{ fontSize: "32px", lineHeight: 1, flexShrink: 0 }}
+          style={{ fontSize: "28px", lineHeight: 1, flexShrink: 0 }}
         >
-          {activity.emoji}
+          {emoji}
         </span>
-        <div className="min-w-0">
+
+        <div className="min-w-0 flex-1">
           <p
             style={{
               margin: 0,
@@ -108,38 +67,42 @@ export function HomeTodayActivityCard({
               color: "#085041",
             }}
           >
-            {activity.title}
+            {title}
           </p>
           <p
             style={{
               margin: "2px 0 0",
               fontSize: "13px",
-              color: "#1D9E75",
+              color: activity ? "#1D9E75" : "#88856F",
             }}
           >
-            {activity.subtitle}
+            {subtitle}
           </p>
         </div>
+
+        {activity ? (
+          <span
+            aria-hidden="true"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: "32px",
+              height: "32px",
+              borderRadius: "50%",
+              backgroundColor: "#1D9E75",
+              color: "#FFFFFF",
+              fontSize: "16px",
+              fontWeight: 700,
+              flexShrink: 0,
+            }}
+          >
+            ✓
+          </span>
+        ) : null}
       </div>
 
-      <span
-        aria-hidden="true"
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          width: "32px",
-          height: "32px",
-          borderRadius: "50%",
-          backgroundColor: "#1D9E75",
-          color: "#FFFFFF",
-          fontSize: "16px",
-          fontWeight: 700,
-          flexShrink: 0,
-        }}
-      >
-        ✓
-      </span>
-    </Link>
+      <HomeWaterProgress waterToday={waterToday} />
+    </section>
   );
 }

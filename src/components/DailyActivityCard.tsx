@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { buildApiAuthHeaders } from "@/lib/api-auth";
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
+import { WaterQuickLog } from "@/components/WaterQuickLog";
+import type { HealthGoalsApiResponse } from "@/types/health-goals";
 import {
   activityTypeOptions,
   durationOptions,
@@ -25,35 +27,50 @@ export function DailyActivityCard({
   const [durationMinutes, setDurationMinutes] = useState<number | null>(null);
   const [note, setNote] = useState("");
   const [savedLogs, setSavedLogs] = useState<StoredActivityLog[]>([]);
+  const [waterLiters, setWaterLiters] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isSavingWater, setIsSavingWater] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [waterSaveError, setWaterSaveError] = useState<string | null>(null);
   const [showSavedMessage, setShowSavedMessage] = useState(false);
+  const [showWaterSavedMessage, setShowWaterSavedMessage] = useState(false);
 
   useEffect(() => {
-    void fetchTodayLogs(true);
+    void fetchTodayData(true);
   }, []);
 
-  async function fetchTodayLogs(showLoading = false) {
+  async function fetchTodayData(showLoading = false) {
     if (showLoading) {
       setIsLoading(true);
     }
 
     try {
       const headers = await buildApiAuthHeaders();
-      const response = await fetchWithTimeout("/api/activity-log", {
-        credentials: "include",
-        headers,
-      });
-      if (!response.ok) return;
+      const [activityResponse, goalsResponse] = await Promise.all([
+        fetchWithTimeout("/api/activity-log", {
+          credentials: "include",
+          headers,
+        }),
+        fetchWithTimeout("/api/health-goals", {
+          credentials: "include",
+          headers,
+        }),
+      ]);
 
-      const payload = (await response.json()) as {
-        logs?: StoredActivityLog[];
-        log?: StoredActivityLog | null;
-      };
-      const logs = payload.logs ?? (payload.log ? [payload.log] : []);
+      if (activityResponse.ok) {
+        const payload = (await activityResponse.json()) as {
+          logs?: StoredActivityLog[];
+          log?: StoredActivityLog | null;
+        };
+        const logs = payload.logs ?? (payload.log ? [payload.log] : []);
+        setSavedLogs(logs);
+      }
 
-      setSavedLogs(logs);
+      if (goalsResponse.ok) {
+        const payload = (await goalsResponse.json()) as HealthGoalsApiResponse;
+        setWaterLiters(payload.today?.waterLiters ?? 0);
+      }
     } catch {
       // Non-blocking — card stays usable without prior log.
     } finally {
@@ -111,7 +128,7 @@ export function DailyActivityCard({
       setDurationMinutes(null);
       setNote("");
       setShowSavedMessage(true);
-      await fetchTodayLogs();
+      await fetchTodayData();
       router.refresh();
       onSaved?.();
       window.setTimeout(() => setShowSavedMessage(false), 2500);
@@ -123,6 +140,46 @@ export function DailyActivityCard({
       );
     } finally {
       setIsSaving(false);
+    }
+  }
+
+  async function saveWater(liters: number) {
+    setIsSavingWater(true);
+    setWaterSaveError(null);
+    const previousValue = waterLiters;
+    setWaterLiters(liters);
+
+    try {
+      const headers = await buildApiAuthHeaders(true);
+      const response = await fetchWithTimeout("/api/health-goals/today", {
+        method: "PATCH",
+        credentials: "include",
+        headers,
+        body: JSON.stringify({ waterLiters: liters }),
+      });
+
+      const payload = (await response.json().catch(() => null)) as {
+        error?: string;
+        today?: { waterLiters?: number };
+      } | null;
+
+      if (!response.ok) {
+        throw new Error(payload?.error ?? "Speichern fehlgeschlagen.");
+      }
+
+      setWaterLiters(payload?.today?.waterLiters ?? liters);
+      setShowWaterSavedMessage(true);
+      router.refresh();
+      window.setTimeout(() => setShowWaterSavedMessage(false), 2000);
+    } catch (error) {
+      setWaterLiters(previousValue);
+      setWaterSaveError(
+        error instanceof Error
+          ? error.message
+          : "Wasser konnte nicht gespeichert werden.",
+      );
+    } finally {
+      setIsSavingWater(false);
     }
   }
 
@@ -195,6 +252,13 @@ export function DailyActivityCard({
             })}
           </div>
 
+          <WaterQuickLog
+            value={waterLiters}
+            isSaving={isSavingWater}
+            error={waterSaveError}
+            onSave={saveWater}
+          />
+
           {selectedType ? (
             <div className="mt-5">
               {selectedType !== "rest" ? (
@@ -258,6 +322,15 @@ export function DailyActivityCard({
                 Speichern
               </button>
             </div>
+          ) : null}
+
+          {showWaterSavedMessage ? (
+            <p
+              className="mt-3 text-center text-sm font-semibold text-[#378ADD]"
+              role="status"
+            >
+              Wasser gespeichert ✓
+            </p>
           ) : null}
 
           {showSavedMessage ? (

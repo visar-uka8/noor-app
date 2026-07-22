@@ -3,10 +3,14 @@
 import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { DailyActivityCard } from "@/components/DailyActivityCard";
+import { ActivityGoalsSection } from "@/components/ActivityGoalsSection";
+import { ActivityInsightCard } from "@/components/ActivityInsightCard";
+import { ActivityLast14DaysChart } from "@/components/ActivityLast14DaysChart";
 import { ConnectionErrorState } from "@/components/AppStates";
 import { buildApiAuthHeaders } from "@/lib/api-auth";
 import {
   formatActivityHistoryEntry,
+  hasRecentActivityData,
   type ActivityHistorySummary,
 } from "@/lib/activity-history";
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
@@ -108,6 +112,7 @@ export function ActivityHistoryScreen() {
     month: "long",
     year: "numeric",
   }).format(new Date());
+  const canShowInsight = hasRecentActivityData(summary.entries);
 
   return (
     <div className="flex flex-col gap-5">
@@ -140,6 +145,8 @@ export function ActivityHistoryScreen() {
           </div>
         ) : null}
       </section>
+
+      <ActivityGoalsSection />
 
       <section className="noor-card p-5">
         <SectionHeading title="Diese Woche" />
@@ -204,43 +211,13 @@ export function ActivityHistoryScreen() {
 
       <section className="noor-card p-5">
         <SectionHeading title="Letzte 14 Tage" />
-        <div
-          className="flex items-end justify-between gap-1"
-          style={{ minHeight: 96, paddingTop: 8 }}
-        >
-          {summary.last14Days.map((day) => (
-            <div
-              key={day.date}
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                gap: "4px",
-                flex: 1,
-              }}
-            >
-              <div
-                title={`${day.minutes} Min.`}
-                style={{
-                  width: "20px",
-                  height: `${Math.max(4, (day.minutes / maxMinutes) * 80)}px`,
-                  backgroundColor: day.minutes > 0 ? "#1D9E75" : "#E4E2DB",
-                  borderRadius: "4px",
-                  minHeight: "4px",
-                  transition: "height 0.3s ease",
-                }}
-              />
-              <div
-                style={{
-                  fontSize: "10px",
-                  color: "#88856F",
-                }}
-              >
-                {day.dayLabel}
-              </div>
-            </div>
-          ))}
-        </div>
+        <ActivityLast14DaysChart
+          days={summary.last14Days}
+          entries={summary.entries}
+          maxMinutes={maxMinutes}
+        />
+
+        <ActivityInsightCard enabled={canShowInsight} />
       </section>
 
       {summary.longestStreak >= 1 ? (

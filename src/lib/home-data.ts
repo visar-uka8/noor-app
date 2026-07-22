@@ -17,6 +17,9 @@ import {
 } from "@/lib/home-screen";
 import { loadTodayActivityLogs, loadRecentActivityLogs } from "@/lib/activity-log-data";
 import {
+  loadHomeWaterSummary,
+} from "@/lib/health-goals-data";
+import {
   buildHomeActivityWeekSummary,
   buildHomeTodayActivitySummary,
 } from "@/types/activity-log";
@@ -95,6 +98,11 @@ export async function buildHomeScreenResponse(
   const todayActivityLogs = await loadTodayActivityLogsSafe(user.id, supabase);
   const weekActivityLogs = await loadRecentActivityLogsSafe(user.id, supabase);
   const activityWeek = buildHomeActivityWeekSummary(weekActivityLogs);
+  const waterToday = await loadHomeWaterSummarySafe(
+    user.id,
+    supabase,
+    profileEdit?.gender,
+  );
   const family = await loadFamilyCardSafe(user.id, supabase, todayActivityLogs);
   const passport = await loadHealthPassportForUser(user.id, supabase);
   const watchedPatientHealthPassportAvailable =
@@ -145,6 +153,7 @@ export async function buildHomeScreenResponse(
     healthPassport: buildHomeHealthPassportSummary(passport),
     todayActivity: buildHomeTodayActivitySummary(todayActivityLogs, activityWeek),
     activityWeek,
+    waterToday,
     unreadFamilyNote,
     profileHealthIncomplete,
     profileHealthProgress: profileHealthIncomplete
@@ -295,6 +304,22 @@ async function loadTodayActivityLogsSafe(userId: string, supabase: SupabaseClien
   } catch (error) {
     console.error("Home activity log query failed:", error);
     return [];
+  }
+}
+
+async function loadHomeWaterSummarySafe(
+  userId: string,
+  supabase: SupabaseClient,
+  gender?: string | null,
+) {
+  try {
+    return await loadHomeWaterSummary(supabase, userId, gender);
+  } catch (error) {
+    console.error("Home water summary query failed:", error);
+    return {
+      liters: 0,
+      goalLiters: gender === "male" ? 2.5 : 2,
+    };
   }
 }
 

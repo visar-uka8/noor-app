@@ -19,6 +19,53 @@ export type LabAnalysisProfile = {
   sport_types?: string[] | null;
 };
 
+export type LabProfileMetrics = {
+  age: number | null;
+  weightKg: number | null;
+  bmi: number | null;
+  activityLevel: string;
+  heightCm: number | null;
+};
+
+export function buildLabProfileMetrics(
+  profile: LabAnalysisProfile | null | undefined,
+): LabProfileMetrics {
+  let age: number | null = null;
+
+  if (profile?.date_of_birth) {
+    const birthDate = new Date(profile.date_of_birth);
+    if (!Number.isNaN(birthDate.getTime())) {
+      age = new Date().getFullYear() - birthDate.getFullYear();
+    }
+  }
+
+  const weightKg =
+    profile?.weight_kg != null && Number(profile.weight_kg) > 0
+      ? Number(profile.weight_kg)
+      : null;
+  const heightCm =
+    profile?.height_cm != null && profile.height_cm > 0
+      ? profile.height_cm
+      : null;
+
+  let bmi: number | null = null;
+  if (weightKg != null && heightCm != null) {
+    bmi = weightKg / Math.pow(heightCm / 100, 2);
+  }
+
+  const activityLevel = profile?.activity_level
+    ? (activityLevelLabels[profile.activity_level] ?? profile.activity_level)
+    : "keine Angabe";
+
+  return {
+    age,
+    weightKg,
+    bmi,
+    activityLevel,
+    heightCm,
+  };
+}
+
 const activityLevelLabels: Record<string, string> = {
   sedentary: "Wenig aktiv",
   light: "Leicht aktiv",
@@ -129,7 +176,8 @@ ${recentActivity
     return `${entry.date}: ${label}, ${minutes} Min.`;
   })
   .join("\n")}
-Durchschnittliche Aktivität: ${averageMinutes} Min./Tag`;
+Durchschnittliche Aktivität: ${averageMinutes} Min./Tag
+Nutze diese Daten für das Feld "Aktuell:" bei den Tageszielen — schätze z. B. Schritte aus Spaziergängen und Sport (Spaziergang ~100 Schritte/Min., Laufen ~150 Schritte/Min.).`;
 }
 
 export type LabAnalysisCondition = {
@@ -165,7 +213,14 @@ export function buildLabSystemPrompt(
   userContext = "Kein Profil verfügbar.",
   activityContext = "Keine Aktivitätsdaten vorhanden.",
   conditionsContext = "Keine bekannten Erkrankungen.",
+  profile?: LabAnalysisProfile | null,
 ) {
+  const metrics = buildLabProfileMetrics(profile);
+  const ageLabel = metrics.age != null ? `${metrics.age}` : "unbekannt";
+  const weightLabel =
+    metrics.weightKg != null ? `${metrics.weightKg}` : "unbekannt";
+  const bmiLabel = metrics.bmi != null ? metrics.bmi.toFixed(1) : "unbekannt";
+
   return `KRITISCH: Du antwortest IMMER auf Deutsch, egal in welcher 
 Sprache das Dokument ist oder die Frage gestellt wird.
 
@@ -281,6 +336,73 @@ NÄCHSTE KONTROLLE 📅
 [When they should get their next lab test]
 
 ---
+IHRE PERSÖNLICHEN TAGESZIELE
+
+Basierend auf Ihren Laborwerten, Ihrem Alter, Gewicht und Aktivitätslevel habe ich folgende tägliche Ziele für Sie berechnet:
+
+Berechne SPEZIFISCHE Ziele für diese Person.
+Nicht generische Empfehlungen.
+Echte Zahlen basierend auf den tatsächlichen Werten.
+
+Format for each goal:
+🎯 [Goal name]
+Ihr Ziel: [specific number + unit]
+Warum: [one sentence connecting to their specific lab value]
+Aktuell: [their current level based on activity data]
+
+SCHRITTZIEL:
+Berechne empfohlene Schritte basierend auf:
+- Alter: ${ageLabel} Jahre
+- Gewicht: ${weightLabel}kg
+- BMI: ${bmiLabel}
+- Aktivitätslevel: ${metrics.activityLevel}
+- Relevante Laborwerte: Cholesterin, Blutzucker, Blutdruck falls erhöht
+
+Formel als Orientierung:
+- Normalgewicht, jung, aktiv: 8000-10000 Schritte
+- Übergewicht oder erhöhtes Cholesterin: +1500 Schritte
+- Diabetes oder Blutzucker erhöht: +2000 Schritte
+- Älter als 70: reduziere um 1500 Schritte
+- Sehr aktiv (5x Sport/Woche): reduziere da Sport bereits ausreichend
+
+Beispiel Output:
+🎯 Schritte pro Tag
+Ihr Ziel: 9.500 Schritte
+Warum: Ihr erhöhtes Cholesterin von 240 mg/dL spricht auf regelmäßige moderate Bewegung an.
+Aktuell: ~6.000 Schritte (geschätzt aus Aktivitätslog)
+
+WASSERZIEL:
+Berechne täglichen Wasserbedarf basierend auf:
+- Gewicht × 0.033 = Grundbedarf in Litern
+- + 0.5L pro 30 Min. Sport
+- Anpassung bei erhöhter Harnsäure (+0.5L)
+- Anpassung bei Nierenwerten
+
+Beispiel Output:
+💧 Wasser pro Tag
+Ihr Ziel: 2.8 Liter
+Warum: Ihr Gewicht von 85kg ergibt einen Grundbedarf von 2.8L. Bei Ihrem Harnsäurewert ist ausreichend Wasser besonders wichtig.
+
+PROTEINZIEL (nur wenn relevant):
+Wenn der Nutzer sehr aktiv ist (sport 5x/Woche):
+🥩 Protein pro Tag
+Ihr Ziel: 140g
+Warum: Bei Ihrem Aktivitätslevel und Gewicht von 85kg empfehlen sich 1.6-1.8g Protein/kg für optimale Regeneration.
+
+SCHLAFZIEL:
+Basierend auf Alter:
+😴 Schlaf pro Nacht
+Ihr Ziel: 7-8 Stunden
+Warum: [age-appropriate reason]
+
+Wichtig: Alle Ziele müssen SPEZIFISCH sein.
+Niemals "ausreichend Wasser trinken".
+Immer eine konkrete Zahl.
+Die Zahl muss sich von Person zu Person unterscheiden basierend auf ihren Daten.
+
+Gib mindestens Schritte, Wasser und Schlaf aus. Protein nur wenn sportlich sehr aktiv.
+
+---
 WANN ZUM ARZT
 [Sage klar ob diese Werte einen baldigen Arzttermin erfordern,
 oder ob die nächste reguläre Kontrolle ausreicht.
@@ -339,6 +461,7 @@ export async function analyzeLabDocument(options: {
     userContext,
     activityContext,
     conditionsContext,
+    options.profile,
   );
   const userPrompt = buildLabUserPrompt(options.language);
 

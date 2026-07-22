@@ -1,3 +1,6 @@
+import type { PersonalGoal } from "@/types/health-goals";
+import { parsePersonalGoalsSection } from "@/lib/health-goals";
+
 export type LabValueLevel = "green" | "amber" | "red";
 
 export type LabValueStatusKey = "high" | "low" | "watch" | "normal" | "unknown";
@@ -25,6 +28,8 @@ export type ParsedLabAnalysis = {
   values: ParsedLabValue[];
   nextSteps: string[];
   lifestylePlan: LifestylePlan | null;
+  personalGoals: PersonalGoal[];
+  personalGoalsSection: string;
   doctorVisit: string;
   disclaimer: string;
   counts: {
@@ -40,6 +45,7 @@ const SECTION_MARKERS = [
   "LABORWERTE IM DETAIL",
   "NÄCHSTE SCHRITTE",
   "IHR PERSÖNLICHER LEBENSSTIL-PLAN",
+  "IHRE PERSÖNLICHEN TAGESZIELE",
   "WANN ZUM ARZT",
 ] as const;
 
@@ -119,6 +125,11 @@ export function parseLabAnalysis(text: string): ParsedLabAnalysis {
   const lifestylePlan = parseLifestylePlan(
     extractSection(sections, "IHR PERSÖNLICHER LEBENSSTIL-PLAN"),
   );
+  const personalGoalsSection = extractSection(
+    sections,
+    "IHRE PERSÖNLICHEN TAGESZIELE",
+  );
+  const personalGoals = parsePersonalGoalsSection(personalGoalsSection);
   const doctorVisit = extractSection(sections, "WANN ZUM ARZT");
   const disclaimer =
     extractDisclaimer(sections) ||
@@ -142,6 +153,8 @@ export function parseLabAnalysis(text: string): ParsedLabAnalysis {
     values,
     nextSteps,
     lifestylePlan,
+    personalGoals,
+    personalGoalsSection,
     doctorVisit,
     disclaimer,
     counts,

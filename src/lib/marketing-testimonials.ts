@@ -9,7 +9,7 @@ export type MarketingTestimonialPerson = {
 export const marketingTestimonialPeople: MarketingTestimonialPerson[] = [
   {
     name: "Sabine M.",
-    role: "Sohn, pflegt Eltern aus der Ferne",
+    role: "Tochter, pflegt Eltern aus der Ferne",
     avatarSrc: "/marketing/avatars/hero-1.jpg",
     quote:
       "Ich würde das definitiv abonnieren für meine Eltern — damit ich sehe ob sie ihre Medikamente nehmen und wie ihre Laborwerte sind.",

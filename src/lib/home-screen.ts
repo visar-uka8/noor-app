@@ -81,6 +81,10 @@ export type HomeScreenData = {
     activeDays: number;
     totalMinutes: number;
   };
+  waterToday: {
+    liters: number;
+    goalLiters: number;
+  };
   unreadFamilyNote: PatientFamilyNote | null;
   profileHealthIncomplete: boolean;
   profileHealthProgress: {
@@ -321,6 +325,7 @@ export function buildPreviewHomeScreenData(
     },
     todayActivity: null,
     activityWeek: mock.activityWeek ?? { activeDays: 0, totalMinutes: 0 },
+    waterToday: { liters: 0, goalLiters: 2 },
     unreadFamilyNote: null,
     profileHealthIncomplete: false,
     profileHealthProgress: null,
@@ -375,6 +380,7 @@ export const demoHomeScreenData: HomeScreenData = {
   },
   todayActivity: null,
   activityWeek: { activeDays: 0, totalMinutes: 0 },
+  waterToday: { liters: 0, goalLiters: 2 },
   unreadFamilyNote: null,
   profileHealthIncomplete: false,
   profileHealthProgress: null,

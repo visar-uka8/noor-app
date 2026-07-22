@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getAuthenticatedUser } from "@/lib/supabase/request-auth";
 import { createSupabaseDataClient } from "@/lib/supabase-data";
 import { queryFamilyLinkForPair } from "@/lib/family-links-query";
+import { checkFamilyMemberQuota } from "@/lib/subscription";
 import {
   getProfileFirstName,
   getUserEmail,
@@ -90,6 +91,26 @@ export async function POST(request: Request) {
         patientName,
         dashboardUrl: "/dashboard",
       });
+    }
+
+    if (!existingLink) {
+      const familyQuota = await checkFamilyMemberQuota(
+        supabase,
+        invite.patient_id,
+      );
+
+      if (!familyQuota.allowed) {
+        return Response.json(
+          {
+            error:
+              "Das Familienlimit für diesen Account ist erreicht. Bitte upgraden Sie auf Noor Familie.",
+            code: "upgrade_required",
+            used: familyQuota.used,
+            limit: familyQuota.limit,
+          },
+          { status: 403 },
+        );
+      }
     }
 
     if (existingLink) {

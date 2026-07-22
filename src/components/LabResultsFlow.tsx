@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { ErrorBanner, ErrorState } from "@/components/AppStates";
 import { LabResultAnalysis } from "@/components/LabResultAnalysis";
 import { LabResultHistory } from "@/components/LabResultHistory";
+import { UpgradePromptCard } from "@/components/UpgradePromptCard";
 import { useHomeViewModeContext } from "@/components/HomeViewModeContext";
 import { useLanguage } from "@/components/LanguageProvider";
 import { useFamilyConnection } from "@/hooks/useFamilyConnection";
@@ -42,7 +43,8 @@ type AnalyzeLabErrorResponse = {
     | "unsupported"
     | "rate_limit"
     | "unauthorized"
-    | "save_failed";
+    | "save_failed"
+    | "upgrade_required";
   details?: string;
 };
 
@@ -72,6 +74,7 @@ export function LabResultsFlow() {
   const [errorMessage, setErrorMessage] = useState("");
   const [saveWarning, setSaveWarning] = useState("");
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
+  const [showUpgradePrompt, setShowUpgradePrompt] = useState(false);
   const [analyzingHintPhase, setAnalyzingHintPhase] =
     useState<AnalyzingHintPhase>(0);
 
@@ -204,6 +207,11 @@ export function LabResultsFlow() {
 
       if (!response.ok) {
         const errorPayload = payload as AnalyzeLabErrorResponse;
+        if (errorPayload.code === "upgrade_required") {
+          setShowUpgradePrompt(true);
+          setStep("upload");
+          return;
+        }
         setErrorMessage(
           errorPayload.error ??
             (errorPayload.code === "not_configured"
@@ -325,6 +333,9 @@ export function LabResultsFlow() {
 
   return (
     <main className="mx-auto flex w-full max-w-app flex-1 flex-col px-5 py-6">
+      {showUpgradePrompt ? (
+        <UpgradePromptCard className="mb-5" />
+      ) : null}
       {!isFamilyView ? (
         <>
           <input

@@ -180,6 +180,7 @@ function HomeScreenPreview({ mockData }: { mockData: HomeScreenPreviewMockData }
           <HomeTodayActivityCard
             activity={data.todayActivity}
             week={data.activityWeek}
+            waterToday={data.waterToday}
           />
         </div>
       </div>
@@ -549,6 +550,7 @@ function HomeScreenConnected() {
           <HomeTodayActivityCard
             activity={homeData!.todayActivity}
             week={homeData!.activityWeek}
+            waterToday={homeData!.waterToday}
           />
         </>
       )}

@@ -39,6 +39,7 @@ export function isMarketingPath(pathname: string) {
   return (
     pathname === "/" ||
     pathname === "/landing" ||
+    pathname === "/preise" ||
     pathname === "/register" ||
     pathname === "/impressum" ||
     pathname === "/datenschutz" ||

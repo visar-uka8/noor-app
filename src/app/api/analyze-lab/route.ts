@@ -6,7 +6,9 @@ import { loadRecentActivityLogs } from "@/lib/activity-log-data";
 import { uploadLabResultFile } from "@/lib/lab-storage";
 import { analyzeLabDocument, getLabAiProvider } from "@/lib/lab-analyze";
 import { notifyLabResultAlerts } from "@/lib/notifications";
-import { getLabAnalysisCounts } from "@/lib/parse-lab-analysis";
+import { getLabAnalysisCounts, parseLabAnalysis } from "@/lib/parse-lab-analysis";
+import { saveHealthGoalsFromAnalysis } from "@/lib/health-goals";
+import { checkLabAnalysisQuota } from "@/lib/subscription";
 import type { LabAnalysisResult } from "@/types/lab-results";
 
 export const runtime = "nodejs";
@@ -96,6 +98,24 @@ export async function POST(request: Request) {
           code: "not_configured",
         },
         { status: 503 },
+      );
+    }
+
+    const supabase = createSupabaseDataClient() ?? authSupabase;
+    const labQuota = await checkLabAnalysisQuota(supabase, user.id);
+
+    if (!labQuota.allowed) {
+      return Response.json(
+        {
+          error:
+            language === "de"
+              ? "Sie haben Ihr monatliches Limit von 3 KI-Analysen erreicht. Upgraden Sie auf Noor Familie für unbegrenzte Analysen."
+              : "You have reached your monthly limit of 3 AI analyses. Upgrade to Noor Familie for unlimited analyses.",
+          code: "upgrade_required",
+          used: labQuota.used,
+          limit: labQuota.limit,
+        },
+        { status: 403 },
       );
     }
 
@@ -252,6 +272,16 @@ export async function POST(request: Request) {
         console.error("Lab result notification failed", notificationError);
       },
     );
+
+    const parsedAnalysis = parseLabAnalysis(analysis);
+    void saveHealthGoalsFromAnalysis(dataClient, {
+      userId: user.id,
+      labResultId: data.id,
+      personalGoalsSection: parsedAnalysis.personalGoalsSection,
+      goals: parsedAnalysis.personalGoals,
+    }).catch((goalsError) => {
+      console.error("Health goals save failed", goalsError);
+    });
 
     return Response.json({
       analysis,

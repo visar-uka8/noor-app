@@ -6,6 +6,7 @@ import type { FormEvent } from "react";
 import { useEffect, useState } from "react";
 import { notifyFamilyConnectionsChanged } from "@/lib/family-links-query";
 import { supabase } from "@/lib/supabase";
+import { UpgradePromptCard } from "@/components/UpgradePromptCard";
 import {
   familyInviteErrors,
   familyRelationships,
@@ -26,6 +27,7 @@ export function FamilyConnectJoin() {
   const [isLookingUp, setIsLookingUp] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [showUpgradePrompt, setShowUpgradePrompt] = useState(false);
 
   useEffect(() => {
     if (step !== "success") return;
@@ -133,6 +135,12 @@ export function FamilyConnectJoin() {
       };
 
       if (!response.ok) {
+        if (response.status === 403 && data.code === "upgrade_required") {
+          setShowUpgradePrompt(true);
+          setErrorMessage(null);
+          return;
+        }
+
         setErrorMessage(
           data.error ??
             (data.code === "expired"
@@ -218,6 +226,10 @@ export function FamilyConnectJoin() {
         Geben Sie den 6-stelligen Code ein, den Sie von Ihrem Angehörigen
         erhalten haben.
       </p>
+
+      {showUpgradePrompt ? (
+        <UpgradePromptCard className="mt-6" />
+      ) : null}
 
       <form className="mt-6 flex flex-col gap-5" onSubmit={connectFamily}>
         <label className="flex flex-col gap-2 text-base font-semibold text-foreground">

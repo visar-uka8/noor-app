@@ -1,5 +1,6 @@
-import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
+import { createSupabaseDataClient } from "@/lib/supabase-data";
+import { checkFamilyMemberQuota } from "@/lib/subscription";
 import type { FamilyInvite } from "@/types/family-connect";
 
 export const runtime = "nodejs";
@@ -22,6 +23,22 @@ export async function POST() {
       );
     }
 
+    const supabase = createSupabaseDataClient() ?? authSupabase;
+    const familyQuota = await checkFamilyMemberQuota(supabase, user.id);
+
+    if (!familyQuota.allowed) {
+      return Response.json(
+        {
+          error:
+            "Sie haben Ihr Familienlimit erreicht. Upgraden Sie auf Noor Familie für mehr Verbindungen.",
+          code: "upgrade_required",
+          used: familyQuota.used,
+          limit: familyQuota.limit,
+        },
+        { status: 403 },
+      );
+    }
+
     const now = new Date();
     const expiresAt = new Date(now.getTime() + INVITE_TTL_MS);
     const invite = {
@@ -32,7 +49,6 @@ export async function POST() {
       used: false,
     };
 
-    const supabase = createSupabaseDataClient() ?? authSupabase;
     const { data, error } = await supabase
       .from("family_invites")
       .insert(invite)
@@ -78,17 +94,4 @@ function toClientInvite(record: {
     expiresAt: record.expires_at,
     used: record.used,
   };
-}
-
-function createSupabaseDataClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseKey =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ??
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-  if (!supabaseUrl || !supabaseKey) return null;
-
-  return createAdminClient(supabaseUrl, supabaseKey, {
-    auth: { persistSession: false },
-  });
 }

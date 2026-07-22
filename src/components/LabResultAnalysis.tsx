@@ -15,6 +15,7 @@ import {
   type LifestylePlan,
   type ParsedLabValue,
 } from "@/lib/parse-lab-analysis";
+import type { PersonalGoal } from "@/types/health-goals";
 
 type LabResultAnalysisProps = {
   result: LabAnalysisResult;
@@ -362,6 +363,10 @@ function StructuredAnalysisView({
         <LifestylePlanSection plan={parsed.lifestylePlan} />
       ) : null}
 
+      {parsed.personalGoals.length > 0 ? (
+        <PersonalGoalsSection goals={parsed.personalGoals} />
+      ) : null}
+
       {parsed.doctorVisit ? (
         <section
           className={`rounded-2xl border border-border border-l-4 p-5 shadow-[var(--warm-shadow)] ${
@@ -492,6 +497,49 @@ function SummaryBar({
         );
       })}
     </div>
+  );
+}
+
+function PersonalGoalsSection({ goals }: { goals: PersonalGoal[] }) {
+  return (
+    <section className="noor-card p-5">
+      <h3 className="text-lg font-bold text-[#085041]">
+        Ihre persönlichen Tagesziele
+      </h3>
+      <p className="text-body mt-2 text-muted">
+        Basierend auf Ihren Laborwerten, Ihrem Alter, Gewicht und
+        Aktivitätslevel berechnet:
+      </p>
+      <div className="mt-4 flex flex-col gap-4">
+        {goals.map((goal) => (
+          <div
+            key={`${goal.emoji}-${goal.name}`}
+            className="rounded-2xl border border-border bg-background p-4"
+          >
+            <h4 className="text-base font-bold text-heading">
+              <span aria-hidden="true">{goal.emoji} </span>
+              {goal.name}
+            </h4>
+            <p className="text-body mt-2 leading-relaxed text-foreground">
+              <span className="font-semibold text-heading">Ihr Ziel: </span>
+              {goal.target}
+            </p>
+            {goal.why ? (
+              <p className="text-body mt-2 leading-relaxed text-foreground">
+                <span className="font-semibold text-heading">Warum: </span>
+                {goal.why}
+              </p>
+            ) : null}
+            {goal.current ? (
+              <p className="text-body mt-2 leading-relaxed text-muted">
+                <span className="font-semibold text-heading">Aktuell: </span>
+                {goal.current}
+              </p>
+            ) : null}
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 

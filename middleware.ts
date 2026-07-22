@@ -21,6 +21,7 @@ const ALLOWED_WHEN_GATED = [
   "/datenschutz",
   "/notfall",
   "/landing",
+  "/preise",
   "/login",
   "/register",
   "/forgot-password",
@@ -39,6 +40,7 @@ const PUBLIC_PATHS = [
   "/impressum",
   "/datenschutz",
   "/landing",
+  "/preise",
   "/auth/callback",
 ];
 

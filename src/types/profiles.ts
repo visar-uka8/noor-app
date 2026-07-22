@@ -11,6 +11,9 @@ export type Profile = {
   activity_level?: string | null;
   sport_types?: string[] | null;
   avatar_url?: string | null;
+  subscription_tier?: string | null;
+  subscription_status?: string | null;
+  stripe_customer_id?: string | null;
   role: UserRole | null;
   elder_mode: boolean;
   language: "de" | "en";

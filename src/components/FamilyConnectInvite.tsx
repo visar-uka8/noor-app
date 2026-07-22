@@ -1,6 +1,7 @@
 "use client";
 
 import { ErrorBanner } from "@/components/AppStates";
+import { UpgradePromptCard } from "@/components/UpgradePromptCard";
 import { Loader2, Share2, UsersRound } from "lucide-react";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
@@ -19,6 +20,37 @@ export function FamilyConnectInvite() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [shareFeedback, setShareFeedback] = useState<string | null>(null);
   const [countdown, setCountdown] = useState<string | null>(null);
+  const [familyLimitReached, setFamilyLimitReached] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadQuota() {
+      try {
+        const response = await fetch("/api/subscription/status", {
+          credentials: "include",
+        });
+
+        if (!response.ok) return;
+
+        const data = (await response.json()) as {
+          familyQuota?: { allowed?: boolean };
+        };
+
+        if (!cancelled) {
+          setFamilyLimitReached(data.familyQuota?.allowed === false);
+        }
+      } catch {
+        // Ignore quota load errors — invite flow still works.
+      }
+    }
+
+    void loadQuota();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!invite) return;
@@ -53,6 +85,15 @@ export function FamilyConnectInvite() {
       });
 
       if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as {
+          code?: string;
+        } | null;
+
+        if (response.status === 403 && payload?.code === "upgrade_required") {
+          setFamilyLimitReached(true);
+          return;
+        }
+
         throw new Error("Invite creation failed.");
       }
 
@@ -167,6 +208,10 @@ export function FamilyConnectInvite() {
         />
       ) : null}
 
+      {familyLimitReached ? (
+        <UpgradePromptCard className="mb-5" />
+      ) : null}
+
       <section className="noor-card p-6">
         <h2 className="heading-lg">Familie einladen</h2>
         <p className="mt-3 text-[15px] leading-relaxed font-medium text-[#085041]">
@@ -180,7 +225,7 @@ export function FamilyConnectInvite() {
         <button
           type="button"
           onClick={createInvite}
-          disabled={isLoading}
+          disabled={isLoading || familyLimitReached}
           className="btn-primary mt-6 w-full gap-2 disabled:opacity-70"
         >
           {isLoading ? (

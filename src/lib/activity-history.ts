@@ -1,6 +1,7 @@
 import {
   getActivityTypeTitle,
   getTodayDateString,
+  formatActivityTypeLabel,
   type StoredActivityLog,
 } from "@/types/activity-log";
 
@@ -17,6 +18,8 @@ export type ActivityWeekDay = {
 export type ActivityBarDay = {
   date: string;
   dayLabel: string;
+  dayOfMonth: number;
+  isToday: boolean;
   minutes: number;
 };
 
@@ -194,9 +197,47 @@ export function buildLast14DaysChart(
       dayLabel: new Intl.DateTimeFormat("de-DE", {
         weekday: "narrow",
       }).format(date),
+      dayOfMonth: date.getDate(),
+      isToday: isSameLocalDay(date, referenceDate),
       minutes: minutesByDate.get(dateKey) ?? 0,
     };
   });
+}
+
+export function formatActivityBarDayTooltip(
+  date: string,
+  logs: Array<
+    Pick<StoredActivityLog, "date" | "activity_type" | "duration_minutes">
+  >,
+) {
+  const dateObj = parseLocalDateString(date);
+  const weekday = new Intl.DateTimeFormat("de-DE", {
+    weekday: "long",
+  }).format(dateObj);
+  const formattedDate = new Intl.DateTimeFormat("de-DE", {
+    day: "numeric",
+    month: "long",
+  }).format(dateObj);
+  const dayLogs = logs.filter((log) => log.date === date);
+
+  if (dayLogs.length === 0) {
+    return `${weekday}, ${formattedDate} — Keine Aktivität`;
+  }
+
+  const totalMinutes = dayLogs.reduce(
+    (sum, log) => sum + (log.duration_minutes ?? 0),
+    0,
+  );
+  const activityTitles = [
+    ...new Set(dayLogs.map((log) => formatActivityTypeLabel(log.activity_type))),
+  ];
+  const activityLabel = activityTitles.join(" + ");
+
+  if (totalMinutes > 0) {
+    return `${weekday}, ${formattedDate} — ${totalMinutes} Min. ${activityLabel}`;
+  }
+
+  return `${weekday}, ${formattedDate} — ${activityLabel}`;
 }
 
 export function formatActivityHistoryEntry(
@@ -238,4 +279,65 @@ export function buildActivityHistorySummary(
     last14Days: buildLast14DaysChart(logs, referenceDate),
     entries: sortedEntries,
   };
+}
+
+export function buildActivitySummary30Days(
+  logs: Array<
+    Pick<StoredActivityLog, "date" | "activity_type" | "duration_minutes">
+  >,
+  referenceDate = new Date(),
+) {
+  const startDate = startOfLocalDay(referenceDate);
+  startDate.setDate(referenceDate.getDate() - 29);
+  const startKey = getTodayDateString(startDate);
+  const endLabel = new Intl.DateTimeFormat("de-DE", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(referenceDate);
+
+  const recentLogs = logs.filter((log) => log.date >= startKey);
+  const activeLogs = recentLogs.filter((log) => log.activity_type !== "rest");
+  const activeDates = getActiveDates(activeLogs);
+  const activeDays = activeDates.size;
+  const totalMinutes = sumMinutesForLogs(activeLogs);
+  const avgMinutesPerActiveDay =
+    activeDays > 0 ? Math.round(totalMinutes / activeDays) : 0;
+
+  const activityTypeCounts = activeLogs.reduce<Record<string, number>>(
+    (counts, log) => {
+      const label = getActivityTypeTitle(log.activity_type);
+      counts[label] = (counts[label] ?? 0) + 1;
+      return counts;
+    },
+    {},
+  );
+
+  const typeBreakdown = Object.entries(activityTypeCounts)
+    .map(([label, count]) => `${label}: ${count}x`)
+    .join(", ");
+
+  return [
+    `Zeitraum: letzte 30 Tage (bis ${endLabel})`,
+    `Aktive Tage: ${activeDays} von 30`,
+    `Gesamtminuten: ${totalMinutes}`,
+    `Durchschnitt pro aktivem Tag: ${avgMinutesPerActiveDay} Minuten`,
+    typeBreakdown ? `Aktivitätstypen: ${typeBreakdown}` : null,
+    `Einträge gesamt: ${recentLogs.length}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+export function hasRecentActivityData(
+  logs: Array<Pick<StoredActivityLog, "date" | "activity_type">>,
+  referenceDate = new Date(),
+) {
+  const startDate = startOfLocalDay(referenceDate);
+  startDate.setDate(referenceDate.getDate() - 29);
+  const startKey = getTodayDateString(startDate);
+
+  return logs.some(
+    (log) => log.date >= startKey && log.activity_type !== "rest",
+  );
 }
