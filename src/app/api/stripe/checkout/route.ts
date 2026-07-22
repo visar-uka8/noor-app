@@ -6,6 +6,7 @@ import {
   getStripePriceId,
 } from "@/lib/stripe";
 import {
+  formatSubscriptionSetupError,
   getUserSubscription,
   paidTierFromPlan,
   updateUserSubscription,
@@ -111,7 +112,7 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error("Stripe checkout failed", error);
     return Response.json(
-      { error: "Checkout konnte gerade nicht gestartet werden." },
+      { error: formatSubscriptionSetupError(error) },
       { status: 500 },
     );
   }

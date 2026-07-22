@@ -1,4 +1,4 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import {
   type PaidSubscriptionTier,
   type SubscriptionPlanConfig,
@@ -282,6 +282,35 @@ export async function updateUserSubscription(
   if (error) {
     throw error;
   }
+}
+
+export function isMissingSubscriptionColumnsError(error: PostgrestError | null) {
+  if (!error) return false;
+
+  const message = `${error.message ?? ""} ${error.details ?? ""}`.toLowerCase();
+
+  return (
+    error.code === "PGRST204" ||
+    message.includes("subscription_tier") ||
+    message.includes("subscription_status") ||
+    message.includes("stripe_customer_id")
+  );
+}
+
+export function formatSubscriptionSetupError(error: unknown) {
+  if (error && typeof error === "object" && "code" in error) {
+    const pgError = error as PostgrestError;
+
+    if (isMissingSubscriptionColumnsError(pgError)) {
+      return "Abonnements sind noch nicht eingerichtet. Bitte migration_subscriptions.sql in Supabase ausführen.";
+    }
+  }
+
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+
+  return "Checkout konnte gerade nicht gestartet werden.";
 }
 
 export async function findUserIdByStripeCustomerId(

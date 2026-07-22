@@ -34,7 +34,7 @@ export function ProfileHealthPromptCard({
 
   return (
     <section
-      className="flex flex-wrap items-center justify-between gap-4"
+      className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"
       style={{
         backgroundColor: "#FFFFFF",
         border: "0.5px solid #E4E2DB",
@@ -43,7 +43,7 @@ export function ProfileHealthPromptCard({
       }}
       aria-label="Profil vervollständigen"
     >
-      <div className="flex min-w-0 flex-1 items-center gap-3">
+      <div className="flex min-w-0 items-center gap-3 sm:flex-1">
         <span
           className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl"
           style={{ backgroundColor: "#E1F5EE", color: "#1D9E75" }}
@@ -51,43 +51,36 @@ export function ProfileHealthPromptCard({
         >
           <UserRound size={26} strokeWidth={2.2} />
         </span>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <p
-            style={{
-              margin: 0,
-              fontSize: "15px",
-              fontWeight: 600,
-              color: "#085041",
-            }}
+            className="text-[15px] font-semibold leading-snug text-[#085041]"
+            style={{ margin: 0 }}
           >
             Profil vervollständigen
           </p>
           <p
-            style={{
-              margin: "2px 0 0",
-              fontSize: "13px",
-              color: "#88856F",
-            }}
+            className="mt-0.5 line-clamp-2 text-[13px] text-[#88856F]"
+            style={{ margin: 0 }}
           >
             {subtitle}
           </p>
         </div>
       </div>
 
-      <div className="flex w-full shrink-0 flex-col gap-2 sm:w-auto sm:flex-row">
+      <div className="flex shrink-0 gap-2 self-stretch sm:self-auto">
         <button
           type="button"
           onClick={() => {
             dismissProfileHealthPrompt(userId);
             setDismissed(true);
           }}
-          className="btn-touch flex-1 rounded-2xl border-2 border-border bg-surface px-4 py-3 text-base font-semibold text-muted transition-opacity hover:opacity-80 sm:flex-none"
+          className="btn-touch flex-1 rounded-2xl border-2 border-border bg-surface px-4 py-3 text-sm font-semibold text-muted transition-opacity hover:opacity-80 sm:flex-none sm:min-w-[96px]"
         >
           Später
         </button>
         <Link
           href="/settings/profile"
-          className="btn-touch flex-1 rounded-2xl px-4 py-3 text-base font-semibold whitespace-nowrap transition-opacity hover:opacity-80 sm:flex-none"
+          className="btn-touch flex-1 rounded-2xl px-4 py-3 text-sm font-semibold whitespace-nowrap transition-opacity hover:opacity-80 sm:flex-none"
           style={{
             backgroundColor: "#E1F5EE",
             color: "#1D9E75",
