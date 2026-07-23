@@ -10,7 +10,24 @@ export const MARKETING_HOSTS = [
   "www.noorhealth.de",
 ] as const;
 
-export const APP_BASE_URL = "https://noorhealth.app";
+export const APP_BASE_URL = "https://www.noorhealth.app";
+
+export const APP_REGISTER_URL = `${APP_BASE_URL}/register`;
+export const APP_LOGIN_URL = `${APP_BASE_URL}/login`;
+
+export function getMarketingAuthUrls(host: string) {
+  if (isMarketingHost(host)) {
+    return {
+      registerUrl: APP_REGISTER_URL,
+      loginUrl: APP_LOGIN_URL,
+    };
+  }
+
+  return {
+    registerUrl: "/register",
+    loginUrl: "/login",
+  };
+}
 
 /** URL Supabase uses for email confirmation and password reset links. */
 export function getAuthCallbackUrl() {
@@ -40,7 +57,6 @@ export function isMarketingPath(pathname: string) {
     pathname === "/" ||
     pathname === "/landing" ||
     pathname === "/preise" ||
-    pathname === "/register" ||
     pathname === "/impressum" ||
     pathname === "/datenschutz" ||
     pathname === "/coming-soon"

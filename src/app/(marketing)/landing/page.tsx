@@ -1,5 +1,5 @@
 import { LandingPage } from "@/components/marketing/LandingPage";
 
-export default function MarketingLandingPage() {
+export default async function MarketingLandingPage() {
   return <LandingPage />;
 }

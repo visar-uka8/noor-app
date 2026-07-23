@@ -1,3 +1,4 @@
+import { headers } from "next/headers";
 import Link from "next/link";
 import { LandingAuthRedirect } from "@/components/marketing/LandingAuthRedirect";
 import { LandingFeatureGridSection } from "@/components/marketing/LandingFeatureGridSection";
@@ -11,20 +12,22 @@ import { LandingScrollAnimator } from "@/components/marketing/LandingScrollAnima
 import { LandingStatsBar } from "@/components/marketing/LandingStatsBar";
 import { LandingTestimonialsSection } from "@/components/marketing/LandingTestimonialsSection";
 import { SHOW_PRICING } from "@/lib/feature-flags";
+import { getMarketingAuthUrls } from "@/lib/site-gate";
 
-const loginUrl = "/login";
-const registerUrl = "/register";
+export async function LandingPage() {
+  const requestHeaders = await headers();
+  const host = requestHeaders.get("host") ?? "";
+  const { registerUrl, loginUrl } = getMarketingAuthUrls(host);
 
-export function LandingPage() {
   return (
     <>
       <LandingAuthRedirect />
 
       <LandingScrollAnimator>
         <div className="landing-page">
-          <LandingNav />
+          <LandingNav registerUrl={registerUrl} loginUrl={loginUrl} />
 
-          <LandingHeroSection />
+          <LandingHeroSection registerUrl={registerUrl} />
 
           <LandingStatsBar />
           <LandingProblemSection />
@@ -32,7 +35,9 @@ export function LandingPage() {
           <LandingHowItWorksSection />
           <LandingTestimonialsSection />
           <LandingPassportSection />
-          {SHOW_PRICING ? <PricingSection variant="info" /> : null}
+          {SHOW_PRICING ? (
+            <PricingSection variant="info" registerUrl={registerUrl} />
+          ) : null}
 
           <FinalCtaSection loginUrl={loginUrl} registerUrl={registerUrl} />
           <FooterSection />

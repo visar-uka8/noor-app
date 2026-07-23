@@ -4,9 +4,11 @@ import { Sparkles } from "lucide-react";
 import { LandingPhoneMockup } from "@/components/marketing/LandingPhoneMockup";
 import { marketingHeroTrustPeople } from "@/lib/marketing-testimonials";
 
-const registerUrl = "/register";
+type LandingHeroSectionProps = {
+  registerUrl: string;
+};
 
-export function LandingHeroSection() {
+export function LandingHeroSection({ registerUrl }: LandingHeroSectionProps) {
   return (
     <section className="landing-hero">
       <div className="landing-hero-glow landing-hero-glow-left" aria-hidden="true" />

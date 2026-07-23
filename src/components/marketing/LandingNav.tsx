@@ -5,10 +5,12 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { SHOW_PRICING } from "@/lib/feature-flags";
 
-const loginUrl = "/login";
-const registerUrl = "/register";
+type LandingNavProps = {
+  registerUrl: string;
+  loginUrl: string;
+};
 
-export function LandingNav() {
+export function LandingNav({ registerUrl, loginUrl }: LandingNavProps) {
   const pathname = usePathname();
   const [scrolled, setScrolled] = useState(false);
   const pricingHref =

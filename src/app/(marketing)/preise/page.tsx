@@ -1,7 +1,9 @@
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import { LandingNav } from "@/components/marketing/LandingNav";
 import { PricingSection } from "@/components/marketing/PricingSection";
 import { SHOW_PRICING } from "@/lib/feature-flags";
+import { getMarketingAuthUrls } from "@/lib/site-gate";
 import { isStripeConfigured } from "@/lib/stripe";
 import type { PaidSubscriptionTier } from "@/types/subscription";
 
@@ -14,10 +16,14 @@ function readPriceId(
 
 export const dynamic = "force-dynamic";
 
-export default function PreisePage() {
+export default async function PreisePage() {
   if (!SHOW_PRICING) {
     redirect("/");
   }
+
+  const requestHeaders = await headers();
+  const host = requestHeaders.get("host") ?? "";
+  const { registerUrl, loginUrl } = getMarketingAuthUrls(host);
 
   const priceIds: Record<PaidSubscriptionTier, string> = {
     familie: readPriceId(
@@ -32,11 +38,12 @@ export default function PreisePage() {
 
   return (
     <div className="landing-page">
-      <LandingNav />
+      <LandingNav registerUrl={registerUrl} loginUrl={loginUrl} />
       <PricingSection
         variant="checkout"
         checkoutEnabled={isStripeConfigured()}
         priceIds={priceIds}
+        registerUrl={registerUrl}
       />
     </div>
   );

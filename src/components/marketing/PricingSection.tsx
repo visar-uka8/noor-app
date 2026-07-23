@@ -11,12 +11,14 @@ type PricingSectionProps = {
   variant?: "info" | "checkout";
   checkoutEnabled?: boolean;
   priceIds?: Record<PaidSubscriptionTier, string>;
+  registerUrl?: string;
 };
 
 export function PricingSection({
   variant = "checkout",
   checkoutEnabled = false,
   priceIds = { familie: "", familie_plus: "" },
+  registerUrl = "/register",
 }: PricingSectionProps) {
   if (!SHOW_PRICING) {
     return null;
