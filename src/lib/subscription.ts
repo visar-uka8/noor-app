@@ -1,4 +1,5 @@
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
+import { SHOW_PRICING } from "@/lib/feature-flags";
 import {
   type PaidSubscriptionTier,
   type SubscriptionPlanConfig,
@@ -186,6 +187,15 @@ export async function checkLabAnalysisQuota(
   supabase: SupabaseClient,
   userId: string,
 ): Promise<SubscriptionQuotaCheck> {
+  if (!SHOW_PRICING) {
+    return {
+      allowed: true,
+      tier: "free",
+      used: 0,
+      limit: null,
+    };
+  }
+
   const subscription = await getUserSubscription(supabase, userId);
   const effectiveTier = resolveEffectiveTier(
     subscription.tier,
@@ -226,6 +236,15 @@ export async function checkFamilyMemberQuota(
   supabase: SupabaseClient,
   patientId: string,
 ): Promise<SubscriptionQuotaCheck> {
+  if (!SHOW_PRICING) {
+    return {
+      allowed: true,
+      tier: "free",
+      used: 0,
+      limit: null,
+    };
+  }
+
   const subscription = await getUserSubscription(supabase, patientId);
   const effectiveTier = resolveEffectiveTier(
     subscription.tier,
@@ -306,7 +325,34 @@ export function formatSubscriptionSetupError(error: unknown) {
     }
   }
 
+  if (error && typeof error === "object" && "type" in error) {
+    const stripeError = error as { type?: string; message?: string };
+    const message = stripeError.message?.toLowerCase() ?? "";
+
+    if (stripeError.type === "StripeAuthenticationError") {
+      if (message.includes("expired")) {
+        return "Der Stripe API-Schlüssel ist abgelaufen. Bitte einen neuen Secret Key im Stripe-Dashboard erstellen und STRIPE_SECRET_KEY in .env.local aktualisieren.";
+      }
+
+      if (message.includes("invalid api key")) {
+        return "Der Stripe API-Schlüssel ist ungültig. Bitte STRIPE_SECRET_KEY prüfen — er muss mit sk_live_ oder sk_test_ beginnen.";
+      }
+
+      return "Stripe-Authentifizierung fehlgeschlagen. Bitte STRIPE_SECRET_KEY prüfen.";
+    }
+  }
+
   if (error instanceof Error && error.message.trim()) {
+    const message = error.message.toLowerCase();
+
+    if (message.includes("expired api key")) {
+      return "Der Stripe API-Schlüssel ist abgelaufen. Bitte einen neuen Secret Key im Stripe-Dashboard erstellen und STRIPE_SECRET_KEY in .env.local aktualisieren.";
+    }
+
+    if (message.includes("invalid api key")) {
+      return "Der Stripe API-Schlüssel ist ungültig. Bitte STRIPE_SECRET_KEY prüfen — er muss mit sk_live_ oder sk_test_ beginnen.";
+    }
+
     return error.message;
   }
 

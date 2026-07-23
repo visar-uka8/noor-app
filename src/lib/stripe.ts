@@ -3,22 +3,29 @@ import type { PaidSubscriptionTier } from "@/types/subscription";
 
 let stripeClient: Stripe | null = null;
 
-export function getStripeClient() {
+function createStripeClient() {
   const secretKey = process.env.STRIPE_SECRET_KEY?.trim();
 
   if (!secretKey) {
     return null;
   }
 
+  return new Stripe(secretKey, {
+    apiVersion: "2025-02-24.acacia",
+    typescript: true,
+  });
+}
+
+export function getStripeClient() {
   if (!stripeClient) {
-    stripeClient = new Stripe(secretKey, {
-      apiVersion: "2025-02-24.acacia",
-      typescript: true,
-    });
+    stripeClient = createStripeClient();
   }
 
   return stripeClient;
 }
+
+/** Server-side Stripe client (null when STRIPE_SECRET_KEY is missing). */
+export const stripe = getStripeClient();
 
 export function isStripeConfigured() {
   return Boolean(

@@ -7,6 +7,7 @@ type AppHeaderProps = {
   showBack?: boolean;
   backHref?: string;
   title?: string;
+  titleKey?: string;
   badge?: React.ReactNode;
 };
 
@@ -14,9 +15,11 @@ export function AppHeader({
   showBack = false,
   backHref = "/",
   title,
+  titleKey,
   badge,
 }: AppHeaderProps) {
   const { t } = useLanguage();
+  const resolvedTitle = titleKey ? t(titleKey) : title;
 
   return (
     <header className="sticky top-0 z-30 border-b border-border bg-surface/95 backdrop-blur-sm">
@@ -52,9 +55,9 @@ export function AppHeader({
         )}
 
         <div className="min-w-0 flex-1">
-          {title ? (
+          {resolvedTitle ? (
             <>
-              <h1 className="heading-lg truncate">{title}</h1>
+              <h1 className="heading-lg truncate">{resolvedTitle}</h1>
               {badge ? <div className="mt-1">{badge}</div> : null}
             </>
           ) : (

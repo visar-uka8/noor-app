@@ -1,7 +1,13 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { normalizeAppLanguage } from "@/lib/i18n/languages";
 import { resolveStoredAvatarUrl } from "@/lib/profile-avatar-store";
 import { normalizeNotificationPreferences } from "@/lib/notification-preferences";
 import { getProfileInitials, resolveProfileNames } from "@/lib/profile-display";
+import {
+  normalizeSubscriptionStatus,
+  normalizeSubscriptionTier,
+  resolveEffectiveTier,
+} from "@/lib/subscription";
 import {
   defaultNotificationPreferences,
   type NotificationPreferences,
@@ -13,12 +19,15 @@ export type LoadedProfileRow = {
   last_name?: string | null;
   avatar_url?: string | null;
   role?: string | null;
-  language?: "de" | "en" | null;
+  language?: "de" | "en" | "tr" | "sq" | null;
   elder_mode?: boolean | null;
   notification_preferences?: unknown;
+  subscription_tier?: string | null;
+  subscription_status?: string | null;
 };
 
 const profileColumnSets = [
+  "id, first_name, last_name, avatar_url, role, language, elder_mode, notification_preferences, subscription_tier, subscription_status",
   "id, first_name, last_name, avatar_url, role, language, elder_mode, notification_preferences",
   "id, first_name, last_name, role, language, elder_mode, notification_preferences",
   "id, first_name, last_name, role, elder_mode, notification_preferences",
@@ -188,12 +197,16 @@ export function buildProfileSettingsFields(input: {
       profileAvatarUrl: input.profile?.avatar_url,
       metadata: input.metadata,
     }),
-    language: input.profile?.language === "en" ? ("en" as const) : ("de" as const),
+    language: normalizeAppLanguage(input.profile?.language),
     elderMode:
       input.elderModeOverride ??
       input.profile?.elder_mode ??
       false,
     notificationPreferences,
+    subscriptionTier: resolveEffectiveTier(
+      normalizeSubscriptionTier(input.profile?.subscription_tier),
+      normalizeSubscriptionStatus(input.profile?.subscription_status),
+    ),
   };
 }
 

@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { isAppLanguage } from "@/lib/i18n/languages";
 import { createClient } from "@/lib/supabase/server";
 import { createSupabaseDataClient } from "@/lib/supabase-data";
 import {
@@ -117,7 +118,7 @@ export async function PATCH(request: Request) {
       updates.elder_mode = payload.elder_mode;
     }
 
-    if (payload.language === "de" || payload.language === "en") {
+    if (isAppLanguage(String(payload.language))) {
       updates.language = payload.language;
     }
 

@@ -13,6 +13,7 @@ import { FamilyNoteHomeCard } from "@/components/FamilyNoteHomeCard";
 import { FamilyNoteReplyHomeCard } from "@/components/FamilyNoteReplyHomeCard";
 import { FamilyDashboardPanel } from "@/components/FamilyDashboardPanel";
 import { HomeTodayActivityCard } from "@/components/HomeTodayActivityCard";
+import { HomeAppointmentsCard } from "@/components/HomeAppointmentsCard";
 import { EmailConfirmationPromptCard } from "@/components/EmailConfirmationPromptCard";
 import { ProfileHealthPromptCard } from "@/components/ProfileHealthPromptCard";
 import { MedicationStreakCard } from "@/components/MedicationStreakCard";
@@ -33,7 +34,8 @@ import {
   showFamilyDashboardHome,
 } from "@/lib/family-member-flow";
 import { formatWatcherFollowSubtitle } from "@/lib/family-roles";
-import { getTimeGreeting } from "@/lib/i18n/messages";
+import { formatAppDate } from "@/lib/i18n/languages";
+import type { AppLanguage } from "@/lib/i18n/languages";
 import { resolveHomeDisplayFields } from "@/lib/profile-display";
 import {
   demoHomeScreenData,
@@ -87,7 +89,7 @@ export function HomeScreen({
 }
 
 function HomeScreenPreview({ mockData }: { mockData: HomeScreenPreviewMockData }) {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const data = buildPreviewHomeScreenData(mockData);
   const previewNow = new Date(2026, 5, 20, 10, 0, 0, 0);
 
@@ -97,10 +99,10 @@ function HomeScreenPreview({ mockData }: { mockData: HomeScreenPreviewMockData }
         <div className="flex items-start justify-between gap-4">
           <div>
             <h1 className="text-[1.75rem] font-bold leading-tight">
-              Guten Morgen, {mockData.firstName} 👋
+              {t("greeting_morning")}, {mockData.firstName} 👋
             </h1>
             <p className="text-body mt-2 text-white/90">
-              {getGreetingSubtitle(data, previewNow)}
+              {getGreetingSubtitle(data, previewNow, t, language)}
             </p>
           </div>
 
@@ -313,8 +315,13 @@ function HomeScreenConnected() {
 
   const greeting = useMemo(() => {
     const referenceDate = now ?? new Date(2026, 0, 1, 12, 0, 0, 0);
-    return getTimeGreeting(language, referenceDate);
-  }, [language, now]);
+    const hour = referenceDate.getHours();
+
+    if (hour >= 5 && hour < 11) return t("greeting_morning");
+    if (hour >= 11 && hour < 14) return t("greeting_day");
+    if (hour >= 14 && hour < 23) return t("greeting_evening");
+    return t("greeting_night");
+  }, [now, t]);
 
   const patientFamilyNoteCard = patientFamilyNote ? (
     <FamilyNoteHomeCard
@@ -393,10 +400,12 @@ function HomeScreenConnected() {
         </h1>
         <p className="text-body mt-2 text-white/90">
           {isFamilyMemberHome
-            ? `Für ${watchedPatientName}`
+            ? t("home_for_patient", { name: watchedPatientName })
             : getGreetingSubtitle(
                 homeData!,
                 now ?? new Date(2026, 0, 1, 12, 0, 0, 0),
+                t,
+                language,
               )}
         </p>
       </div>
@@ -436,6 +445,8 @@ function HomeScreenConnected() {
 
           <MedicationStreakCard streak={homeData!.medicationStreak ?? 0} />
 
+          <HomeAppointmentsCard nextAppointment={homeData!.nextAppointment} />
+
           <section>
             <div className="grid grid-cols-2 gap-3">
               {visibleFeatureCards.map((card) => {
@@ -458,6 +469,7 @@ function HomeScreenConnected() {
                 const familySubtitle = isFamilyCard
                   ? getFamilyCardSubtitle(
                       homeData!,
+                      t,
                       roles.watchers,
                       roles.watching,
                     )
@@ -526,7 +538,7 @@ function HomeScreenConnected() {
                           fontWeight: 600,
                         }}
                       >
-                        🏥 Pass verfügbar
+                        {t("home_passport_available")}
                       </p>
                     ) : null}
                     {showFamilyNoteBadge ? (
@@ -538,7 +550,9 @@ function HomeScreenConnected() {
                           fontWeight: 600,
                         }}
                       >
-                        💌 Nachricht von {patientFamilyNote!.senderFirstName}
+                        {t("home_message_from", {
+                          name: patientFamilyNote!.senderFirstName,
+                        })}
                       </p>
                     ) : null}
                   </Link>
@@ -577,36 +591,36 @@ function getPreviewCardSubtitle(
     return mockData.familyStatus;
   }
 
-  return "Vollständig ✓";
+  return t("complete");
 }
 
-function getGreetingSubtitle(data: HomeScreenData, now: Date) {
+function getGreetingSubtitle(
+  data: HomeScreenData,
+  now: Date,
+  t: ReturnType<typeof useLanguage>["t"],
+  language: AppLanguage,
+) {
   const { medication } = data;
   const allConfirmed =
     medication.total > 0 && medication.confirmed === medication.total;
 
   if (now.getHours() < 9 && !allConfirmed) {
-    return "Denken Sie an Ihre Morgenmedikamente 💊";
+    return t("home_morning_meds_reminder");
   }
 
   if (allConfirmed) {
-    return "Alles erledigt für heute ✓";
+    return t("all_done_today");
   }
 
   if (medication.pending === 1) {
-    return "Eine Dosis noch ausstehend";
+    return t("one_dose_pending");
   }
 
   if (medication.pending > 1) {
-    return `${medication.pending} Dosen noch ausstehend`;
+    return t("doses_pending", { count: medication.pending });
   }
 
-  return now.toLocaleDateString("de-DE", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
+  return formatAppDate(language, now);
 }
 
 function MedicationReminderBanner({
@@ -653,7 +667,7 @@ function StatusBanner({
   if (medication.total === 0) {
     return (
       <NoorStatusBanner level="success">
-        Noch keine Medikamente hinterlegt
+        {t("home_no_medications_yet")}
       </NoorStatusBanner>
     );
   }
@@ -675,30 +689,33 @@ function StatusBanner({
 
 function getFamilyCardSubtitle(
   data: HomeScreenData,
+  t: ReturnType<typeof useLanguage>["t"],
   roleWatchers: Array<{ watcherFirstName: string }> = [],
   roleWatching: Array<{ patientFirstName: string }> = [],
 ) {
   if (roleWatching.length > 1) {
-    return `${roleWatching.length} Angehörige im Blick`;
+    return t("home_watching_many", { count: roleWatching.length });
   }
 
   if (roleWatching.length === 1) {
-    return `${roleWatching[0]?.patientFirstName ?? "Angehörige"} im Blick`;
+    return t("home_watching_one", {
+      name: roleWatching[0]?.patientFirstName ?? t("home_watching_fallback"),
+    });
   }
 
   const homeNames = data.family.watchers.map(
     (watcher) => watcher.watcherFirstName,
   );
   if (homeNames.length > 0) {
-    return formatWatcherFollowSubtitle(homeNames);
+    return formatWatcherFollowSubtitle(homeNames, t);
   }
 
   const roleNames = roleWatchers.map((watcher) => watcher.watcherFirstName);
   if (roleNames.length > 0) {
-    return formatWatcherFollowSubtitle(roleNames);
+    return formatWatcherFollowSubtitle(roleNames, t);
   }
 
-  return data.family.card.subtitle || "Familie einladen →";
+  return data.family.card.subtitle || t("invite_family");
 }
 
 function getCardSubtitle(
@@ -708,7 +725,7 @@ function getCardSubtitle(
 ) {
   if (key === "medication") {
     if (data.medication.total === 0) {
-      return "Noch keine Medikamente";
+      return t("home_no_medications_yet");
     }
 
     if (data.medication.confirmed === data.medication.total) {
@@ -730,13 +747,32 @@ function getCardSubtitle(
   }
 
   if (key === "family") {
-    return getFamilyCardSubtitle(data);
+    return getFamilyCardSubtitle(data, t);
   }
 
-  return (
-    data.healthPassport.subtitle ||
-    (data.healthPassport.complete
-      ? t("home.passportComplete")
-      : t("home.passportIncomplete"))
-  );
+  return getPassportCardSubtitle(data, t);
+}
+
+function getPassportCardSubtitle(
+  data: HomeScreenData,
+  t: ReturnType<typeof useLanguage>["t"],
+) {
+  if (data.healthPassport.hasOverdueVaccination) {
+    return t("passport_vaccination_due");
+  }
+
+  switch (data.healthPassport.completionStatus) {
+    case "empty":
+      return t("passport_subtitle_empty");
+    case "low":
+      return t("not_complete_yet");
+    case "high":
+      return t("passport_subtitle_almost");
+    case "complete":
+      return t("complete");
+    default:
+      return data.healthPassport.complete
+        ? t("home.passportComplete")
+        : t("home.passportIncomplete");
+  }
 }

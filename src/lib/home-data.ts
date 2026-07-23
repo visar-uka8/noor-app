@@ -49,6 +49,11 @@ import { resolveHomeDisplayFields } from "@/lib/profile-display";
 import { loadHealthPassportForUser } from "@/lib/health-passport-load";
 import { isHealthPassportAvailable } from "@/lib/health-passport-completion";
 import { loadVisibleFamilyNoteSafe } from "@/lib/family-notes-data";
+import {
+  getNextUpcomingAppointment,
+  listAppointmentsForUser,
+} from "@/lib/appointments-data";
+import { appointmentNeedsNotes } from "@/types/appointments";
 import { resolveStoredAvatarUrl } from "@/lib/profile-avatar-store";
 import type { StoredConfirmation, StoredMedication } from "@/types/medication";
 
@@ -108,6 +113,7 @@ export async function buildHomeScreenResponse(
   const watchedPatientHealthPassportAvailable =
     await loadWatchedPatientPassportAvailable(user.id, supabase);
   const unreadFamilyNote = await loadVisibleFamilyNoteSafe(supabase, user.id);
+  const nextAppointment = await loadNextAppointmentSafe(user.id, supabase);
 
   const metadata = user.user_metadata as {
     first_name?: string;
@@ -162,6 +168,7 @@ export async function buildHomeScreenResponse(
           missingLabels: getProfileHealthMissingLabels(profileHealth),
         }
       : null,
+    nextAppointment,
   };
 
   console.log("Home page data:", payload);
@@ -427,5 +434,41 @@ async function loadWatchedPatientPassportAvailable(
   } catch (error) {
     console.error("Watched patient passport check failed:", error);
     return false;
+  }
+}
+
+async function loadNextAppointmentSafe(
+  userId: string,
+  supabase: SupabaseClient,
+) {
+  try {
+    const appointments = await listAppointmentsForUser(supabase, userId);
+    const needsNotes = appointments.find((appointment) =>
+      appointmentNeedsNotes(appointment),
+    );
+
+    if (needsNotes) {
+      return {
+        id: needsNotes.id,
+        doctorName: needsNotes.doctor_name,
+        scheduledAt: needsNotes.scheduled_at,
+        needsNotes: true,
+      };
+    }
+
+    const upcoming = getNextUpcomingAppointment(appointments);
+    if (!upcoming) {
+      return null;
+    }
+
+    return {
+      id: upcoming.id,
+      doctorName: upcoming.doctor_name,
+      scheduledAt: upcoming.scheduled_at,
+      needsNotes: false,
+    };
+  } catch (error) {
+    console.error("Home appointment load failed:", error);
+    return null;
   }
 }

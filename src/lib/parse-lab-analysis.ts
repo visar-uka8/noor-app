@@ -1,5 +1,8 @@
 import type { PersonalGoal } from "@/types/health-goals";
 import { parsePersonalGoalsSection } from "@/lib/health-goals";
+import type { AppLanguage } from "@/lib/i18n/languages";
+
+export type AnalysisLanguage = AppLanguage;
 
 export type LabValueLevel = "green" | "amber" | "red";
 
@@ -39,22 +42,123 @@ export type ParsedLabAnalysis = {
   };
 };
 
-const SECTION_MARKERS = [
-  "ZUSAMMENFASSUNG",
-  "IHRE LABORWERTE IM DETAIL",
-  "LABORWERTE IM DETAIL",
-  "NÄCHSTE SCHRITTE",
-  "IHR PERSÖNLICHER LEBENSSTIL-PLAN",
-  "IHRE PERSÖNLICHEN TAGESZIELE",
-  "WANN ZUM ARZT",
-] as const;
+const SECTION_ALIASES = {
+  summary: [
+    "ZUSAMMENFASSUNG",
+    "SUMMARY",
+    "ÖZET",
+    "PËRMBLEDHJE",
+  ],
+  values: [
+    "IHRE LABORWERTE IM DETAIL",
+    "LABORWERTE IM DETAIL",
+    "YOUR LAB VALUES IN DETAIL",
+    "YOUR LABORATORY VALUES IN DETAIL",
+    "LABORATUVAR DEĞERLERİNİZ AYRINTILI",
+    "LABORATUVAR DEĞERLERİNİZ",
+    "VLERAT TUaja LABORATORIKE NË DETAJE",
+  ],
+  nextSteps: [
+    "NÄCHSTE SCHRITTE",
+    "NEXT STEPS",
+    "SONRAKI ADIMLAR",
+    "HAPAT E ARDHSHËM",
+  ],
+  lifestyle: [
+    "IHR PERSÖNLICHER LEBENSSTIL-PLAN",
+    "YOUR PERSONAL LIFESTYLE PLAN",
+    "KİŞİSEL YAŞAM TARZI PLANINIZ",
+    "PLANI JUAJ PERSONAL I STILIT TË JETËS",
+  ],
+  goals: [
+    "IHRE PERSÖNLICHEN TAGESZIELE",
+    "YOUR PERSONAL DAILY GOALS",
+    "KİŞİSEL GÜNLÜK HEDEFLERİNİZ",
+    "OBJEKTIVAT TUaja PERSONALE DITORE",
+  ],
+  doctor: [
+    "WANN ZUM ARZT",
+    "WHEN TO SEE A DOCTOR",
+    "NE ZAMAN DOKTORA",
+    "KUR TË SHKONI TE MJEKU",
+  ],
+} as const;
 
-const LIFESTYLE_SUBSECTION_MARKERS = [
-  "ERNÄHRUNG",
-  "BEWEGUNG",
-  "TRINKEN",
-  "NÄCHSTE KONTROLLE",
-] as const;
+const LIFESTYLE_SUBSECTION_ALIASES = {
+  nutrition: ["ERNÄHRUNG", "NUTRITION", "BESLENME", "USHQIMI"],
+  exercise: ["BEWEGUNG", "EXERCISE", "HAREKET", "LËVIZJA"],
+  hydration: ["TRINKEN", "HYDRATION", "SU", "UJI"],
+  nextCheckup: [
+    "NÄCHSTE KONTROLLE",
+    "NEXT CHECK-UP",
+    "NEXT CHECKUP",
+    "SONRAKI KONTROL",
+    "KONTROLLI I ARDHSHËM",
+  ],
+} as const;
+
+const LIFESTYLE_SUBSECTION_MARKERS = Object.values(LIFESTYLE_SUBSECTION_ALIASES)
+  .flat()
+  .join("|");
+
+const PATIENT_VALUE_LABEL =
+  /^(?:Ihr Wert|Your value|Değeriniz|Vlera juaj)\s*:/i;
+const REFERENCE_RANGE_LABEL =
+  /^(?:Normalbereich|Normal range|Normal aralık|Diapazoni normal)\s*:/i;
+const MEANING_LABEL =
+  /^(?:Was bedeutet das|What (?:this|does this) means?|Ne anlama geliyor|Çfarë do të thotë)\s*:/i;
+const STATUS_LABEL = /^Status\s*:/i;
+
+export function detectAnalysisLanguage(
+  text: string,
+  stored?: string | null,
+): AnalysisLanguage {
+  if (
+    stored === "de" ||
+    stored === "en" ||
+    stored === "tr" ||
+    stored === "sq"
+  ) {
+    return stored;
+  }
+
+  const sample = text.slice(0, 1200).toLowerCase();
+
+  const germanHits = (
+    sample.match(
+      /\b(zusammenfassung|ihr wert|normalbereich|was bedeutet das|nächste schritte|laborwerte)\b/g,
+    ) ?? []
+  ).length;
+  const englishHits = (
+    sample.match(
+      /\b(summary|your value|normal range|what this means|next steps|lab values)\b/g,
+    ) ?? []
+  ).length;
+  const turkishHits = (
+    sample.match(
+      /\b(özet|değeriniz|normal aralık|ne anlama geliyor|sonraki adımlar|laboratuvar)\b/g,
+    ) ?? []
+  ).length;
+  const albanianHits = (
+    sample.match(
+      /\b(përmbledhje|vlera juaj|diapazoni normal|çfarë do të thotë|hapat e ardhshëm|laboratorike)\b/g,
+    ) ?? []
+  ).length;
+
+  const scores: Array<[AnalysisLanguage, number]> = [
+    ["de", germanHits],
+    ["en", englishHits],
+    ["tr", turkishHits],
+    ["sq", albanianHits],
+  ];
+
+  scores.sort((left, right) => right[1] - left[1]);
+  if (scores[0][1] > 0) {
+    return scores[0][0];
+  }
+
+  return "de";
+}
 
 const EMOJI_LEVEL: Record<string, LabValueLevel> = {
   "🟢": "green",
@@ -75,14 +179,20 @@ export function getLabValueStatusKey(value: ParsedLabValue): LabValueStatusKey {
 
   if (
     value.level === "red" ||
-    (/erniedrigt|erhöht/.test(normalized) && !/leicht/.test(normalized))
+    (/erniedrigt|erhöht|elevated|high|low|düşük|i ulët|i lartë|yüksek|niedrig/.test(
+      normalized,
+    ) &&
+      !/leicht|slightly|hafif|lehtë/.test(normalized))
   ) {
-    if (/erniedrigt/.test(normalized)) return "low";
-    if (/erhöht/.test(normalized)) return "high";
+    if (/erniedrigt|low|düşük|i ulët|niedrig/.test(normalized)) return "low";
+    if (/erhöht|elevated|high|yüksek|i lartë/.test(normalized)) return "high";
     return "high";
   }
 
-  if (value.level === "amber" || /leicht|beacht/.test(normalized)) {
+  if (
+    value.level === "amber" ||
+    /leicht|beacht|watch|attention|dikkat|vëmendje|auffällig/.test(normalized)
+  ) {
     return "watch";
   }
 
@@ -114,23 +224,21 @@ export function stripInlineMarkdown(text: string) {
 
 export function parseLabAnalysis(text: string): ParsedLabAnalysis {
   const sections = splitSections(text);
-  const summary = extractSection(sections, "ZUSAMMENFASSUNG");
-  const valuesSection =
-    extractSection(sections, "IHRE LABORWERTE IM DETAIL") ||
-    extractSection(sections, "LABORWERTE IM DETAIL");
+  const summary = extractSectionByAliases(sections, SECTION_ALIASES.summary);
+  const valuesSection = extractSectionByAliases(sections, SECTION_ALIASES.values);
   const values = sortLabValuesByPriority(parseLabValues(valuesSection));
   const nextSteps = parseListItems(
-    extractSection(sections, "NÄCHSTE SCHRITTE"),
+    extractSectionByAliases(sections, SECTION_ALIASES.nextSteps),
   );
   const lifestylePlan = parseLifestylePlan(
-    extractSection(sections, "IHR PERSÖNLICHER LEBENSSTIL-PLAN"),
+    extractSectionByAliases(sections, SECTION_ALIASES.lifestyle),
   );
-  const personalGoalsSection = extractSection(
+  const personalGoalsSection = extractSectionByAliases(
     sections,
-    "IHRE PERSÖNLICHEN TAGESZIELE",
+    SECTION_ALIASES.goals,
   );
   const personalGoals = parsePersonalGoalsSection(personalGoalsSection);
-  const doctorVisit = extractSection(sections, "WANN ZUM ARZT");
+  const doctorVisit = extractSectionByAliases(sections, SECTION_ALIASES.doctor);
   const disclaimer =
     extractDisclaimer(sections) ||
     "Diese Erklärung ersetzt keine ärztliche Beratung.";
@@ -250,9 +358,21 @@ export function getLabAnalysisCounts(
 export function isDoctorVisitUrgent(text: string) {
   const normalized = text.toLowerCase();
 
-  return /dringend|sofort|umgehend|nicht warten|zeitnah|bald(ig)?|schnellstmöglich|heute|morgen|notfall|dringlich/.test(
+  return /dringend|sofort|umgehend|nicht warten|zeitnah|bald(ig)?|schnellstmöglich|heute|morgen|notfall|dringlich|urgent|immediately|as soon as possible|today|tomorrow|emergency|acil|hemen|derhal|sot|nesër|urgjent/.test(
     normalized,
   );
+}
+
+function extractSectionByAliases(
+  sections: string[],
+  aliases: readonly string[],
+) {
+  for (const alias of aliases) {
+    const content = extractSection(sections, alias);
+    if (content) return content;
+  }
+
+  return "";
 }
 
 function splitSections(text: string) {
@@ -283,8 +403,12 @@ function extractDisclaimer(sections: string[]) {
   const match = sections.find(
     (section) =>
       section.includes("⚕️") ||
-      /ärztliche beratung/i.test(section) ||
-      /ersetzt keine/i.test(section),
+      /ärztliche beratung|medical advice|tıbbi tavsiye|këshillë mjekësore/i.test(
+        section,
+      ) ||
+      /ersetzt keine|does not replace|doesn't replace|yerine geçmez|nuk zëvendëson/i.test(
+        section,
+      ),
   );
 
   return match?.replace(/^⚕️\s*/, "").trim() ?? "";
@@ -324,26 +448,26 @@ function parseLabValueBlock(block: string): ParsedLabValue | null {
   let currentField: "meaning" | null = null;
 
   for (const line of lines.slice(1)) {
-    if (line.startsWith("Ihr Wert:")) {
-      patientValue = line.replace(/^Ihr Wert:\s*/i, "").trim();
+    if (PATIENT_VALUE_LABEL.test(line)) {
+      patientValue = line.replace(PATIENT_VALUE_LABEL, "").trim();
       currentField = null;
       continue;
     }
 
-    if (line.startsWith("Normalbereich:")) {
-      referenceRange = line.replace(/^Normalbereich:\s*/i, "").trim();
+    if (REFERENCE_RANGE_LABEL.test(line)) {
+      referenceRange = line.replace(REFERENCE_RANGE_LABEL, "").trim();
       currentField = null;
       continue;
     }
 
-    if (line.startsWith("Was bedeutet das:")) {
-      meaning = line.replace(/^Was bedeutet das:\s*/i, "").trim();
+    if (MEANING_LABEL.test(line)) {
+      meaning = line.replace(MEANING_LABEL, "").trim();
       currentField = "meaning";
       continue;
     }
 
-    if (line.startsWith("Status:")) {
-      status = line.replace(/^Status:\s*/i, "").trim();
+    if (STATUS_LABEL.test(line)) {
+      status = line.replace(STATUS_LABEL, "").trim();
       currentField = null;
       continue;
     }
@@ -405,10 +529,22 @@ function parseLifestylePlan(section: string): LifestylePlan | null {
   if (!section.trim()) return null;
 
   const plan = {
-    nutrition: extractLifestyleSubsection(section, "ERNÄHRUNG"),
-    exercise: extractLifestyleSubsection(section, "BEWEGUNG"),
-    hydration: extractLifestyleSubsection(section, "TRINKEN"),
-    nextCheckup: extractLifestyleSubsection(section, "NÄCHSTE KONTROLLE"),
+    nutrition: extractLifestyleSubsection(
+      section,
+      LIFESTYLE_SUBSECTION_ALIASES.nutrition,
+    ),
+    exercise: extractLifestyleSubsection(
+      section,
+      LIFESTYLE_SUBSECTION_ALIASES.exercise,
+    ),
+    hydration: extractLifestyleSubsection(
+      section,
+      LIFESTYLE_SUBSECTION_ALIASES.hydration,
+    ),
+    nextCheckup: extractLifestyleSubsection(
+      section,
+      LIFESTYLE_SUBSECTION_ALIASES.nextCheckup,
+    ),
   };
 
   if (!plan.nutrition && !plan.exercise && !plan.hydration && !plan.nextCheckup) {
@@ -418,16 +554,23 @@ function parseLifestylePlan(section: string): LifestylePlan | null {
   return plan;
 }
 
-function extractLifestyleSubsection(section: string, marker: string) {
-  const pattern = new RegExp(
-    `(?:^|\\n)${marker}[^\\n]*\\n([\\s\\S]*?)(?=\\n(?:${LIFESTYLE_SUBSECTION_MARKERS.join("|")})\\b|$)`,
-    "i",
-  );
-  const match = section.match(pattern);
+function extractLifestyleSubsection(
+  section: string,
+  markers: readonly string[],
+) {
+  for (const marker of markers) {
+    const pattern = new RegExp(
+      `(?:^|\\n)${marker}[^\\n]*\\n([\\s\\S]*?)(?=\\n(?:${LIFESTYLE_SUBSECTION_MARKERS})\\b|$)`,
+      "i",
+    );
+    const match = section.match(pattern);
 
-  if (!match?.[1]) return "";
+    if (match?.[1]) {
+      return stripInlineMarkdown(match[1].trim());
+    }
+  }
 
-  return stripInlineMarkdown(match[1].trim());
+  return "";
 }
 
 export function statusBadgeClass(status: string, level: LabValueLevel) {

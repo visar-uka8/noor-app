@@ -2,15 +2,18 @@
 
 import { Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useLanguage } from "@/components/LanguageProvider";
 import { buildApiAuthHeaders } from "@/lib/api-auth";
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
+import {
+  formatLocalizedTodayActivityEntry,
+  getActivityTypeOptions,
+} from "@/lib/i18n/activity-labels";
 import { WaterQuickLog } from "@/components/WaterQuickLog";
 import type { HealthGoalsApiResponse } from "@/types/health-goals";
 import {
-  activityTypeOptions,
   durationOptions,
-  formatTodayActivityEntry,
   type ActivityType,
   type StoredActivityLog,
 } from "@/types/activity-log";
@@ -23,6 +26,8 @@ export function DailyActivityCard({
   onSaved?: () => void;
 }) {
   const router = useRouter();
+  const { t } = useLanguage();
+  const activityTypeOptions = useMemo(() => getActivityTypeOptions(t), [t]);
   const [selectedType, setSelectedType] = useState<ActivityType | null>(null);
   const [durationMinutes, setDurationMinutes] = useState<number | null>(null);
   const [note, setNote] = useState("");
@@ -82,12 +87,12 @@ export function DailyActivityCard({
 
   async function saveActivity() {
     if (!selectedType) {
-      setSaveError("Bitte wählen Sie eine Aktivität aus.");
+      setSaveError(t("activity_select_type"));
       return;
     }
 
     if (selectedType !== "rest" && durationMinutes == null) {
-      setSaveError("Bitte wählen Sie eine Dauer aus.");
+      setSaveError(t("activity_select_duration"));
       return;
     }
 
@@ -115,13 +120,11 @@ export function DailyActivityCard({
 
       if (!response.ok) {
         console.error("Activity save error:", payload?.error ?? response.status);
-        throw new Error(payload?.error ?? "Speichern fehlgeschlagen.");
+        throw new Error(payload?.error ?? t("common_save_failed"));
       }
 
       if (!payload?.log) {
-        throw new Error(
-          "Aktivität wurde gespeichert, konnte aber nicht bestätigt werden.",
-        );
+        throw new Error(t("activity_saved_confirm_failed"));
       }
 
       setSelectedType(null);
@@ -134,9 +137,7 @@ export function DailyActivityCard({
       window.setTimeout(() => setShowSavedMessage(false), 2500);
     } catch (error) {
       setSaveError(
-        error instanceof Error
-          ? error.message
-          : "Aktivität konnte nicht gespeichert werden.",
+        error instanceof Error ? error.message : t("activity_save_failed"),
       );
     } finally {
       setIsSaving(false);
@@ -164,7 +165,7 @@ export function DailyActivityCard({
       } | null;
 
       if (!response.ok) {
-        throw new Error(payload?.error ?? "Speichern fehlgeschlagen.");
+        throw new Error(payload?.error ?? t("common_save_failed"));
       }
 
       setWaterLiters(payload?.today?.waterLiters ?? liters);
@@ -176,7 +177,7 @@ export function DailyActivityCard({
       setWaterSaveError(
         error instanceof Error
           ? error.message
-          : "Wasser konnte nicht gespeichert werden.",
+          : t("common_water_save_failed"),
       );
     } finally {
       setIsSavingWater(false);
@@ -196,15 +197,15 @@ export function DailyActivityCard({
     <>
       {!embedded ? (
         <>
-          <h2 className="heading-lg">Aktivität heute</h2>
-          <p className="text-body mt-1 text-muted">Wie aktiv waren Sie heute?</p>
+          <h2 className="heading-lg">{t("activity_today")}</h2>
+          <p className="text-body mt-1 text-muted">{t("how_active_today")}</p>
         </>
       ) : null}
 
       {isLoading ? (
         <p className="text-body mt-4 flex items-center gap-2 text-muted">
           <Loader2 size={18} className="animate-spin" aria-hidden="true" />
-          Wird geladen…
+          {t("activity_loading_short")}
         </p>
       ) : (
         <>
@@ -215,7 +216,7 @@ export function DailyActivityCard({
                   key={log.id}
                   className="rounded-2xl border border-border bg-background px-4 py-3 text-sm text-foreground"
                 >
-                  {formatTodayActivityEntry(log)}
+                  {formatLocalizedTodayActivityEntry(log, t)}
                 </li>
               ))}
             </ul>
@@ -264,7 +265,7 @@ export function DailyActivityCard({
               {selectedType !== "rest" ? (
                 <div>
                   <span className="block text-base font-semibold text-foreground">
-                    Wie lange?
+                    {t("how_long")}
                   </span>
                   <div className="mt-3 flex flex-wrap gap-2">
                     {durationOptions.map((option) => {
@@ -295,13 +296,13 @@ export function DailyActivityCard({
 
               <label className="mt-5 block">
                 <span className="mb-2 block text-base font-semibold text-foreground">
-                  Notiz (optional)
+                  {t("note_optional")}
                 </span>
                 <input
                   type="text"
                   value={note}
                   onChange={(event) => setNote(event.target.value)}
-                  placeholder="z.B. 10km gelaufen"
+                  placeholder={t("activity_note_placeholder")}
                   className="min-h-12 w-full rounded-2xl border border-border bg-background px-4 text-base text-foreground outline-none focus:border-primary"
                 />
               </label>
@@ -319,7 +320,7 @@ export function DailyActivityCard({
                 className="btn-primary mt-5 w-full gap-2 disabled:opacity-70"
               >
                 {isSaving && <Loader2 size={20} className="animate-spin" />}
-                Speichern
+                {t("save_activity")}
               </button>
             </div>
           ) : null}
@@ -329,7 +330,7 @@ export function DailyActivityCard({
               className="mt-3 text-center text-sm font-semibold text-[#378ADD]"
               role="status"
             >
-              Wasser gespeichert ✓
+              {t("activity_water_saved")}
             </p>
           ) : null}
 
@@ -338,7 +339,7 @@ export function DailyActivityCard({
               className="mt-4 text-center text-base font-semibold text-primary"
               role="status"
             >
-              Aktivität gespeichert ✓
+              {t("activity_saved")}
             </p>
           ) : null}
         </>
@@ -347,11 +348,11 @@ export function DailyActivityCard({
   );
 
   if (embedded) {
-    return <div aria-label="Aktivität heute">{content}</div>;
+    return <div aria-label={t("activity_today")}>{content}</div>;
   }
 
   return (
-    <section className="noor-card p-5" aria-label="Aktivität heute">
+    <section className="noor-card p-5" aria-label={t("activity_today")}>
       {content}
     </section>
   );

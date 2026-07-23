@@ -43,18 +43,24 @@ export type FamilyRoleState = {
 
 export function formatWatcherFollowSubtitle(
   names: Array<string | null | undefined>,
+  t?: (key: string, vars?: Record<string, string | number>) => string,
 ) {
   const cleaned = names.map((name) => name?.trim()).filter(Boolean) as string[];
 
   if (cleaned.length === 0) {
-    return "Familie einladen →";
+    return t ? t("invite_family") : "Familie einladen →";
   }
 
   if (cleaned.length === 1) {
-    return `${cleaned[0]} folgt mit 💚`;
+    return t
+      ? t("family_follow_one", { name: cleaned[0] })
+      : `${cleaned[0]} folgt mit 💚`;
   }
 
-  return `${cleaned.join(" und ")} folgen mit 💚`;
+  const joined = cleaned.join(" und ");
+  return t
+    ? t("family_follow_many", { names: joined })
+    : `${joined} folgen mit 💚`;
 }
 
 export function buildWatcherFollowText(

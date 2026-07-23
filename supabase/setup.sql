@@ -266,6 +266,13 @@ create table if not exists public.appointments (
 create index if not exists appointments_patient_id_scheduled_at_idx
   on public.appointments (patient_id, scheduled_at desc);
 
+alter table public.appointments
+  add column if not exists user_id uuid references auth.users(id) on delete cascade,
+  add column if not exists notes text,
+  add column if not exists reminder_sent_at timestamptz,
+  add column if not exists preparation_text text,
+  add column if not exists preparation_notes text;
+
 -- >>> family_notes.sql
 create table if not exists public.family_notes (
   id uuid default gen_random_uuid() primary key,

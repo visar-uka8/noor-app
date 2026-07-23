@@ -1,6 +1,7 @@
 "use client";
 
 import { Check, Loader2 } from "lucide-react";
+import { useLanguage } from "@/components/LanguageProvider";
 import {
   formatConfirmationTime,
   type DoseVisualState,
@@ -44,11 +45,14 @@ const rowTimeColor: Record<DoseVisualState, string> = {
   upcoming: "text-[#1E1D1B]",
 };
 
-function getDoseStateLabel(state: DoseVisualState) {
-  if (state === "missed") return "Vergessen";
-  if (state === "confirmed") return "Bestätigt";
-  if (state === "due") return "Jetzt einnehmen";
-  return "Ausstehend";
+function getDoseStateLabel(
+  state: DoseVisualState,
+  t: ReturnType<typeof useLanguage>["t"],
+) {
+  if (state === "missed") return t("missed");
+  if (state === "confirmed") return t("confirmed");
+  if (state === "due") return t("med_take_now");
+  return t("pending");
 }
 
 export function MedicationGroupCard({
@@ -58,6 +62,7 @@ export function MedicationGroupCard({
   onConfirm,
   interactive = true,
 }: MedicationGroupCardProps) {
+  const { t } = useLanguage();
   return (
     <article
       className="relative z-[1] overflow-hidden rounded-2xl border border-[#E4E2DB] bg-white"
@@ -86,8 +91,8 @@ export function MedicationGroupCard({
             ? "text-[#633806]"
             : rowTimeColor[row.visualState];
           const stateLabel = isPendingAmber
-            ? "Ausstehend"
-            : getDoseStateLabel(row.visualState);
+            ? t("pending")
+            : getDoseStateLabel(row.visualState, t);
 
           return (
           <li
@@ -114,8 +119,10 @@ export function MedicationGroupCard({
                 className={`mt-0.5 text-[15px] font-medium ${timeColor}`}
               >
                 {row.visualState === "confirmed" && row.confirmedAt
-                  ? `Bestätigt um ${formatConfirmationTime(row.confirmedAt)} Uhr`
-                  : `${row.dose.time} Uhr`}
+                  ? t("confirmed_at", {
+                      time: formatConfirmationTime(row.confirmedAt),
+                    })
+                  : t("med_time_at", { time: row.dose.time })}
               </p>
             </div>
 
@@ -124,7 +131,9 @@ export function MedicationGroupCard({
               pending={row.pending}
               previewTheme={row.previewTheme}
               interactive={interactive}
-              ariaLabel={`${row.dose.displayLabel} als eingenommen bestätigen`}
+              ariaLabel={t("med_confirm_dose_aria", {
+                label: row.dose.displayLabel,
+              })}
               onConfirm={() => onConfirm(row.dose)}
             />
           </li>

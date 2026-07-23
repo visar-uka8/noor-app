@@ -1,7 +1,12 @@
 import { getActivityTypeTitle } from "@/types/activity-log";
 import type { ActivityType } from "@/types/activity-log";
 
-type Language = "de" | "en";
+import {
+  buildAiLanguageInstruction,
+  type AppLanguage,
+} from "@/lib/i18n/languages";
+
+type Language = AppLanguage;
 
 type AcceptedMediaType =
   | "image/jpeg"
@@ -209,7 +214,7 @@ ${filled
 }
 
 export function buildLabSystemPrompt(
-  _language: Language,
+  language: Language,
   userContext = "Kein Profil verfügbar.",
   activityContext = "Keine Aktivitätsdaten vorhanden.",
   conditionsContext = "Keine bekannten Erkrankungen.",
@@ -220,11 +225,9 @@ export function buildLabSystemPrompt(
   const weightLabel =
     metrics.weightKg != null ? `${metrics.weightKg}` : "unbekannt";
   const bmiLabel = metrics.bmi != null ? metrics.bmi.toFixed(1) : "unbekannt";
+  const languageInstruction = buildAiLanguageInstruction(language);
 
-  return `KRITISCH: Du antwortest IMMER auf Deutsch, egal in welcher 
-Sprache das Dokument ist oder die Frage gestellt wird.
-
-Du bist Noor, ein präziser Gesundheitsbegleiter.
+  return `${languageInstruction}
 
 ${userContext}
 
@@ -411,22 +414,23 @@ Wenn ein Wert dringend ist — sage das direkt.]
 ---
 ⚕️ Diese Erklärung ersetzt keine ärztliche Beratung. 
 Bei Fragen oder Unsicherheiten sprechen Sie bitte mit Ihrem Arzt.
----
-
-Antworte IMMER auf Deutsch.
-Wenn ein Wert auf dem Bild nicht lesbar ist, schreibe:
-'[Wertname] — nicht lesbar, bitte erneut fotografieren'`;
+---`;
 }
 
-export function buildLabUserPrompt(_language: Language) {
-  return `WICHTIG: Antworte NUR auf Deutsch — niemals auf Englisch.
+export function buildLabUserPrompt(language: Language) {
+  const languageInstruction = buildAiLanguageInstruction(language);
+
+  return `${languageInstruction}
 
 Bitte analysiere alle Laborwerte auf diesem Bild detailliert 
 nach dem vorgegebenen Format. Erkläre jeden einzelnen Wert — 
 auch wenn es viele sind. Überspringe keinen.
 
-Auch wenn das Labordokument auf Englisch ist — 
-deine Antwort muss immer auf Deutsch sein.`;
+Auch wenn das Labordokument in einer anderen Sprache ist —
+deine Antwort muss in der oben genannten Sprache sein.
+
+Wenn ein Wert auf dem Bild nicht lesbar ist, schreibe:
+'[Wertname] — nicht lesbar, bitte erneut fotografieren'`;
 }
 
 export function getLabAiProvider() {

@@ -1,6 +1,6 @@
 import Stripe from "stripe";
 import { createSupabaseDataClient } from "@/lib/supabase-data";
-import { getStripeClient, tierFromStripePriceId } from "@/lib/stripe";
+import { getStripeClient, stripe, tierFromStripePriceId } from "@/lib/stripe";
 import {
   findUserIdByStripeCustomerId,
   normalizeSubscriptionStatus,
@@ -26,6 +26,12 @@ function mapStripeSubscriptionStatus(
     default:
       return "active";
   }
+}
+
+function readUserIdFromMetadata(
+  metadata: Stripe.Metadata | null | undefined,
+) {
+  return metadata?.supabase_user_id ?? metadata?.userId ?? null;
 }
 
 async function resolveUserId(
@@ -71,10 +77,10 @@ async function applyFreeSubscription(
 }
 
 export async function POST(request: Request) {
-  const stripe = getStripeClient();
+  const stripeClient = stripe ?? getStripeClient();
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET?.trim();
 
-  if (!stripe || !webhookSecret) {
+  if (!stripeClient || !webhookSecret) {
     return Response.json({ error: "Stripe webhook not configured." }, { status: 503 });
   }
 
@@ -92,7 +98,7 @@ export async function POST(request: Request) {
 
   try {
     const rawBody = await request.text();
-    event = stripe.webhooks.constructEvent(rawBody, signature, webhookSecret);
+    event = stripeClient.webhooks.constructEvent(rawBody, signature, webhookSecret);
   } catch (error) {
     console.error("Stripe webhook signature verification failed", error);
     return Response.json({ error: "Invalid signature." }, { status: 400 });
@@ -103,20 +109,25 @@ export async function POST(request: Request) {
       case "checkout.session.completed": {
         const session = event.data.object as Stripe.Checkout.Session;
         const userId = await resolveUserId(supabase, {
-          userId: session.metadata?.userId ?? session.client_reference_id,
+          userId:
+            readUserIdFromMetadata(session.metadata) ??
+            session.client_reference_id,
           customerId:
             typeof session.customer === "string" ? session.customer : null,
         });
         const plan = session.metadata?.plan;
 
-        if (!userId || (plan !== "familie" && plan !== "familie_plus")) {
+        if (!userId) {
           break;
         }
+
+        const tier =
+          plan === "familie" || plan === "familie_plus" ? plan : "familie";
 
         await applyPaidSubscription(
           supabase,
           userId,
-          plan,
+          tier,
           "active",
           typeof session.customer === "string" ? session.customer : null,
         );
@@ -124,10 +135,11 @@ export async function POST(request: Request) {
       }
 
       case "customer.subscription.updated":
-      case "customer.subscription.deleted": {
+      case "customer.subscription.deleted":
+      case "customer.subscription.paused": {
         const subscription = event.data.object as Stripe.Subscription;
         const userId = await resolveUserId(supabase, {
-          userId: subscription.metadata?.userId,
+          userId: readUserIdFromMetadata(subscription.metadata),
           customerId:
             typeof subscription.customer === "string"
               ? subscription.customer
@@ -140,7 +152,9 @@ export async function POST(request: Request) {
 
         if (
           event.type === "customer.subscription.deleted" ||
-          subscription.status === "canceled"
+          event.type === "customer.subscription.paused" ||
+          subscription.status === "canceled" ||
+          subscription.status === "paused"
         ) {
           await applyFreeSubscription(supabase, userId);
           break;

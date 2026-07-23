@@ -9,6 +9,11 @@ import { notifyLabResultAlerts } from "@/lib/notifications";
 import { getLabAnalysisCounts, parseLabAnalysis } from "@/lib/parse-lab-analysis";
 import { saveHealthGoalsFromAnalysis } from "@/lib/health-goals";
 import { checkLabAnalysisQuota } from "@/lib/subscription";
+import {
+  isAppLanguage,
+  normalizeAppLanguage,
+  type AppLanguage,
+} from "@/lib/i18n/languages";
 import type { LabAnalysisResult } from "@/types/lab-results";
 
 export const runtime = "nodejs";
@@ -30,43 +35,61 @@ const ACCEPTED_MEDIA_TYPES = new Set<string>([
 
 const UNREADABLE_MARKER = "UNREADABLE";
 
-function errorMessage(language: "de" | "en", key: string) {
-  const messages: Record<string, Record<"de" | "en", string>> = {
+function errorMessage(language: AppLanguage, key: string) {
+  const messages: Record<string, Record<AppLanguage, string>> = {
     upload: {
       de: "Bitte laden Sie eine Datei hoch.",
       en: "Please upload a file.",
+      tr: "Lütfen bir dosya yükleyin.",
+      sq: "Ju lutem ngarkoni një skedar.",
     },
     invalid: {
       de: "Bitte laden Sie ein Foto (JPEG/PNG) oder eine PDF-Datei hoch.",
       en: "Please upload a photo (JPEG/PNG) or a PDF file.",
+      tr: "Lütfen bir fotoğraf (JPEG/PNG) veya PDF yükleyin.",
+      sq: "Ju lutem ngarkoni një foto (JPEG/PNG) ose PDF.",
     },
     heic: {
       de: "Dieses Fotoformat wird nicht unterstützt. Bitte wählen Sie JPEG oder PDF.",
       en: "This photo format is not supported. Please choose JPEG or PDF.",
+      tr: "Bu fotoğraf formatı desteklenmiyor. Lütfen JPEG veya PDF seçin.",
+      sq: "Ky format foto nuk mbështetet. Ju lutem zgjidhni JPEG ose PDF.",
     },
     unreadable: {
       de: "Das Bild war leider nicht gut lesbar. Bitte versuchen Sie ein klareres Foto aufzunehmen.",
       en: "The image was hard to read. Please try a clearer photo.",
+      tr: "Görüntü okunamadı. Lütfen daha net bir fotoğraf deneyin.",
+      sq: "Imazhi nuk ishte i lexueshëm. Ju lutem provoni një foto më të qartë.",
     },
     unavailable: {
       de: "Analyse momentan nicht verfügbar. Bitte versuchen Sie es später erneut.",
       en: "Analysis is temporarily unavailable. Please try again later.",
+      tr: "Analiz şu anda kullanılamıyor. Lütfen daha sonra tekrar deneyin.",
+      sq: "Analiza nuk është e disponueshme tani. Ju lutem provoni më vonë.",
     },
     rateLimit: {
       de: "Zu viele Anfragen gerade. Bitte warten Sie eine Minute und versuchen Sie es erneut.",
       en: "Too many requests right now. Please wait a minute and try again.",
+      tr: "Şu anda çok fazla istek var. Lütfen bir dakika bekleyip tekrar deneyin.",
+      sq: "Shumë kërkesa tani. Ju lutem prisni një minutë dhe provoni përsëri.",
     },
     notConfigured: {
       de: "Die KI-Analyse ist noch nicht eingerichtet. Ein kostenloser Google Gemini API-Schlüssel wird benötigt.",
       en: "AI analysis is not set up yet. A free Google Gemini API key is required.",
+      tr: "Yapay zeka analizi henüz kurulmadı. Ücretsiz bir Google Gemini API anahtarı gerekli.",
+      sq: "Analiza me AI nuk është konfiguruar ende. Kërkohet një çelës falas Google Gemini API.",
     },
     auth: {
       de: "Bitte melden Sie sich an, um Laborwerte zu speichern.",
       en: "Please sign in to save lab results.",
+      tr: "Laboratuvar sonuçlarını kaydetmek için lütfen giriş yapın.",
+      sq: "Ju lutem hyni për të ruajtur rezultatet e laboratorit.",
     },
     saveFailed: {
       de: "Die Analyse war erfolgreich, konnte aber nicht gespeichert werden. Bitte versuchen Sie es erneut.",
       en: "Analysis succeeded but could not be saved. Please try again.",
+      tr: "Analiz başarılı oldu ancak kaydedilemedi. Lütfen tekrar deneyin.",
+      sq: "Analiza u krye me sukses por nuk u ruajt. Ju lutem provoni përsëri.",
     },
   };
 
@@ -243,6 +266,7 @@ export async function POST(request: Request) {
         normal_count: counts.normal,
         watch_count: counts.watch,
         high_count: counts.high,
+        analysis_language: language,
       },
       { client: insertClientType },
     );
@@ -321,8 +345,28 @@ export async function POST(request: Request) {
   }
 }
 
-async function getUserLanguage() {
-  return "de" as const;
+async function getUserLanguage(): Promise<AppLanguage> {
+  try {
+    const authSupabase = await createClient();
+    const {
+      data: { user },
+    } = await authSupabase.auth.getUser();
+
+    if (!user?.id) {
+      return "de";
+    }
+
+    const supabase = createSupabaseDataClient() ?? authSupabase;
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("language")
+      .eq("id", user.id)
+      .maybeSingle<{ language: string | null }>();
+
+    return normalizeAppLanguage(profile?.language);
+  } catch {
+    return "de";
+  }
 }
 
 function isUnreadableResponse(text: string) {

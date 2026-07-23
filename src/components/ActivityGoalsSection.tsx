@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { GoalRow } from "@/components/GoalRow";
+import { useLanguage } from "@/components/LanguageProvider";
 import { buildApiAuthHeaders } from "@/lib/api-auth";
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 import type {
@@ -14,6 +15,7 @@ type ActivityGoalsSectionProps = {
 };
 
 export function ActivityGoalsSection({ onUpdated }: ActivityGoalsSectionProps) {
+  const { t } = useLanguage();
   const [data, setData] = useState<HealthGoalsApiResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [savingField, setSavingField] = useState<
@@ -127,7 +129,7 @@ export function ActivityGoalsSection({ onUpdated }: ActivityGoalsSectionProps) {
             textTransform: "uppercase",
           }}
         >
-          Meine Tagesziele
+          {t("daily_goals")}
         </div>
         <div
           style={{
@@ -137,20 +139,20 @@ export function ActivityGoalsSection({ onUpdated }: ActivityGoalsSectionProps) {
             lineHeight: 1.4,
           }}
         >
-          Basierend auf Laborwerten vom {goals.goalDateLabel}
+          {t("goals_based_on", { date: goals.goalDateLabel })}
         </div>
       </div>
 
       {goals.stepsGoal != null ? (
         <GoalRow
           emoji="🚶"
-          label="Schritte"
+          label={t("steps_goal")}
           current={today.steps}
           goal={goals.stepsGoal}
           unit=""
           color="#1D9E75"
           showInput
-          inputPlaceholder="Schritte eingeben"
+          inputPlaceholder={t("activity_steps_placeholder")}
           isSaving={savingField === "steps"}
           isLast={
             goals.waterGoalLiters == null && goals.proteinGoalGrams == null
@@ -162,13 +164,13 @@ export function ActivityGoalsSection({ onUpdated }: ActivityGoalsSectionProps) {
       {goals.waterGoalLiters != null ? (
         <GoalRow
           emoji="💧"
-          label="Wasser"
+          label={t("water_label")}
           current={today.waterLiters}
           goal={goals.waterGoalLiters}
           unit="L"
           color="#378ADD"
           showInput
-          inputPlaceholder="z.B. 1.5"
+          inputPlaceholder={t("activity_water_example")}
           quickButtons={["0.5", "1.0", "1.5", "2.0", "2.5", "3.0"]}
           isSaving={savingField === "waterLiters"}
           isLast={goals.proteinGoalGrams == null}
@@ -179,13 +181,13 @@ export function ActivityGoalsSection({ onUpdated }: ActivityGoalsSectionProps) {
       {goals.proteinGoalGrams != null ? (
         <GoalRow
           emoji="🥩"
-          label="Protein"
+          label={t("protein_goal")}
           current={today.proteinGrams}
           goal={goals.proteinGoalGrams}
           unit="g"
           color="#E8904A"
           showInput
-          inputPlaceholder="z.B. 80"
+          inputPlaceholder={t("activity_protein_example")}
           isSaving={savingField === "proteinGrams"}
           isLast
           onSave={(value) => saveField("proteinGrams", value)}

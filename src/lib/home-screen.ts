@@ -91,6 +91,12 @@ export type HomeScreenData = {
     percent: number;
     missingLabels: string[];
   } | null;
+  nextAppointment: {
+    id: string;
+    doctorName: string;
+    scheduledAt: string;
+    needsNotes: boolean;
+  } | null;
 };
 
 export function getTimeGreeting(date: Date) {
@@ -329,6 +335,7 @@ export function buildPreviewHomeScreenData(
     unreadFamilyNote: null,
     profileHealthIncomplete: false,
     profileHealthProgress: null,
+    nextAppointment: null,
   };
 }
 
@@ -384,4 +391,5 @@ export const demoHomeScreenData: HomeScreenData = {
   unreadFamilyNote: null,
   profileHealthIncomplete: false,
   profileHealthProgress: null,
+  nextAppointment: null,
 };

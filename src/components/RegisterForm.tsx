@@ -3,11 +3,18 @@
 import { Heart, Loader2, UsersRound } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ErrorBanner } from "@/components/AppStates";
 import { AuthInput, AuthPasswordInput } from "@/components/AuthInput";
 import { AuthShell } from "@/components/AuthShell";
+import { LanguageSelector } from "@/components/LanguageSelector";
+import { useLanguage } from "@/components/LanguageProvider";
 import { ProfileHealthFields } from "@/components/ProfileHealthFields";
+import {
+  DEFAULT_LANGUAGE,
+  SHOW_LANGUAGE_SELECTOR,
+  type AppLanguage,
+} from "@/lib/i18n/languages";
 import { getRegistrationConfirmUrl } from "@/lib/registration-onboarding";
 import { formatAuthError } from "@/lib/auth-errors";
 import { APP_BASE_URL } from "@/lib/site-gate";
@@ -20,7 +27,11 @@ import {
 } from "@/types/profile-health";
 import type { PendingRegistrationProfile, UserRole } from "@/types/profiles";
 
-type RegistrationStep = "form" | "profile-setup" | "role-select";
+type RegistrationStep =
+  | "form"
+  | "profile-setup"
+  | "role-select"
+  | "language-select";
 
 function isMarketingSite() {
   if (typeof window === "undefined") return false;
@@ -203,7 +214,11 @@ function profileToHealthData(
 export function RegisterForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { t, setLanguage } = useLanguage();
   const [step, setStep] = useState<RegistrationStep>("form");
+  const [registrationDestination, setRegistrationDestination] = useState("/");
+  const [selectedLanguage, setSelectedLanguage] =
+    useState<AppLanguage>(DEFAULT_LANGUAGE);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
@@ -217,6 +232,7 @@ export function RegisterForm() {
   const [isResumingOnboarding, setIsResumingOnboarding] = useState(false);
   const [awaitingEmailConfirmation, setAwaitingEmailConfirmation] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const autoFinishLanguageRef = useRef(false);
 
   useEffect(() => {
     const {
@@ -453,8 +469,8 @@ export function RegisterForm() {
     if (!pendingProfile) return;
 
     setIsLoading(true);
+    setRegistrationDestination(role === "family_member" ? "/family/connect" : "/");
 
-    const destination = role === "family_member" ? "/family/connect" : "/";
     const userId = pendingProfile.id;
 
     try {
@@ -470,7 +486,7 @@ export function RegisterForm() {
         role,
         user_type: role,
         elder_mode: false,
-        language: "de",
+        language: selectedLanguage,
         ...(healthData.dateOfBirth ? { date_of_birth: healthData.dateOfBirth } : {}),
       };
 
@@ -513,22 +529,77 @@ export function RegisterForm() {
       } else {
         console.log("Save result:", data);
       }
-    } catch (error) {
-      console.error(
-        "Role save failed:",
-        error instanceof Error ? error.message : error,
-      );
-    } finally {
+
       await establishRegistrationSession(
         userId,
         email || undefined,
         password || undefined,
       );
+
+      if (SHOW_LANGUAGE_SELECTOR) {
+        setStep("language-select");
+        return;
+      }
+
+      await finishRegistration(DEFAULT_LANGUAGE);
+    } catch (error) {
+      console.error(
+        "Role save failed:",
+        error instanceof Error ? error.message : error,
+      );
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Profil konnte nicht gespeichert werden.",
+      );
+    } finally {
       setIsLoading(false);
-      router.refresh();
-      redirectAfterRegistration(destination);
     }
   }
+
+  async function finishRegistration(language: AppLanguage) {
+    if (!pendingProfile) return;
+
+    setIsLoading(true);
+    setSelectedLanguage(language);
+
+    try {
+      await setLanguage(language, { persistProfile: true });
+      await establishRegistrationSession(
+        pendingProfile.id,
+        email || undefined,
+        password || undefined,
+      );
+      router.refresh();
+      redirectAfterRegistration(registrationDestination);
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Sprache konnte nicht gespeichert werden.",
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function handleLanguageSelect(language: AppLanguage) {
+    await finishRegistration(language);
+  }
+
+  useEffect(() => {
+    if (
+      SHOW_LANGUAGE_SELECTOR ||
+      !pendingProfile ||
+      step !== "language-select" ||
+      autoFinishLanguageRef.current
+    ) {
+      return;
+    }
+
+    autoFinishLanguageRef.current = true;
+    void finishRegistration(DEFAULT_LANGUAGE);
+  }, [pendingProfile, step]);
 
   if (isResumingOnboarding) {
     return (
@@ -599,15 +670,15 @@ export function RegisterForm() {
           <div className="mt-5 grid gap-4">
             <RoleCard
               icon={<Heart size={30} aria-hidden="true" />}
-              title="Für mich selbst"
-              description="Ich möchte meine Gesundheit einfach verstehen."
+              title={t("for_myself")}
+              description={t("for_myself_subtitle")}
               disabled={isLoading}
               onClick={() => void handleRoleSelect("patient")}
             />
             <RoleCard
               icon={<UsersRound size={30} aria-hidden="true" />}
-              title="Für mein Familienmitglied"
-              description="Ich begleite die Gesundheit eines Angehörigen."
+              title={t("for_family_member")}
+              description={t("for_family_member_subtitle")}
               disabled={isLoading}
               onClick={() => void handleRoleSelect("family_member")}
             />
@@ -616,6 +687,30 @@ export function RegisterForm() {
             <p className="mt-4 flex items-center justify-center gap-2 text-sm text-muted">
               <Loader2 size={18} className="animate-spin" aria-hidden="true" />
               Wird gespeichert…
+            </p>
+          ) : null}
+        </section>
+      </AuthShell>
+    );
+  }
+
+  if (pendingProfile && step === "language-select") {
+    return (
+      <AuthShell subtitle={t("language_select_subtitle")}>
+        <section className="noor-card p-5">
+          <h2 className="heading-lg">{t("language_select_title")}</h2>
+          <div className="mt-5">
+            <LanguageSelector
+              variant="registration"
+              value={selectedLanguage}
+              disabled={isLoading}
+              onChange={(language) => void handleLanguageSelect(language)}
+            />
+          </div>
+          {isLoading ? (
+            <p className="mt-4 flex items-center justify-center gap-2 text-sm text-muted">
+              <Loader2 size={18} className="animate-spin" aria-hidden="true" />
+              {t("common_one_moment")}
             </p>
           ) : null}
         </section>

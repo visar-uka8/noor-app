@@ -1,0 +1,98 @@
+/** Maps legacy dot-notation keys to common.json snake_case keys. */
+export const LEGACY_I18N_KEY_MAP: Record<string, string> = {
+  "nav.home": "nav_home",
+  "nav.family": "nav_family",
+  "nav.medication": "nav_medication",
+  "nav.lab": "nav_lab",
+  "nav.profile": "nav_profile",
+  "nav.main": "nav_main",
+  "common.back": "common_back",
+  "common.retry": "retry",
+  "common.oneMoment": "common_one_moment",
+  "common.slowConnection": "common_slow_connection",
+  "home.greetingMorning": "greeting_morning",
+  "home.greetingMidday": "greeting_day",
+  "home.greetingEvening": "greeting_evening",
+  "home.greetingNight": "greeting_night",
+  "home.welcomeBack": "home_welcome_back",
+  "home.openProfile": "home_open_profile",
+  "home.medications": "medications",
+  "home.labResults": "lab_results",
+  "home.family": "family",
+  "home.healthPassport": "health_passport",
+  "home.allConfirmed": "all_confirmed",
+  "home.confirmedCount": "home_confirmed_count",
+  "home.noLabYet": "no_result_yet",
+  "home.lastLab": "last_result",
+  "home.noFamily": "invite_family",
+  "home.oneFamily": "home_one_family",
+  "home.familyCount": "home_family_count",
+  "home.passportComplete": "home_passport_complete",
+  "home.passportIncomplete": "home_passport_incomplete",
+  "home.doseMissed": "home_dose_missed",
+  "home.confirmNow": "home_confirm_now",
+  "home.dosesPending": "one_dose_pending",
+  "home.dosesPendingPlural": "doses_pending",
+  "home.confirmPrompt": "home_confirm_prompt",
+  "home.confirm": "home_confirm",
+  "home.allMedsTaken": "all_medications_taken",
+  "lab.title": "lab_title",
+  "lab.uploadTitle": "upload_lab",
+  "lab.uploadHint": "upload_lab_subtitle",
+  "lab.takePhoto": "take_photo",
+  "lab.chooseFile": "select_file",
+  "lab.analyzeNow": "lab_analyze_now",
+  "lab.analyzing": "analyzing",
+  "lab.analyzingHint": "lab_analyzing_hint",
+  "lab.analyzingHintAlmost": "lab_analyzing_hint_almost",
+  "lab.analyzingHintLong": "lab_analyzing_hint_long",
+  "lab.privacy": "lab_privacy",
+  "lab.previewAlt": "lab_preview_alt",
+  "lab.uploadLabel": "lab_upload_label",
+  "lab.historyTitle": "previous_results",
+  "lab.historyEmptyTitle": "lab_history_empty_title",
+  "lab.historyEmptySubtitle": "lab_history_empty_subtitle",
+  "lab.analyzed": "analysed",
+  "lab.delete": "delete",
+  "lab.deleteCancel": "lab_delete_cancel",
+  "lab.deleting": "lab_deleting",
+  "lab.deleteConfirmTitle": "lab_delete_confirm_title",
+  "lab.deleteConfirmMessage": "lab_delete_confirm_message",
+  "lab.deleteFailed": "lab_delete_failed",
+  "lab.pdfSelected": "lab_pdf_selected",
+  "lab.errorTitle": "lab_error_title",
+  "lab.loginRequired": "lab_login_required",
+  "lab.heicUnsupported": "lab_heic_unsupported",
+  "lab.invalidFile": "lab_invalid_file",
+  "lab.unreadable": "lab_unreadable",
+  "lab.unavailable": "lab_unavailable",
+  "lab.saveFailed": "lab_save_failed",
+  "lab.notConfigured": "lab_not_configured",
+  "settings.language": "language",
+  "settings.languageSubtitle": "settings_language_subtitle",
+  "settings.german": "language",
+  "settings.english": "language",
+  "settings.personal": "settings_personal",
+  "settings.editProfile": "edit_profile",
+  "settings.textSize": "settings_text_size",
+  "settings.textSizeSubtitle": "settings_text_size_subtitle",
+  "settings.normal": "normal",
+  "settings.large": "large",
+};
+
+export function resolveI18nKey(key: string) {
+  return LEGACY_I18N_KEY_MAP[key] ?? key;
+}
+
+/** Converts legacy {var} interpolation to i18next {{var}}. */
+export function normalizeInterpolationVars(
+  vars?: Record<string, string | number>,
+) {
+  if (!vars) {
+    return undefined;
+  }
+
+  return Object.fromEntries(
+    Object.entries(vars).map(([name, value]) => [name, String(value)]),
+  );
+}

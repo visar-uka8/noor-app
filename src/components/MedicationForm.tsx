@@ -3,17 +3,18 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ErrorBanner } from "@/components/AppStates";
+import { useLanguage } from "@/components/LanguageProvider";
 import { Toggle } from "@/components/ui/Toggle";
 import { filterCommonMedications, getSuggestedDoses } from "@/lib/common-medications";
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 import { normalizeTimeValue } from "@/lib/medication-schedule";
 import {
   defaultTimeSlotValues,
-  timeSlotLabels,
   type MedicationTimeEntry,
   type MedicationTimeSlot,
   type StoredMedication,
 } from "@/types/medication";
+import { getMedicationTimeSlotLabel } from "@/lib/i18n/medication-labels";
 
 type SlotState = {
   enabled: boolean;
@@ -28,6 +29,7 @@ const slots: MedicationTimeSlot[] = ["morning", "midday", "evening"];
 
 export function MedicationForm({ medicationId }: MedicationFormProps) {
   const router = useRouter();
+  const { t } = useLanguage();
   const [name, setName] = useState("");
   const [dosage, setDosage] = useState("");
   const [slotStates, setSlotStates] = useState<Record<MedicationTimeSlot, SlotState>>({
@@ -54,8 +56,8 @@ export function MedicationForm({ medicationId }: MedicationFormProps) {
   const showNameDropdown = showSuggestions && trimmedName.length > 0;
 
   const savePreview = useMemo(
-    () => buildMedicationSavePreview(name, dosage, slotStates),
-    [name, dosage, slotStates],
+    () => buildMedicationSavePreview(name, dosage, slotStates, t),
+    [name, dosage, slotStates, t],
   );
 
   useEffect(() => {
@@ -82,7 +84,7 @@ export function MedicationForm({ medicationId }: MedicationFormProps) {
         const response = await fetchWithTimeout(`/api/medications/${medicationId}`);
 
         if (!response.ok) {
-          throw new Error("Medikament konnte nicht geladen werden.");
+          throw new Error(t("med_load_failed"));
         }
 
         const data = (await response.json()) as { medication: StoredMedication };
@@ -95,7 +97,7 @@ export function MedicationForm({ medicationId }: MedicationFormProps) {
         );
         setSlotStates(createSlotStatesFromMedication(data.medication.times));
       } catch {
-        setError("Medikament konnte gerade nicht geladen werden.");
+        setError(t("med_load_failed_retry"));
       } finally {
         setIsLoading(false);
       }
@@ -111,7 +113,7 @@ export function MedicationForm({ medicationId }: MedicationFormProps) {
     const times = buildTimesFromSlotStates(slotStates);
 
     if (times.length === 0) {
-      setError("Bitte wählen Sie mindestens eine Einnahmezeit.");
+      setError(t("med_select_time"));
       return;
     }
 
@@ -148,7 +150,7 @@ export function MedicationForm({ medicationId }: MedicationFormProps) {
       setError(
         saveError instanceof Error
           ? saveError.message
-          : "Medikament konnte gerade nicht gespeichert werden.",
+          : t("med_save_failed"),
       );
     } finally {
       setIsSaving(false);
@@ -158,7 +160,7 @@ export function MedicationForm({ medicationId }: MedicationFormProps) {
   if (isLoading) {
     return (
       <main className="mx-auto w-full max-w-app flex-1 px-5 py-6">
-        <p className="text-body text-muted">Medikament wird geladen…</p>
+        <p className="text-body text-muted">{t("med_loading")}</p>
       </main>
     );
   }
@@ -168,7 +170,7 @@ export function MedicationForm({ medicationId }: MedicationFormProps) {
       {error ? (
         <ErrorBanner
           message={error}
-          actionLabel="Verstanden"
+          actionLabel={t("understood")}
           onAction={() => setError(null)}
           onDismiss={() => setError(null)}
         />
@@ -178,7 +180,7 @@ export function MedicationForm({ medicationId }: MedicationFormProps) {
         <form onSubmit={(event) => void handleSubmit(event)} className="flex flex-col gap-6">
           <div className="flex flex-col gap-2">
             <label htmlFor="medication-name" className="text-base font-bold text-foreground">
-              Name des Medikaments
+              {t("medication_name")}
             </label>
             <div ref={nameFieldRef} className="relative">
               <input
@@ -199,7 +201,7 @@ export function MedicationForm({ medicationId }: MedicationFormProps) {
                     setShowSuggestions(true);
                   }
                 }}
-                placeholder="z.B. Omega-3, Metformin"
+                placeholder={t("med_name_placeholder")}
                 autoComplete="off"
                 className={`min-h-12 w-full border border-border bg-surface px-4 text-base text-foreground ${
                   showNameDropdown
@@ -213,7 +215,7 @@ export function MedicationForm({ medicationId }: MedicationFormProps) {
                   className="absolute left-0 right-0 top-full z-[100] max-h-[200px] overflow-y-auto rounded-b-xl border border-t-0 border-[#E4E2DB] bg-white shadow-[0_4px_12px_rgba(0,0,0,0.08)]"
                   style={{ borderWidth: "0.5px" }}
                   role="listbox"
-                  aria-label="Medikamentenvorschläge"
+                  aria-label={t("med_suggestions_aria")}
                 >
                   {nameSuggestions.map((medication) => (
                     <button
@@ -253,13 +255,13 @@ export function MedicationForm({ medicationId }: MedicationFormProps) {
           </div>
 
           <label className="flex flex-col gap-2">
-            <span className="text-base font-bold text-foreground">Dosierung</span>
+            <span className="text-base font-bold text-foreground">{t("dosage")}</span>
             <input
               type="text"
               required
               value={dosage}
               onChange={(event) => setDosage(event.target.value)}
-              placeholder="z.B. 500mg oder 1 Tablette"
+              placeholder={t("med_dosage_placeholder")}
               className="min-h-12 rounded-2xl border border-border bg-surface px-4 text-base text-foreground"
             />
             {suggestedDoses.length > 0 ? (
@@ -289,7 +291,7 @@ export function MedicationForm({ medicationId }: MedicationFormProps) {
 
           <section>
             <h2 className="text-base font-bold text-foreground">
-              Wann nehmen Sie dieses Medikament?
+              {t("when_take")}
             </h2>
 
             <div className="mt-4 flex flex-col gap-3">
@@ -297,7 +299,7 @@ export function MedicationForm({ medicationId }: MedicationFormProps) {
                 <div key={slot} className="noor-card p-4">
                   <div className="flex items-center justify-between gap-4">
                     <span className="text-base font-semibold text-foreground">
-                      {timeSlotLabels[slot]}
+                      {getMedicationTimeSlotLabel(slot, t)}
                     </span>
                     <Toggle
                       checked={slotStates[slot].enabled}
@@ -307,13 +309,15 @@ export function MedicationForm({ medicationId }: MedicationFormProps) {
                           [slot]: { ...current[slot], enabled: checked },
                         }))
                       }
-                      label={timeSlotLabels[slot]}
+                      label={getMedicationTimeSlotLabel(slot, t)}
                     />
                   </div>
 
                   {slotStates[slot].enabled ? (
                     <label className="mt-4 flex flex-col gap-2">
-                      <span className="text-sm font-semibold text-muted">Uhrzeit</span>
+                      <span className="text-sm font-semibold text-muted">
+                        {t("med_time_label")}
+                      </span>
                       <input
                         type="time"
                         value={slotStates[slot].time}
@@ -351,7 +355,7 @@ export function MedicationForm({ medicationId }: MedicationFormProps) {
             disabled={isSaving}
             className="btn-primary min-h-[52px] w-full"
           >
-            {isSaving ? "Wird gespeichert…" : "Medikament speichern"}
+            {isSaving ? t("med_saving") : t("save_medication")}
           </button>
         </form>
       </main>
@@ -380,6 +384,7 @@ function buildMedicationSavePreview(
   name: string,
   dosage: string,
   slotStates: Record<MedicationTimeSlot, SlotState>,
+  t: ReturnType<typeof useLanguage>["t"],
 ) {
   const trimmedName = name.trim();
   const trimmedDosage = dosage.trim();
@@ -390,7 +395,10 @@ function buildMedicationSavePreview(
 
   const scheduleParts = slots
     .filter((slot) => slotStates[slot].enabled)
-    .map((slot) => `${timeSlotLabels[slot]} ${slotStates[slot].time}`);
+    .map(
+      (slot) =>
+        `${getMedicationTimeSlotLabel(slot, t)} ${slotStates[slot].time}`,
+    );
 
   const parts = [trimmedName, trimmedDosage];
 

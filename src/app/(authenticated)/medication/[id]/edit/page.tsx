@@ -10,7 +10,7 @@ export default async function EditMedicationPage({
 
   return (
     <div className="flex flex-col">
-      <AppHeader showBack backHref="/medication" title="Medikament bearbeiten" />
+      <AppHeader showBack backHref="/medication" titleKey="med_page_edit" />
       <MedicationForm medicationId={id} />
     </div>
   );

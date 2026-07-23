@@ -5,6 +5,7 @@ import { queryFamilyLinkForPair } from "@/lib/family-links-query";
 import { checkFamilyMemberQuota } from "@/lib/subscription";
 import {
   getProfileFirstName,
+  getProfileLanguage,
   getUserEmail,
   sendFamilyConnectionAlert,
 } from "@/lib/notifications";
@@ -362,10 +363,12 @@ async function notifyPatientAboutFamilyConnection(
 
   const patientName = await getProfileFirstName(supabase, patientId);
   const familyMemberName = await getProfileFirstName(supabase, familyMemberId);
+  const patientLanguage = await getProfileLanguage(supabase, patientId);
 
   await sendFamilyConnectionAlert(
     patientEmail,
     patientName,
     familyMemberName,
+    patientLanguage,
   );
 }

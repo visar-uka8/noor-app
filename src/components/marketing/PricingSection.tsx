@@ -1,74 +1,51 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
 import { Check, X } from "lucide-react";
+import { CheckoutButton } from "@/components/CheckoutButton";
+import { SHOW_PRICING } from "@/lib/feature-flags";
 import { SUBSCRIPTION_PLANS } from "@/lib/subscription";
 import type { PaidSubscriptionTier } from "@/types/subscription";
 
 type PricingSectionProps = {
-  checkoutEnabled: boolean;
+  variant?: "info" | "checkout";
+  checkoutEnabled?: boolean;
+  priceIds?: Record<PaidSubscriptionTier, string>;
 };
 
-export function PricingSection({ checkoutEnabled }: PricingSectionProps) {
-  const [loadingPlan, setLoadingPlan] = useState<PaidSubscriptionTier | null>(
-    null,
-  );
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
-  async function startCheckout(plan: PaidSubscriptionTier) {
-    setLoadingPlan(plan);
-    setErrorMessage(null);
-
-    try {
-      const response = await fetch("/api/stripe/checkout", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan }),
-      });
-
-      const payload = (await response.json()) as {
-        url?: string;
-        error?: string;
-      };
-
-      if (response.status === 401) {
-        window.location.href = `/login?next=${encodeURIComponent("/preise")}`;
-        return;
-      }
-
-      if (!response.ok || !payload.url) {
-        throw new Error(payload.error ?? "Checkout fehlgeschlagen.");
-      }
-
-      window.location.href = payload.url;
-    } catch (error) {
-      setErrorMessage(
-        error instanceof Error
-          ? error.message
-          : "Checkout konnte nicht gestartet werden.",
-      );
-    } finally {
-      setLoadingPlan(null);
-    }
+export function PricingSection({
+  variant = "checkout",
+  checkoutEnabled = false,
+  priceIds = { familie: "", familie_plus: "" },
+}: PricingSectionProps) {
+  if (!SHOW_PRICING) {
+    return null;
   }
 
+  const isInfo = variant === "info";
+  const TitleTag = isInfo ? "h2" : "h1";
+
   return (
-    <section className="landing-pricing-section">
+    <section
+      id={isInfo ? "preise" : undefined}
+      className="landing-pricing-section"
+    >
       <div className="landing-pricing-inner">
         <div className="landing-pricing-header">
-          <p className="landing-pricing-label">PREISE</p>
-          <h1 className="landing-pricing-title">Einfach. Transparent. Fair.</h1>
-          <p className="landing-pricing-subtitle">
+          <p className="landing-pricing-label scroll-animate">PREISE</p>
+          <TitleTag className="landing-pricing-title scroll-animate delay-1">
+            Einfach. Transparent. Fair.
+          </TitleTag>
+          <p className="landing-pricing-subtitle scroll-animate delay-2">
             Starten Sie kostenlos — upgraden Sie, wenn Noor Teil Ihres
             Familienalltags wird.
           </p>
         </div>
 
-        {errorMessage ? (
+        {!isInfo && !checkoutEnabled ? (
           <p className="landing-pricing-error" role="alert">
-            {errorMessage}
+            Zahlungen sind gerade nicht verfügbar. Bitte versuchen Sie es später
+            erneut.
           </p>
         ) : null}
 
@@ -76,20 +53,24 @@ export function PricingSection({ checkoutEnabled }: PricingSectionProps) {
           {SUBSCRIPTION_PLANS.map((plan) => {
             const isRecommended = Boolean(plan.recommended);
             const isPaid = plan.tier !== "free";
+            const paidTier = isPaid ? (plan.tier as PaidSubscriptionTier) : null;
 
             return (
               <article
                 key={plan.tier}
-                className={`landing-pricing-card${
+                className={`landing-pricing-card scroll-animate${
                   isRecommended ? " landing-pricing-card-featured" : ""
                 }`}
               >
-                {isRecommended ? (
-                  <span className="landing-pricing-badge">Empfohlen</span>
-                ) : null}
-
                 <div className="landing-pricing-card-head">
-                  <h2 className="landing-pricing-plan-name">{plan.name}</h2>
+                  <div className="landing-pricing-plan-name-row">
+                    <h3 className="landing-pricing-plan-name">{plan.name}</h3>
+                    {isRecommended ? (
+                      <span className="landing-pricing-badge-inline">
+                        Empfohlen
+                      </span>
+                    ) : null}
+                  </div>
                   <p className="landing-pricing-price">{plan.priceLabel}</p>
                   {plan.tier !== "free" ? (
                     <p className="landing-pricing-description">
@@ -118,23 +99,39 @@ export function PricingSection({ checkoutEnabled }: PricingSectionProps) {
                   ))}
                 </ul>
 
-                {isPaid ? (
-                  <button
-                    type="button"
+                {isInfo ? (
+                  paidTier ? (
+                    <Link
+                      href="/preise"
+                      className={
+                        isRecommended
+                          ? "landing-pricing-cta landing-pricing-cta-primary"
+                          : "landing-pricing-cta"
+                      }
+                    >
+                      Mehr erfahren →
+                    </Link>
+                  ) : (
+                    <Link
+                      href="/register"
+                      className="landing-pricing-cta landing-pricing-cta-secondary"
+                    >
+                      Kostenlos starten
+                    </Link>
+                  )
+                ) : paidTier ? (
+                  <CheckoutButton
+                    plan={paidTier}
+                    priceId={priceIds[paidTier]}
+                    label={plan.ctaLabel}
+                    disabled={!checkoutEnabled}
                     className={
                       isRecommended
                         ? "landing-pricing-cta landing-pricing-cta-primary"
                         : "landing-pricing-cta"
                     }
-                    disabled={!checkoutEnabled || loadingPlan === plan.tier}
-                    onClick={() =>
-                      startCheckout(plan.tier as PaidSubscriptionTier)
-                    }
-                  >
-                    {loadingPlan === plan.tier
-                      ? "Wird geladen…"
-                      : plan.ctaLabel}
-                  </button>
+                    returnPath="/preise"
+                  />
                 ) : (
                   <Link
                     href="/register"

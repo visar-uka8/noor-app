@@ -4,6 +4,7 @@ import {
   formatGoalProgressValue,
   getGoalProgressRatio,
 } from "@/lib/health-goals-data";
+import { useLanguage } from "@/components/LanguageProvider";
 import type { HomeScreenData } from "@/lib/home-screen";
 
 type HomeWaterProgressProps = {
@@ -11,6 +12,7 @@ type HomeWaterProgressProps = {
 };
 
 export function HomeWaterProgress({ waterToday }: HomeWaterProgressProps) {
+  const { t } = useLanguage();
   const { liters, goalLiters } = waterToday;
   const reached = goalLiters > 0 && liters >= goalLiters;
   const progress = getGoalProgressRatio(liters, goalLiters);
@@ -33,7 +35,7 @@ export function HomeWaterProgress({ waterToday }: HomeWaterProgressProps) {
             color: "#085041",
           }}
         >
-          💧 Wasser
+          💧 {t("water_label")}
         </span>
         <span
           style={{
@@ -97,16 +99,18 @@ export function WaterQuickLog({
   error = null,
   onSave,
 }: WaterQuickLogProps) {
+  const { t } = useLanguage();
+
   return (
     <div className="mt-5 border-t border-border pt-5">
       <p className="text-base font-semibold text-[#085041]">
-        Wie viel Wasser haben Sie heute getrunken?
+        {t("water_prompt")}
       </p>
 
       <div
         className="mt-3 flex gap-1.5"
         role="group"
-        aria-label="Wasseraufnahme heute"
+        aria-label={t("water_intake_aria")}
       >
         {WATER_QUICK_OPTIONS.map((option) => {
           const selected = isWaterValueSelected(value, option.value);
@@ -139,7 +143,9 @@ export function WaterQuickLog({
 
       {value > 0 && !error ? (
         <p className="mt-3 text-sm font-medium text-[#378ADD]" role="status">
-          Heute: {formatGoalProgressValue(value, "L", { decimals: 1 })} gespeichert
+          {t("water_saved_today", {
+            amount: formatGoalProgressValue(value, "L", { decimals: 1 }),
+          })}
         </p>
       ) : null}
     </div>

@@ -1,4 +1,5 @@
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
+import type { AppLanguage } from "@/lib/i18n/languages";
 
 export const LAB_RESULT_LIST_COLUMNS =
   "id, file_url, ai_analysis, created_at";
@@ -10,6 +11,7 @@ export type LabResultInsertInput = {
   normal_count: number;
   watch_count: number;
   high_count: number;
+  analysis_language?: AppLanguage;
 };
 
 export type LabResultInsertDebug = {
@@ -40,6 +42,8 @@ function isMissingCountColumnError(error: PostgrestError) {
     message.includes("normal_count") ||
     message.includes("watch_count") ||
     message.includes("high_count") ||
+    message.includes("analysis_language") ||
+    message.includes("analysis_translations") ||
     message.includes("schema cache")
   );
 }
@@ -81,6 +85,7 @@ export async function insertLabResult(
     normal_count: input.normal_count,
     watch_count: input.watch_count,
     high_count: input.high_count,
+    analysis_language: input.analysis_language ?? "de",
   };
 
   let result = await supabase

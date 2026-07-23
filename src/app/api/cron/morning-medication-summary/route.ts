@@ -77,6 +77,7 @@ export async function GET(request: Request) {
           familyEmail: recipient.email,
           patientName,
           confirmations: patientConfirmations,
+          language: recipient.language,
         });
 
         if (!result.sent) continue;

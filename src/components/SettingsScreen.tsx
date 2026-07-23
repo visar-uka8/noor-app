@@ -14,13 +14,18 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { LanguageSelector } from "@/components/LanguageSelector";
+import { PaymentSuccessBanner } from "@/components/PaymentSuccessBanner";
+import { ProfileSubscriptionSection } from "@/components/ProfileSubscriptionSection";
 import { AvatarUploadButton } from "@/components/AvatarUploadButton";
 import { ErrorBanner, ErrorState, PageSkeleton } from "@/components/AppStates";
 import { useElderMode } from "@/components/ElderModeProvider";
 import { useLanguage } from "@/components/LanguageProvider";
+import { SHOW_PRICING } from "@/lib/feature-flags";
 import { Toggle } from "@/components/ui/Toggle";
 import { appVersion, contactEmail } from "@/lib/app-info";
+import { normalizeAppLanguage } from "@/lib/i18n/languages";
 import {
   fontSizeStorageKey,
   readFontSizePreference,
@@ -50,6 +55,7 @@ const demoSettings: SettingsData = {
     language: "de",
     elderMode: false,
     avatarUrl: null,
+    subscriptionTier: "free",
     notificationPreferences: defaultNotificationPreferences,
   },
   familyConnections: [
@@ -62,18 +68,10 @@ const demoSettings: SettingsData = {
   ],
 };
 
-const notificationLabels = {
-  section: "Benachrichtigungen",
-  emailHint: "Benachrichtigungen per E-Mail",
-  medications: "Medikamente",
-  labResults: "Laborwerte",
-  family: "Familie",
-} as const;
-
 export function SettingsScreen() {
   const router = useRouter();
   const { fontSize: contextFontSize, setFontSize } = useElderMode();
-  const { t } = useLanguage();
+  const { t, language, setLanguage } = useLanguage();
   const [fontSize, setFontSizeState] = useState<FontSizePreference>("normal");
   const [settings, setSettings] = useState<SettingsData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -184,14 +182,15 @@ export function SettingsScreen() {
           notificationPreferences:
             apiData?.profile.notificationPreferences ??
             fallbackProfile.notificationPreferences,
+          subscriptionTier:
+            apiData?.profile.subscriptionTier ??
+            fallbackProfile.subscriptionTier,
         },
         familyConnections: apiData?.familyConnections ?? [],
       });
 
       if (profileError || apiFailed) {
-        setLoadWarning(
-          "Einige Profildaten konnten nicht geladen werden. Sie können die Seite trotzdem nutzen.",
-        );
+        setLoadWarning(t("settings_load_warning"));
       }
     } catch (error) {
       console.error("Profile page crash:", error);
@@ -231,7 +230,7 @@ export function SettingsScreen() {
     });
 
     if (!response.ok) {
-      showError("Einstellungen konnten nicht gespeichert werden.");
+      showError(t("settings_error_save"));
     }
   }
 
@@ -266,7 +265,7 @@ export function SettingsScreen() {
   }
 
   async function setNotificationPreference(
-    key: "medications" | "labResults" | "family",
+    key: "medications" | "labResults" | "family" | "appointments",
     enabled: boolean,
   ) {
     if (!settings) return;
@@ -278,7 +277,8 @@ export function SettingsScreen() {
       emailNotifications:
         (key === "medications" ? enabled : current.medications) ||
         (key === "labResults" ? enabled : current.labResults) ||
-        (key === "family" ? enabled : current.family),
+        (key === "family" ? enabled : current.family) ||
+        (key === "appointments" ? enabled : current.appointments),
     };
 
     setSettings({
@@ -314,9 +314,9 @@ export function SettingsScreen() {
         ),
       });
       notifyFamilyConnectionsChanged();
-      showSuccess("Verbindung getrennt");
+      showSuccess(t("settings_success_disconnect"));
     } catch {
-      showError("Verbindung konnte nicht getrennt werden. Bitte versuchen Sie es erneut.");
+      showError(t("settings_error_disconnect"));
     } finally {
       setDisconnectingId(null);
     }
@@ -339,9 +339,9 @@ export function SettingsScreen() {
       anchor.download = `noor-datenexport-${new Date().toISOString().slice(0, 10)}.json`;
       anchor.click();
       window.URL.revokeObjectURL(url);
-      showSuccess("Datenexport gestartet");
+      showSuccess(t("settings_success_export"));
     } catch {
-      showError("Datenexport fehlgeschlagen. Bitte versuchen Sie es später erneut.");
+      showError(t("settings_error_export"));
     } finally {
       setIsExporting(false);
     }
@@ -366,7 +366,7 @@ export function SettingsScreen() {
 
       router.push("/login");
     } catch {
-      showError("Konto konnte nicht gelöscht werden. Bitte versuchen Sie es erneut.");
+      showError(t("settings_error_delete"));
       setIsDeleting(false);
       setShowDeleteDialog(false);
     }
@@ -402,7 +402,7 @@ export function SettingsScreen() {
       {bannerError ? (
         <ErrorBanner
           message={bannerError}
-          actionLabel="Verstanden"
+          actionLabel={t("understood")}
           onAction={() => setBannerError(null)}
           onDismiss={() => setBannerError(null)}
         />
@@ -422,6 +422,10 @@ export function SettingsScreen() {
       ) : null}
 
       <main className="mx-auto flex w-full max-w-app flex-1 flex-col px-5 py-6">
+        <Suspense fallback={null}>
+          {SHOW_PRICING ? <PaymentSuccessBanner /> : null}
+        </Suspense>
+
         {showElderToast && (
           <div
             className="fixed left-1/2 top-6 z-50 flex -translate-x-1/2 items-center gap-2 rounded-2xl bg-primary px-5 py-3 text-body font-semibold text-white shadow-xl"
@@ -472,13 +476,34 @@ export function SettingsScreen() {
               {t("settings.editProfile")}
             </Link>
             <p className="text-body mt-2 text-muted">
-              Größe, Gewicht, Geschlecht, Sport und mehr
+              {t("settings_profile_subtitle")}
             </p>
           </div>
         </section>
 
         <SectionHeading title={t("settings.personal")} />
         <section className="noor-card overflow-hidden">
+          <LanguageSelector
+            variant="settings"
+            value={language}
+            disabled={isDemo || isLoading}
+            onChange={(nextLanguage) => {
+              void (async () => {
+                await setLanguage(nextLanguage);
+                setSettings((current) =>
+                  current
+                    ? {
+                        ...current,
+                        profile: {
+                          ...current.profile,
+                          language: nextLanguage,
+                        },
+                      }
+                    : current,
+                );
+              })();
+            }}
+          />
           <TextSizeSettingsRow
             title={t("settings.textSize")}
             normalLabel={t("settings.normal")}
@@ -488,42 +513,49 @@ export function SettingsScreen() {
           />
         </section>
 
-        <SectionHeading title={notificationLabels.section} />
+        <SectionHeading title={t("notifications")} />
         <section className="noor-card overflow-hidden">
           <div
             className="border-b border-[#F0EFE9] px-4 py-3.5"
             style={{ borderBottomWidth: "0.5px", padding: "14px 16px" }}
           >
             <p className="text-[15px] font-semibold text-[#1E1D1B]">
-              {notificationLabels.emailHint}
+              {t("email_notifications")}
             </p>
             <p className="mt-1 text-sm text-muted">
-              E-Mail: {profile.email || "—"}
+              {t("settings_email_prefix")}: {profile.email || "—"}
             </p>
           </div>
 
           <NotificationToggleRow
-            label={notificationLabels.medications}
+            label={t("medications_notifications")}
             checked={profile.notificationPreferences.medications}
             onChange={(enabled) => void setNotificationPreference("medications", enabled)}
           />
           <NotificationToggleRow
-            label={notificationLabels.labResults}
+            label={t("lab_notifications")}
             checked={profile.notificationPreferences.labResults}
             onChange={(enabled) => void setNotificationPreference("labResults", enabled)}
           />
           <NotificationToggleRow
-            label={notificationLabels.family}
+            label={t("family_notifications")}
             checked={profile.notificationPreferences.family}
             onChange={(enabled) => void setNotificationPreference("family", enabled)}
           />
+          <NotificationToggleRow
+            label={t("settings_notifications_appointments")}
+            checked={profile.notificationPreferences.appointments}
+            onChange={(enabled) =>
+              void setNotificationPreference("appointments", enabled)
+            }
+          />
         </section>
 
-        <SectionHeading title="Familienverbindungen" />
+        <SectionHeading title={t("family_connections")} />
         <section className="noor-card p-5">
           {familyConnections.length === 0 ? (
             <p className="text-base text-muted">
-              Noch keine Familienmitglieder verbunden.
+              {t("settings_no_family_members")}
             </p>
           ) : (
             <ul className="space-y-4">
@@ -543,11 +575,22 @@ export function SettingsScreen() {
             className="btn-primary mt-5 w-full gap-2"
           >
             <UserPlus size={22} aria-hidden="true" />
-            Familie einladen
+            {t("invite_family_button")}
           </Link>
         </section>
 
-        <SectionHeading title="Konto" />
+        {SHOW_PRICING ? (
+          <>
+            <SectionHeading title={t("settings_subscription")} />
+            <section className="noor-card overflow-hidden">
+              <ProfileSubscriptionSection
+                subscriptionTier={profile.subscriptionTier}
+              />
+            </section>
+          </>
+        ) : null}
+
+        <SectionHeading title={t("account")} />
         <section className="noor-card overflow-hidden">
           <button
             type="button"
@@ -559,7 +602,7 @@ export function SettingsScreen() {
               <Download size={24} aria-hidden="true" />
             </span>
             <span className="text-base font-bold text-foreground">
-              {isExporting ? "Export wird erstellt…" : "Meine Daten exportieren"}
+              {isExporting ? t("settings_exporting") : t("export_data")}
             </span>
           </button>
           <button
@@ -570,7 +613,7 @@ export function SettingsScreen() {
             <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary-light text-primary">
               <LogOut size={24} aria-hidden="true" />
             </span>
-            <span className="text-base font-bold text-foreground">Abmelden</span>
+            <span className="text-base font-bold text-foreground">{t("logout")}</span>
           </button>
           <button
             type="button"
@@ -580,25 +623,25 @@ export function SettingsScreen() {
             <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-red-50">
               <Trash2 size={24} aria-hidden="true" />
             </span>
-            <span className="text-base font-bold">Konto löschen</span>
+            <span className="text-base font-bold">{t("delete_account")}</span>
           </button>
         </section>
 
-        <SectionHeading title="Über Noor" />
+        <SectionHeading title={t("about_noor")} />
         <section className="noor-card overflow-hidden">
           <SettingsRow
             icon={<Info size={24} aria-hidden="true" />}
-            title="App-Version"
+            title={t("app_version")}
             subtitle={appVersion}
           />
           <LinkRow
             icon={<FileText size={24} aria-hidden="true" />}
-            title="Datenschutzerklärung"
+            title={t("privacy")}
             href="/datenschutz"
           />
           <LinkRow
             icon={<FileText size={24} aria-hidden="true" />}
-            title="Impressum"
+            title={t("imprint")}
             href="/impressum"
           />
           <a
@@ -610,7 +653,7 @@ export function SettingsScreen() {
             </span>
             <span className="min-w-0 flex-1">
               <span className="block text-base font-bold text-foreground">
-                Kontakt
+                {t("contact")}
               </span>
               <span className="mt-1 block text-base text-primary">
                 {contactEmail}
@@ -622,10 +665,10 @@ export function SettingsScreen() {
 
       {showDeleteDialog && (
         <ConfirmDialog
-          title="Konto löschen"
-          message="Sind Sie sicher? Alle Ihre Daten werden gelöscht."
-          confirmLabel={isDeleting ? "Wird gelöscht…" : "Ja, Konto löschen"}
-          cancelLabel="Abbrechen"
+          title={t("settings_delete_confirm_title")}
+          message={t("settings_delete_confirm_message")}
+          confirmLabel={isDeleting ? t("settings_deleting") : t("settings_delete_confirm_yes")}
+          cancelLabel={t("cancel")}
           isLoading={isDeleting}
           onConfirm={() => void deleteAccount()}
           onCancel={() => setShowDeleteDialog(false)}
@@ -678,6 +721,8 @@ function FamilyConnectionCard({
   isDisconnecting: boolean;
   onDisconnect: () => void;
 }) {
+  const { t } = useLanguage();
+
   return (
     <li className="rounded-2xl border border-border bg-background p-4">
       <div className="flex items-start gap-3">
@@ -691,7 +736,7 @@ function FamilyConnectionCard({
           ) : null}
           <p className="mt-1 text-base text-muted">{connection.relationship}</p>
           <p className="mt-1 text-sm text-muted">
-            Verbunden seit {connection.connectedAt}
+            {t("settings_connected_since", { date: connection.connectedAt })}
           </p>
         </div>
       </div>
@@ -701,7 +746,7 @@ function FamilyConnectionCard({
         disabled={isDisconnecting}
         className="mt-4 min-h-12 w-full rounded-2xl border border-red-200 px-4 py-3 text-base font-semibold text-red-600 transition-colors hover:bg-red-50 disabled:opacity-60"
       >
-        {isDisconnecting ? "Wird getrennt…" : "Trennen"}
+        {isDisconnecting ? t("settings_disconnecting") : t("disconnect")}
       </button>
     </li>
   );

@@ -1,10 +1,12 @@
 "use client";
 
 import { useState } from "react";
+import { useLanguage } from "@/components/LanguageProvider";
 import {
-  formatActivityBarDayTooltip,
-  type ActivityBarDay,
-} from "@/lib/activity-history";
+  formatLocalizedBarDayTooltip,
+  formatLocalizedWeekday,
+} from "@/lib/i18n/activity-labels";
+import type { ActivityBarDay } from "@/lib/activity-history";
 import type { StoredActivityLog } from "@/types/activity-log";
 
 type ActivityLast14DaysChartProps = {
@@ -18,11 +20,16 @@ export function ActivityLast14DaysChart({
   entries,
   maxMinutes,
 }: ActivityLast14DaysChartProps) {
+  const { t, language } = useLanguage();
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const selectedDay = days.find((day) => day.date === selectedDate) ?? null;
 
   function handleBarPress(date: string) {
     setSelectedDate((current) => (current === date ? null : date));
+  }
+
+  function tooltipForDate(date: string) {
+    return formatLocalizedBarDayTooltip(date, entries, language, t);
   }
 
   return (
@@ -43,7 +50,7 @@ export function ActivityLast14DaysChart({
             textAlign: "center",
           }}
         >
-          {formatActivityBarDayTooltip(selectedDay.date, entries)}
+          {tooltipForDate(selectedDay.date)}
         </p>
       ) : null}
 
@@ -58,7 +65,7 @@ export function ActivityLast14DaysChart({
             <button
               key={day.date}
               type="button"
-              aria-label={formatActivityBarDayTooltip(day.date, entries)}
+              aria-label={tooltipForDate(day.date)}
               aria-pressed={isSelected}
               onClick={() => handleBarPress(day.date)}
               style={{
@@ -110,7 +117,7 @@ export function ActivityLast14DaysChart({
                     color: "#88856F",
                   }}
                 >
-                  {day.dayLabel}
+                  {formatLocalizedWeekday(language, day.date, "narrow")}
                 </span>
               </div>
             </button>

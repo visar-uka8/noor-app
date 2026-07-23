@@ -5,10 +5,12 @@ import { LandingHeroSection } from "@/components/marketing/LandingHeroSection";
 import { LandingHowItWorksSection } from "@/components/marketing/LandingHowItWorksSection";
 import { LandingNav } from "@/components/marketing/LandingNav";
 import { LandingPassportSection } from "@/components/marketing/LandingPassportSection";
+import { PricingSection } from "@/components/marketing/PricingSection";
 import { LandingProblemSection } from "@/components/marketing/LandingProblemSection";
 import { LandingScrollAnimator } from "@/components/marketing/LandingScrollAnimator";
 import { LandingStatsBar } from "@/components/marketing/LandingStatsBar";
 import { LandingTestimonialsSection } from "@/components/marketing/LandingTestimonialsSection";
+import { SHOW_PRICING } from "@/lib/feature-flags";
 
 const loginUrl = "/login";
 const registerUrl = "/register";
@@ -30,6 +32,7 @@ export function LandingPage() {
           <LandingHowItWorksSection />
           <LandingTestimonialsSection />
           <LandingPassportSection />
+          {SHOW_PRICING ? <PricingSection variant="info" /> : null}
 
           <FinalCtaSection loginUrl={loginUrl} registerUrl={registerUrl} />
           <FooterSection />
@@ -78,6 +81,11 @@ function FooterSection() {
     <footer className="landing-footer">
       <span className="landing-footer-brand">noor</span>
       <div className="landing-footer-links">
+        {SHOW_PRICING ? (
+          <Link href="/preise" className="landing-footer-link">
+            Preise
+          </Link>
+        ) : null}
         <Link href="/datenschutz" className="landing-footer-link">
           Datenschutzerklärung
         </Link>

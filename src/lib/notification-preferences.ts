@@ -3,7 +3,11 @@ import {
   type NotificationPreferences,
 } from "@/types/settings";
 
-export type NotificationPreferenceType = "medications" | "labResults" | "family";
+export type NotificationPreferenceType =
+  | "medications"
+  | "labResults"
+  | "family"
+  | "appointments";
 
 export function normalizeNotificationPreferences(
   value: unknown,
@@ -31,6 +35,10 @@ export function normalizeNotificationPreferences(
     family:
       typeof preferences.family === "boolean"
         ? preferences.family
+        : emailNotifications,
+    appointments:
+      typeof preferences.appointments === "boolean"
+        ? preferences.appointments
         : emailNotifications,
   };
 }

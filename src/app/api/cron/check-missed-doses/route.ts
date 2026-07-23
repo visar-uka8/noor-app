@@ -105,6 +105,7 @@ export async function GET(request: Request) {
                   medication.dosage,
                 ),
                 scheduledTime: entry.time,
+                language: patientRecipient.language,
               });
 
               if (result.sent) {
@@ -156,6 +157,7 @@ export async function GET(request: Request) {
                   medication.dosage,
                 ),
                 scheduledTime: entry.time,
+                language: recipient.language,
               });
 
               if (!result.sent) continue;

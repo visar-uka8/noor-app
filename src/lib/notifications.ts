@@ -1,6 +1,18 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { Resend } from "resend";
 import {
+  getAppointmentReminderEmail,
+  getFamilyConnectionEmail,
+  getLabResultEmail,
+  getMedicationConfirmedEmail,
+  getMedicationMissedFamilyEmail,
+  getMedicationMissedPatientEmail,
+} from "@/lib/i18n/email-templates";
+import {
+  normalizeAppLanguage,
+  type AppLanguage,
+} from "@/lib/i18n/languages";
+import {
   isNotificationEnabled,
   type NotificationPreferenceType,
 } from "@/lib/notification-preferences";
@@ -23,6 +35,7 @@ export type FamilyRecipient = {
   familyMemberId: string;
   email: string;
   firstName: string;
+  language: AppLanguage;
 };
 
 function getResendClient() {
@@ -81,34 +94,34 @@ export async function sendFamilyConnectionAlert(
   patientEmail: string,
   patientName: string,
   familyMemberName: string,
+  language: AppLanguage = "de",
 ) {
-  const subject = "Neue Familienverbindung bei Noor";
-  const text = `Hallo ${patientName},
+  const copy = getFamilyConnectionEmail(language, {
+    recipientName: patientName,
+    familyMemberName,
+  });
+  const text = `${copy.greeting}
 
-${familyMemberName} hat sich gerade mit Ihrem Noor-Konto verbunden. Er kann jetzt Ihre Medikamentenbestätigungen und Laborwerte sehen.
+${copy.body}
 
-Wenn Sie diese Verbindung nicht autorisiert haben, können Sie sie in der App unter Profil → Familienverbindungen trennen.
+${copy.warning}
 
 — Noor`;
 
   const html = renderNoorEmailHtml(
     [
-      paragraph(`Hallo ${patientName},`),
-      paragraph(
-        `${familyMemberName} hat sich gerade mit Ihrem Noor-Konto verbunden. Er kann jetzt Ihre Medikamentenbestätigungen und Laborwerte sehen.`,
-      ),
-      paragraph(
-        "Wenn Sie diese Verbindung nicht autorisiert haben, können Sie sie in der App unter Profil → Familienverbindungen trennen.",
-      ),
+      paragraph(copy.greeting),
+      paragraph(copy.body),
+      paragraph(copy.warning),
       signature(),
     ].join(""),
     {
-      label: "Familienverbindungen öffnen",
+      label: copy.ctaLabel,
       href: `${getAppUrl()}/settings`,
     },
   );
 
-  return sendEmail({ to: patientEmail, subject, html, text });
+  return sendEmail({ to: patientEmail, subject: copy.subject, html, text });
 }
 
 export async function sendMedicationConfirmedAlert(input: {
@@ -118,33 +131,41 @@ export async function sendMedicationConfirmedAlert(input: {
   doseSlotLabel: string;
   medicationName: string;
   confirmedAt: string;
+  language?: AppLanguage;
 }) {
-  const confirmedTime = formatGermanTime(input.confirmedAt);
-  const subject = `✓ ${input.patientName} hat seine Medikamente genommen`;
-  const text = `Hallo ${input.familyMemberName},
+  const confirmedTime = formatLocalizedTime(
+    input.confirmedAt,
+    input.language ?? "de",
+  );
+  const copy = getMedicationConfirmedEmail(input.language ?? "de", {
+    recipientName: input.familyMemberName,
+    name: input.patientName,
+    slot: input.doseSlotLabel,
+    medication: input.medicationName,
+    time: confirmedTime,
+  });
+  const text = `${copy.greeting}
 
-Gute Nachricht — ${input.patientName} hat gerade seine ${input.doseSlotLabel}-Dosis bestätigt:
-💊 ${input.medicationName} — ${confirmedTime} Uhr ✓
+${copy.intro}
+${copy.doseLine}
 
-Alles gut heute.
+${copy.footer}
 
 — Noor`;
 
   const html = renderNoorEmailHtml(
     [
-      paragraph(`Hallo ${input.familyMemberName},`),
-      paragraph(
-        `Gute Nachricht — ${input.patientName} hat gerade seine ${input.doseSlotLabel}-Dosis bestätigt:`,
-      ),
-      paragraph(`💊 ${input.medicationName} — ${confirmedTime} Uhr ✓`),
-      paragraph("Alles gut heute."),
+      paragraph(copy.greeting),
+      paragraph(copy.intro),
+      paragraph(copy.doseLine),
+      paragraph(copy.footer),
       signature(),
     ].join(""),
   );
 
   return sendEmail({
     to: input.familyEmail,
-    subject,
+    subject: copy.subject,
     html,
     text,
   });
@@ -155,35 +176,48 @@ export async function sendMorningMedicationSummaryAlert(input: {
   familyEmail: string;
   patientName: string;
   confirmations: MorningConfirmationItem[];
+  language?: AppLanguage;
 }) {
   if (input.confirmations.length === 0) {
     return { sent: false as const, reason: "empty_summary" as const };
   }
 
+  const language = input.language ?? "de";
   const lines = input.confirmations.map((item) => {
-    const time = formatGermanTime(item.confirmedAt);
-    return `💊 ${item.medicationName} — ${time} Uhr ✓`;
+    const time = formatLocalizedTime(item.confirmedAt, language);
+    return `💊 ${item.medicationName} — ${time} ✓`;
   });
 
-  const subject = `✓ ${input.patientName} hat seine Medikamente genommen`;
-  const text = `Hallo ${input.familyMemberName},
+  const copy = getMedicationConfirmedEmail(language, {
+    recipientName: input.familyMemberName,
+    name: input.patientName,
+    slot: "Morgen",
+    medication: lines.join(", "),
+    time: "",
+  });
+  const subject = copy.subject;
+  const text = `${copy.greeting}
 
-Gute Nachricht — ${input.patientName} hat heute folgende Morgendosen bestätigt:
+${language === "de"
+    ? `Gute Nachricht — ${input.patientName} hat heute folgende Morgendosen bestätigt:`
+    : language === "en"
+      ? `Good news — ${input.patientName} confirmed the following morning doses today:`
+      : language === "tr"
+        ? `İyi haber — ${input.patientName} bugün şu sabah dozlarını onayladı:`
+        : `Lajm i mirë — ${input.patientName} konfirmoi sot këto doza të mëngjesit:`}
 
 ${lines.join("\n")}
 
-Alles gut heute.
+${copy.footer}
 
 — Noor`;
 
   const html = renderNoorEmailHtml(
     [
-      paragraph(`Hallo ${input.familyMemberName},`),
-      paragraph(
-        `Gute Nachricht — ${input.patientName} hat heute folgende Morgendosen bestätigt:`,
-      ),
+      paragraph(copy.greeting),
+      paragraph(text.split("\n\n")[1] ?? ""),
       ...lines.map((line) => paragraph(line)),
-      paragraph("Alles gut heute."),
+      paragraph(copy.footer),
       signature(),
     ].join(""),
   );
@@ -202,40 +236,42 @@ export async function sendMedicationMissedPatientReminder(input: {
   doseSlotLabel: string;
   medicationName: string;
   scheduledTime: string;
+  language?: AppLanguage;
 }) {
-  const subject = `💊 Erinnerung: ${input.doseSlotLabel}-Dosis noch offen`;
-  const text = `Hallo ${input.patientName},
+  const copy = getMedicationMissedPatientEmail(input.language ?? "de", {
+    recipientName: input.patientName,
+    slot: input.doseSlotLabel,
+    medication: input.medicationName,
+    time: input.scheduledTime,
+  });
+  const text = `${copy.greeting}
 
-Sie haben Ihre ${input.doseSlotLabel}-Dosis noch nicht bestätigt:
-💊 ${input.medicationName} — fällig um ${input.scheduledTime} Uhr
+${copy.bodyLine}
+${copy.doseLine}
 
-Bitte öffnen Sie Noor und tippen Sie auf die Dosis, sobald Sie sie eingenommen haben.
+${copy.footer}
 
 — Noor`;
 
   const html = renderNoorEmailHtml(
     [
-      paragraph(`Hallo ${input.patientName},`),
-      paragraph(
-        `Sie haben Ihre ${input.doseSlotLabel}-Dosis noch nicht bestätigt:`,
-      ),
-      paragraph(
-        `💊 ${input.medicationName} — fällig um ${input.scheduledTime} Uhr`,
-      ),
-      paragraph(
-        "Bitte öffnen Sie Noor und tippen Sie auf die Dosis, sobald Sie sie eingenommen haben.",
-      ),
+      paragraph(copy.greeting),
+      paragraph(copy.bodyLine),
+      paragraph(copy.doseLine),
+      paragraph(copy.footer),
       signature(),
     ].join(""),
-    {
-      label: "Medikamente öffnen",
-      href: `${getAppUrl()}/medication`,
-    },
+    copy.ctaLabel
+      ? {
+          label: copy.ctaLabel,
+          href: `${getAppUrl()}/medication`,
+        }
+      : undefined,
   );
 
   return sendEmail({
     to: input.patientEmail,
-    subject,
+    subject: copy.subject,
     html,
     text,
   });
@@ -248,34 +284,37 @@ export async function sendMedicationMissedAlert(input: {
   doseSlotLabel: string;
   medicationName: string;
   scheduledTime: string;
+  language?: AppLanguage;
 }) {
-  const subject = `⚠️ ${input.patientName} hat eine Dosis noch nicht bestätigt`;
-  const text = `Hallo ${input.familyMemberName},
+  const copy = getMedicationMissedFamilyEmail(input.language ?? "de", {
+    recipientName: input.familyMemberName,
+    name: input.patientName,
+    slot: input.doseSlotLabel,
+    medication: input.medicationName,
+    time: input.scheduledTime,
+  });
+  const text = `${copy.greeting}
 
-${input.patientName} hat die ${input.doseSlotLabel}-Dosis noch nicht bestätigt:
-💊 ${input.medicationName} — fällig um ${input.scheduledTime} Uhr
+${copy.bodyLine}
+${copy.doseLine}
 
-Es könnte sich lohnen kurz anzurufen.
+${copy.footer}
 
 — Noor`;
 
   const html = renderNoorEmailHtml(
     [
-      paragraph(`Hallo ${input.familyMemberName},`),
-      paragraph(
-        `${input.patientName} hat die ${input.doseSlotLabel}-Dosis noch nicht bestätigt:`,
-      ),
-      paragraph(
-        `💊 ${input.medicationName} — fällig um ${input.scheduledTime} Uhr`,
-      ),
-      paragraph("Es könnte sich lohnen kurz anzurufen."),
+      paragraph(copy.greeting),
+      paragraph(copy.bodyLine),
+      paragraph(copy.doseLine),
+      paragraph(copy.footer),
       signature(),
     ].join(""),
   );
 
   return sendEmail({
     to: input.familyEmail,
-    subject,
+    subject: copy.subject,
     html,
     text,
   });
@@ -289,38 +328,43 @@ export async function sendLabResultAlert(
   watchCount: number,
   highCount: number,
   appUrl = getAppUrl(),
+  language: AppLanguage = "de",
 ) {
-  const subject = `Neue Laborwerte von ${patientName}`;
-  const text = `Hallo ${familyMemberName},
+  const copy = getLabResultEmail(language, {
+    recipientName: familyMemberName,
+    name: patientName,
+    normal: normalCount,
+    watch: watchCount,
+    high: highCount,
+  });
+  const text = `${copy.greeting}
 
-${patientName} hat heute neue Laborwerte hochgeladen.
+${copy.intro}
 
-Zusammenfassung:
-🟢 ${normalCount} Normal  🟡 ${watchCount} Beachten  🔴 ${highCount} Erhöht
+${copy.summaryLabel}
+${copy.summaryLine}
 
-Vollständige Analyse ansehen: ${appUrl}/lab-results
+${copy.ctaLabel}: ${appUrl}/lab-results
 
 — Noor`;
 
   const html = renderNoorEmailHtml(
     [
-      paragraph(`Hallo ${familyMemberName},`),
-      paragraph(`${patientName} hat heute neue Laborwerte hochgeladen.`),
-      paragraph("Zusammenfassung:"),
-      paragraph(
-        `🟢 ${normalCount} Normal  🟡 ${watchCount} Beachten  🔴 ${highCount} Erhöht`,
-      ),
+      paragraph(copy.greeting),
+      paragraph(copy.intro),
+      paragraph(copy.summaryLabel),
+      paragraph(copy.summaryLine),
       signature(),
     ].join(""),
     {
-      label: "Vollständige Analyse ansehen →",
+      label: copy.ctaLabel,
       href: `${appUrl}/lab-results`,
     },
   );
 
   return sendEmail({
     to: familyEmail,
-    subject,
+    subject: copy.subject,
     html,
     text,
   });
@@ -358,6 +402,7 @@ export async function notifyLabResultAlerts(
       counts.watch,
       counts.high,
       appUrl,
+      recipient.language,
     );
 
     if (!result.sent) continue;
@@ -394,17 +439,32 @@ export async function getProfileFirstName(
   return data?.first_name?.trim() || "Familie";
 }
 
+export async function getProfileLanguage(
+  supabase: SupabaseClient,
+  userId: string,
+): Promise<AppLanguage> {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("language")
+    .eq("id", userId)
+    .maybeSingle<{ language: string | null }>();
+
+  if (error) throw error;
+  return normalizeAppLanguage(data?.language);
+}
+
 export async function getPatientMedicationRecipient(
   supabase: SupabaseClient,
   patientId: string,
 ) {
   const { data: profile, error: profileError } = await supabase
     .from("profiles")
-    .select("first_name, notification_preferences")
+    .select("first_name, notification_preferences, language")
     .eq("id", patientId)
     .maybeSingle<{
       first_name: string | null;
       notification_preferences: Record<string, unknown> | null;
+      language: string | null;
     }>();
 
   if (profileError) throw profileError;
@@ -419,6 +479,7 @@ export async function getPatientMedicationRecipient(
   return {
     email,
     firstName: profile?.first_name?.trim() || "Sie",
+    language: normalizeAppLanguage(profile?.language),
   };
 }
 
@@ -440,11 +501,12 @@ export async function getFamilyMemberRecipients(
   for (const link of familyLinks ?? []) {
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
-      .select("first_name, notification_preferences")
+      .select("first_name, notification_preferences, language")
       .eq("id", link.family_member_id)
       .maybeSingle<{
         first_name: string | null;
         notification_preferences: Record<string, unknown> | null;
+        language: string | null;
       }>();
 
     if (profileError) throw profileError;
@@ -460,6 +522,7 @@ export async function getFamilyMemberRecipients(
       familyMemberId: link.family_member_id,
       email,
       firstName: profile?.first_name?.trim() || "Familie",
+      language: normalizeAppLanguage(profile?.language),
     });
   }
 
@@ -471,11 +534,68 @@ export function getDoseSlotLabel(doseTime: MedicationTimeSlot) {
 }
 
 export function formatGermanTime(value: string | Date) {
+  return formatLocalizedTime(value, "de");
+}
+
+const TIME_LOCALE: Record<AppLanguage, string> = {
+  de: "de-DE",
+  en: "en-GB",
+  tr: "tr-TR",
+  sq: "sq-AL",
+};
+
+export function formatLocalizedTime(
+  value: string | Date,
+  language: AppLanguage = "de",
+) {
   const date = value instanceof Date ? value : new Date(value);
-  return new Intl.DateTimeFormat("de-DE", {
+  return new Intl.DateTimeFormat(TIME_LOCALE[language] ?? "de-DE", {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
+}
+
+export async function sendAppointmentReminderAlert(input: {
+  email: string;
+  firstName: string;
+  doctorName: string;
+  appointmentWhen: string;
+  preparationText: string;
+  appointmentId: string;
+  language?: AppLanguage;
+}) {
+  const copy = getAppointmentReminderEmail(input.language ?? "de", {
+    recipientName: input.firstName,
+    doctorName: input.doctorName,
+    appointmentWhen: input.appointmentWhen,
+  });
+  const text = `${copy.greeting}
+
+${copy.intro}
+
+${input.preparationText}
+
+— Noor`;
+
+  const html = renderNoorEmailHtml(
+    [
+      paragraph(copy.greeting),
+      paragraph(copy.intro),
+      paragraph(input.preparationText.replace(/\n/g, "<br />")),
+      signature(),
+    ].join(""),
+    {
+      label: copy.ctaLabel,
+      href: `${getAppUrl()}/appointments`,
+    },
+  );
+
+  return sendEmail({
+    to: input.email,
+    subject: copy.subject,
+    html,
+    text,
+  });
 }
 
 export async function wasNotificationSentToday(

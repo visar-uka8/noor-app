@@ -7,7 +7,7 @@ export default function MedicationPage() {
   return (
     <FamilyMemberMedicationRedirect>
       <div className="flex flex-col">
-        <AppHeader showBack title="Medikamente" />
+        <AppHeader showBack titleKey="medications" />
         <MedicationErrorBoundary>
           <MedicationConfirmation />
         </MedicationErrorBoundary>

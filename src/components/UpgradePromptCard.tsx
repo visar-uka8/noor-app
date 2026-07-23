@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { SHOW_PRICING } from "@/lib/feature-flags";
 
 type UpgradePromptCardProps = {
   className?: string;
@@ -8,6 +9,10 @@ type UpgradePromptCardProps = {
 
 export function UpgradePromptCard({ className = "" }: UpgradePromptCardProps) {
   const router = useRouter();
+
+  if (!SHOW_PRICING) {
+    return null;
+  }
 
   return (
     <div
@@ -42,7 +47,7 @@ export function UpgradePromptCard({ className = "" }: UpgradePromptCardProps) {
       </div>
       <button
         type="button"
-        onClick={() => router.push("/preise")}
+        onClick={() => router.push("/settings/upgrade")}
         style={{
           backgroundColor: "#1D9E75",
           color: "#FFFFFF",

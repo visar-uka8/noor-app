@@ -1,4 +1,4 @@
-export type Language = "de" | "en";
+export type Language = "de" | "en" | "tr" | "sq";
 
 export type MessageKey = keyof typeof messages.de;
 
@@ -189,7 +189,9 @@ export function translate(
   key: MessageKey,
   vars?: Record<string, string | number>,
 ) {
-  let text: string = messages[language][key] ?? messages.de[key] ?? key;
+  const messageLanguage = language === "en" ? "en" : "de";
+  let text: string =
+    messages[messageLanguage][key] ?? messages.de[key] ?? key;
 
   if (vars) {
     for (const [name, value] of Object.entries(vars)) {
@@ -209,14 +211,19 @@ export function getTimeGreeting(language: Language, date: Date) {
   else if (hour >= 14 && hour < 23) key = "home.greetingEvening";
   else key = "home.greetingNight";
 
-  return translate(language, key);
+  const fallbackLanguage = language === "en" ? "en" : "de";
+  return translate(fallbackLanguage, key);
 }
 
-export function formatLocalizedDate(
-  _language: Language,
-  dateString: string,
-) {
-  return new Date(dateString).toLocaleDateString("de-DE", {
+const DATE_LOCALE: Record<Language, string> = {
+  de: "de-DE",
+  en: "en-GB",
+  tr: "tr-TR",
+  sq: "sq-AL",
+};
+
+export function formatLocalizedDate(language: Language, dateString: string) {
+  return new Date(dateString).toLocaleDateString(DATE_LOCALE[language] ?? "de-DE", {
     day: "numeric",
     month: "long",
     year: "numeric",

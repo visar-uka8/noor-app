@@ -16,7 +16,7 @@ export type Profile = {
   stripe_customer_id?: string | null;
   role: UserRole | null;
   elder_mode: boolean;
-  language: "de" | "en";
+  language: "de" | "en" | "tr" | "sq";
   created_at: string;
 };
 

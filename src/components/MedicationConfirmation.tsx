@@ -14,8 +14,10 @@ import {
   MedicationGroupCard,
 } from "@/components/MedicationGroupCard";
 import { MedicationConfirmationPreview } from "@/components/MedicationConfirmationPreview";
+import { MedicationPharmacySection } from "@/components/MedicationPharmacySection";
 import { MedicationStreakCard } from "@/components/MedicationStreakCard";
 import { SlowConnectionNotice } from "@/components/SlowConnectionNotice";
+import { useLanguage } from "@/components/LanguageProvider";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { useSlowConnection } from "@/hooks/useSlowConnection";
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
@@ -28,8 +30,10 @@ import {
   isDoseMoreThanTwoHoursEarly,
   normalizeMedicationTimes,
 } from "@/lib/medication-schedule";
+import {
+  formatMedicationScheduleEntry,
+} from "@/lib/i18n/medication-labels";
 import { getSupabase } from "@/lib/supabase";
-import { timeSlotLabels } from "@/types/medication";
 import type {
   DailyDoseSlot,
   StoredConfirmation,
@@ -50,6 +54,7 @@ export function MedicationConfirmation({
 
 function MedicationConfirmationConnected() {
   const router = useRouter();
+  const { t } = useLanguage();
   const isOnline = useOnlineStatus();
   const [medications, setMedications] = useState<StoredMedication[]>([]);
   const [confirmations, setConfirmations] = useState<StoredConfirmation[]>([]);
@@ -225,7 +230,7 @@ function MedicationConfirmationConnected() {
       setLoadErrorDetail(
         error instanceof Error
           ? error.message
-          : "Medikamente konnten nicht geladen werden.",
+          : t("med_load_list_failed"),
       );
     } finally {
       setIsLoading(false);
@@ -264,9 +269,9 @@ function MedicationConfirmationConnected() {
       <main className="mx-auto w-full max-w-app flex-1 px-5 py-6">
         <FeatureEmptyState
           emoji="💊"
-          title="Noch keine Medikamente"
-          subtitle="Fügen Sie Ihre Medikamente hinzu damit Noor Sie täglich erinnern kann."
-          actionLabel="Medikament hinzufügen"
+          title={t("med_no_medications")}
+          subtitle={t("med_empty_subtitle")}
+          actionLabel={t("add_medication")}
           href="/medication/add"
         />
       </main>
@@ -279,7 +284,7 @@ function MedicationConfirmationConnected() {
         <PageSkeleton />
         {isSlow ? (
           <div className="px-5 pb-6">
-            <SlowConnectionNotice message="Das dauert etwas länger — bitte warten Sie." />
+            <SlowConnectionNotice message={t("common.slowConnection")} />
           </div>
         ) : null}
       </>
@@ -325,7 +330,7 @@ function MedicationConfirmationConnected() {
 
     if (!dose?.medicationId) {
       console.error("No medication ID available to confirm");
-      setSaveError("Bestätigung fehlgeschlagen: Medikament-ID fehlt.");
+      setSaveError(t("med_confirm_failed"));
       return;
     }
 
@@ -502,7 +507,7 @@ function MedicationConfirmationConnected() {
       void refreshStreak();
     } catch {
       setSaveError(
-        "Rückgängig machen ist gerade nicht möglich. Bitte versuchen Sie es erneut.",
+        t("med_undo_failed"),
       );
     } finally {
       setIsUndoing(false);
@@ -527,7 +532,7 @@ function MedicationConfirmationConnected() {
       await loadMedicationData();
       router.refresh();
     } catch {
-      setSaveError("Medikament konnte gerade nicht entfernt werden.");
+      setSaveError(t("med_delete_failed"));
     } finally {
       setIsDeleting(false);
     }
@@ -542,7 +547,7 @@ function MedicationConfirmationConnected() {
       {saveError ? (
         <ErrorBanner
           message={saveError}
-          actionLabel="Verstanden"
+          actionLabel={t("understood")}
           onAction={() => setSaveError(null)}
           onDismiss={() => setSaveError(null)}
         />
@@ -558,17 +563,17 @@ function MedicationConfirmationConnected() {
         <MedicationStreakCard streak={streak} variant="medication" />
 
         <p className="instruction-text mb-6 text-[#555555]">
-          Tippen Sie wenn Sie Ihr Medikament genommen haben 💚
+          {t("med_tap_instruction")}
         </p>
 
         {isSaving && isSlow ? (
-          <SlowConnectionNotice message="Wird gespeichert — bei langsamem Internet kann das einen Moment dauern." />
+          <SlowConnectionNotice message={t("common.slowConnection")} />
         ) : null}
 
         <div
           className="flex flex-col gap-3"
           role="group"
-          aria-label="Tägliche Medikamenteneinnahme"
+          aria-label={t("med_daily_aria")}
         >
           {groupedMedications.map((group) => (
             <MedicationGroupCard
@@ -586,22 +591,23 @@ function MedicationConfirmationConnected() {
           onDelete={setMedicationToDelete}
         />
 
+        <MedicationPharmacySection />
+
         {undoTarget ? (
           <section className="noor-card mt-5 p-4" role="status">
             <p className="text-body text-foreground">
-              <span className="font-bold">{undoTarget.dose.displayLabel}</span>{" "}
-              bestätigt.
+              {t("med_dose_confirmed_undo", {
+                label: undoTarget.dose.displayLabel,
+              })}
             </p>
-            <p className="text-body mt-1 text-muted">
-              Versehentlich getippt? Sie können das noch rückgängig machen.
-            </p>
+            <p className="text-body mt-1 text-muted">{t("med_undo_hint")}</p>
             <button
               type="button"
               onClick={() => void undoConfirmation()}
               disabled={isUndoing}
               className="btn-touch mt-4 w-full rounded-2xl border-2 border-warning bg-warning-light px-4 py-3 text-base font-bold text-warning"
             >
-              {isUndoing ? "Wird rückgängig gemacht…" : "Rückgängig machen"}
+              {isUndoing ? t("med_undoing") : t("med_undo")}
             </button>
           </section>
         ) : null}
@@ -611,7 +617,7 @@ function MedicationConfirmationConnected() {
             className="text-body mt-6 rounded-2xl bg-primary-light px-5 py-4 text-center font-semibold text-heading"
             role="status"
           >
-            Alle Einnahmen für heute bestätigt. Ihre Familie wird informiert.
+            {t("med_all_doses_confirmed")}
           </p>
         ) : null}
       </main>
@@ -660,21 +666,15 @@ function MedicationManageSection({
   medications: StoredMedication[];
   onDelete: (medication: StoredMedication) => void;
 }) {
-  const groupedMedications = groupMedicationsForManage(medications);
+  const { t } = useLanguage();
+  const groupedMedications = groupMedicationsForManage(medications, t);
 
   return (
-    <>
-      <div
-        className="h-px bg-[#E4E2DB]"
-        style={{ margin: "24px 0 20px 0" }}
-        aria-hidden="true"
-      />
-
-      <section>
-        <h2 className="text-lg font-bold text-[#085041]">Medikamente verwalten</h2>
-        <p className="mt-1 text-[13px] text-[#88856F]">
-          Bearbeiten oder entfernen Sie Ihre Medikamente
-        </p>
+    <section className="noor-card mt-5 p-5">
+      <h2 className="text-lg font-bold text-[#085041]">{t("manage_medications")}</h2>
+      <p className="mt-1 text-[13px] text-[#88856F]">
+        {t("med_manage_subtitle")}
+      </p>
 
       <ul className="mt-4 flex flex-col gap-3">
         {groupedMedications.map(({ medication, scheduleLabel }) => (
@@ -701,14 +701,14 @@ function MedicationManageSection({
                 href={`/medication/${medication.id}/edit`}
                 className="whitespace-nowrap rounded-lg border border-[#1D9E75] bg-transparent px-4 py-1.5 text-center text-[13px] font-semibold text-[#1D9E75]"
               >
-                Bearbeiten
+                {t("edit")}
               </Link>
               <button
                 type="button"
                 onClick={() => onDelete(medication)}
                 className="whitespace-nowrap rounded-lg border border-[#A32D2D] bg-transparent px-4 py-1.5 text-[13px] font-semibold text-[#A32D2D]"
               >
-                Löschen
+                {t("delete")}
               </button>
             </div>
           </li>
@@ -716,20 +716,16 @@ function MedicationManageSection({
       </ul>
 
       <Link href="/medication/add" className="btn-primary mt-4 min-h-[52px] w-full">
-        + Medikament hinzufügen
+        {t("add_medication")}
       </Link>
-      </section>
-    </>
+    </section>
   );
 }
 
-function formatMedicationSchedule(medication: StoredMedication) {
-  return normalizeMedicationTimes(medication?.times)
-    .map((entry) => `${timeSlotLabels[entry.slot]} ${entry.time}`)
-    .join(" · ");
-}
-
-function groupMedicationsForManage(medications: StoredMedication[]) {
+function groupMedicationsForManage(
+  medications: StoredMedication[],
+  t: ReturnType<typeof useLanguage>["t"],
+) {
   const groups = new Map<
     string,
     {
@@ -740,8 +736,8 @@ function groupMedicationsForManage(medications: StoredMedication[]) {
 
   for (const medication of medications) {
     const key = `${medication.name.trim().toLowerCase()}::${medication.dosage.trim().toLowerCase()}`;
-    const schedule = normalizeMedicationTimes(medication.times).map(
-      (entry) => `${timeSlotLabels[entry.slot]} ${entry.time}`,
+    const schedule = normalizeMedicationTimes(medication.times).map((entry) =>
+      formatMedicationScheduleEntry(entry, t),
     );
     const existing = groups.get(key);
 
@@ -775,6 +771,8 @@ function EarlyConfirmDialog({
   onConfirm: () => void;
   onCancel: () => void;
 }) {
+  const { t } = useLanguage();
+
   return (
     <div
       style={{
@@ -810,7 +808,7 @@ function EarlyConfirmDialog({
             marginBottom: "8px",
           }}
         >
-          Zu früh?
+          {t("med_early_title")}
         </div>
         <div
           style={{
@@ -820,8 +818,7 @@ function EarlyConfirmDialog({
             lineHeight: "1.5",
           }}
         >
-          {medicationName} ist erst um {scheduledTime} Uhr geplant. Möchten Sie
-          es trotzdem jetzt bestätigen?
+          {t("med_early_body", { name: medicationName, time: scheduledTime })}
         </div>
         <div style={{ display: "flex", gap: "10px" }}>
           <button
@@ -839,7 +836,7 @@ function EarlyConfirmDialog({
               cursor: "pointer",
             }}
           >
-            Abbrechen
+            {t("cancel")}
           </button>
           <button
             type="button"
@@ -856,7 +853,7 @@ function EarlyConfirmDialog({
               cursor: "pointer",
             }}
           >
-            Ja, bestätigen
+            {t("med_confirm_yes")}
           </button>
         </div>
       </div>
@@ -873,6 +870,8 @@ function MedicationConfirmDialog({
   onConfirm: () => void;
   onCancel: () => void;
 }) {
+  const { t } = useLanguage();
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 px-5"
@@ -882,23 +881,21 @@ function MedicationConfirmDialog({
     >
       <div className="w-full max-w-app rounded-2xl border border-border bg-surface p-5 shadow-[var(--warm-shadow)]">
         <h3 id="medication-confirm-title" className="heading-lg">
-          Wirklich genommen?
+          {t("med_taken_title")}
         </h3>
         <p className="text-body mt-3 text-muted">
-          Haben Sie{" "}
-          <span className="font-bold text-foreground">{dose.displayLabel}</span>{" "}
-          wirklich eingenommen?
+          {t("med_taken_body", { label: dose.displayLabel })}
         </p>
         <div className="mt-5 grid grid-cols-1 gap-3">
           <button type="button" onClick={onConfirm} className="btn-primary w-full">
-            Ja, genommen
+            {t("med_taken_yes")}
           </button>
           <button
             type="button"
             onClick={onCancel}
             className="btn-touch w-full rounded-2xl border border-border px-4 py-3 text-base font-semibold text-foreground"
           >
-            Noch nicht
+            {t("med_taken_not_yet")}
           </button>
         </div>
       </div>
@@ -917,6 +914,8 @@ function DeleteMedicationDialog({
   onConfirm: () => void;
   onCancel: () => void;
 }) {
+  const { t } = useLanguage();
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 px-5"
@@ -926,11 +925,10 @@ function DeleteMedicationDialog({
     >
       <div className="w-full max-w-app rounded-2xl border border-border bg-surface p-5 shadow-[var(--warm-shadow)]">
         <h3 id="medication-delete-title" className="heading-lg">
-          Medikament entfernen
+          {t("med_remove")}
         </h3>
         <p className="text-body mt-3 text-muted">
-          Möchten Sie <span className="font-bold text-foreground">{name}</span>{" "}
-          wirklich entfernen?
+          {t("med_remove_confirm", { name })}
         </p>
         <div className="mt-5 grid grid-cols-1 gap-3">
           <button
@@ -939,7 +937,7 @@ function DeleteMedicationDialog({
             disabled={isDeleting}
             className="min-h-12 rounded-2xl bg-red-600 px-4 py-3 text-base font-semibold text-white disabled:opacity-60"
           >
-            {isDeleting ? "Wird entfernt…" : "Löschen"}
+            {isDeleting ? t("med_removing") : t("delete")}
           </button>
           <button
             type="button"
@@ -947,7 +945,7 @@ function DeleteMedicationDialog({
             disabled={isDeleting}
             className="btn-touch w-full rounded-2xl border border-border px-4 py-3 text-base font-semibold text-foreground"
           >
-            Abbrechen
+            {t("cancel")}
           </button>
         </div>
       </div>
@@ -964,6 +962,8 @@ function MedicationStatusBanner({
   missedCount: number;
   pendingCount: number;
 }) {
+  const { t } = useLanguage();
+
   if (allConfirmed) {
     return (
       <section
@@ -971,7 +971,7 @@ function MedicationStatusBanner({
         style={{ borderWidth: "0.5px" }}
         aria-live="polite"
       >
-        Alle Medikamente heute genommen ✓
+        {t("med_status_all_taken")}
       </section>
     );
   }
@@ -983,8 +983,8 @@ function MedicationStatusBanner({
 
   const message =
     outstandingCount === 1
-      ? "Noch 1 Dosis ausstehend"
-      : `Noch ${outstandingCount} Dosen ausstehend`;
+      ? t("med_outstanding_one")
+      : t("med_outstanding_many", { count: outstandingCount });
 
   return (
     <section

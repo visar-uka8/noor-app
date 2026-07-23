@@ -1,8 +1,8 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { useLanguage } from "@/components/LanguageProvider";
 import { HomeWaterProgress } from "@/components/WaterQuickLog";
-import { formatHomeActivityWeekSubtitle } from "@/types/activity-log";
 import type { HomeScreenData } from "@/lib/home-screen";
 
 type HomeTodayActivityCardProps = {
@@ -17,7 +17,12 @@ export function HomeTodayActivityCard({
   waterToday,
 }: HomeTodayActivityCardProps) {
   const router = useRouter();
-  const weekSubtitle = formatHomeActivityWeekSubtitle(week);
+  const { t } = useLanguage();
+
+  const weekSubtitle = t("home_activity_week", {
+    days: week.activeDays,
+    minutes: week.totalMinutes,
+  });
 
   function navigateToActivity() {
     router.push("/activity");
@@ -31,12 +36,18 @@ export function HomeTodayActivityCard({
   }
 
   const emoji = activity?.emoji ?? "🏃";
-  const title = activity?.title ?? "Aktivität heute";
-  const subtitle =
-    activity?.subtitle ??
-    (week.activeDays > 0
+  const totalMinutes = activity?.totalMinutes ?? 0;
+  const title =
+    activity && totalMinutes > 0
+      ? t("home_active_today_minutes", { minutes: totalMinutes })
+      : activity
+        ? t("home_active_today")
+        : t("activity_today");
+  const subtitle = activity
+    ? weekSubtitle
+    : week.activeDays > 0
       ? weekSubtitle
-      : "Noch keine Aktivität eingetragen");
+      : t("home_no_activity_logged");
 
   return (
     <section
@@ -47,7 +58,7 @@ export function HomeTodayActivityCard({
       className="noor-card flex flex-col gap-3 p-4 transition-colors hover:border-primary/30 active:scale-[0.98]"
       style={{ cursor: "pointer" }}
       aria-label={
-        activity ? "Aktivitätsverlauf ansehen" : "Aktivität ansehen und eintragen"
+        activity ? t("home_activity_view_history") : t("home_activity_view_log")
       }
     >
       <div className="flex items-center gap-3">
@@ -59,22 +70,11 @@ export function HomeTodayActivityCard({
         </span>
 
         <div className="min-w-0 flex-1">
+          <h2 className="home-card-title font-bold text-[#085041]">{title}</h2>
           <p
-            style={{
-              margin: 0,
-              fontSize: "15px",
-              fontWeight: 600,
-              color: "#085041",
-            }}
-          >
-            {title}
-          </p>
-          <p
-            style={{
-              margin: "2px 0 0",
-              fontSize: "13px",
-              color: activity ? "#1D9E75" : "#88856F",
-            }}
+            className={`home-card-subtitle mt-1 ${
+              activity ? "text-primary" : "text-muted"
+            }`}
           >
             {subtitle}
           </p>

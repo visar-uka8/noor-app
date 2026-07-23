@@ -1443,6 +1443,7 @@
 .landing-pricing-section {
   background: #f7f6f2;
   padding: 40px 24px 72px;
+  scroll-margin-top: 88px;
 }
 
 .landing-pricing-inner {
@@ -1531,6 +1532,25 @@
 
 .landing-pricing-card-head {
   margin-bottom: 20px;
+}
+
+.landing-pricing-plan-name-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.landing-pricing-badge-inline {
+  flex-shrink: 0;
+  background: #1d9e75;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border-radius: 999px;
+  padding: 6px 10px;
 }
 
 .landing-pricing-plan-name {

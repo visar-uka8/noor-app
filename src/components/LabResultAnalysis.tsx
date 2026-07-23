@@ -3,6 +3,8 @@
 import { Share2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import { useLanguage } from "@/components/LanguageProvider";
+import { translateLabStatusLabel } from "@/lib/i18n/lab-labels";
 import { createClient } from "@/lib/supabase/client";
 import type { LabAnalysisResult } from "@/types/lab-results";
 import { formatLabResultDate } from "@/types/lab-results";
@@ -139,13 +141,81 @@ function buildSharePayload(
   };
 }
 
+function buildShareAnalysisText(parsed: ReturnType<typeof parseLabAnalysis>) {
+  const parts = [
+    parsed.summary,
+    ...parsed.values.map((value) =>
+      [value.name, value.meaning, value.tip].filter(Boolean).join("\n"),
+    ),
+    ...parsed.nextSteps,
+    parsed.doctorVisit,
+    parsed.disclaimer,
+  ];
+
+  return parts.filter(Boolean).join("\n\n");
+}
+
 export function LabResultAnalysis({ result }: LabResultAnalysisProps) {
+  const { t, language } = useLanguage();
   const [shareFeedback, setShareFeedback] = useState<string | null>(null);
   const [isSharing, setIsSharing] = useState(false);
-  const parsed = useMemo(
-    () => parseLabAnalysis(result.analysis),
-    [result.analysis],
+  const [localizedParsed, setLocalizedParsed] = useState(() =>
+    parseLabAnalysis(result.analysis),
   );
+  const [isLocalizing, setIsLocalizing] = useState(false);
+  const [translationUnavailable, setTranslationUnavailable] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadLocalizedAnalysis() {
+      setIsLocalizing(true);
+      setTranslationUnavailable(false);
+
+      try {
+        const response = await fetch("/api/lab-results/localize", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            labResultId: result.labResultId,
+            analysis: result.analysis,
+            targetLanguage: language,
+          }),
+        });
+
+        const payload = (await response.json()) as {
+          parsed?: ReturnType<typeof parseLabAnalysis>;
+          unavailable?: boolean;
+        };
+
+        if (cancelled) return;
+
+        if (payload.parsed) {
+          setLocalizedParsed(payload.parsed);
+        }
+
+        setTranslationUnavailable(Boolean(payload.unavailable));
+      } catch (error) {
+        console.error("Lab analysis localization failed:", error);
+        if (!cancelled) {
+          setLocalizedParsed(parseLabAnalysis(result.analysis));
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLocalizing(false);
+        }
+      }
+    }
+
+    void loadLocalizedAnalysis();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [language, result.analysis, result.labResultId]);
+
+  const parsed = localizedParsed;
 
   async function shareAnalysis(audience: "doctor" | "family") {
     if (isSharing) return;
@@ -161,7 +231,7 @@ export function LabResultAnalysis({ result }: LabResultAnalysisProps) {
 
       const { title, text } = buildSharePayload(
         audience,
-        result.analysis,
+        buildShareAnalysisText(parsed),
         result.createdAt,
         context,
       );
@@ -172,7 +242,7 @@ export function LabResultAnalysis({ result }: LabResultAnalysisProps) {
       }
 
       await navigator.clipboard.writeText(`${title}\n\n${text}`);
-      setShareFeedback("Analyse wurde kopiert.");
+      setShareFeedback(t("lab_share_copied"));
     } catch (error) {
       if (
         error instanceof Error &&
@@ -181,7 +251,7 @@ export function LabResultAnalysis({ result }: LabResultAnalysisProps) {
         return;
       }
 
-      setShareFeedback("Teilen ist gerade nicht möglich.");
+      setShareFeedback(t("lab_share_failed"));
     } finally {
       setIsSharing(false);
     }
@@ -190,14 +260,24 @@ export function LabResultAnalysis({ result }: LabResultAnalysisProps) {
   return (
     <>
       <main className="mx-auto flex w-full max-w-app flex-1 flex-col px-5 py-6">
-      <h2 className="text-2xl font-bold text-[#085041]">Ihre Analyse</h2>
+      <h2 className="text-2xl font-bold text-[#085041]">{t("lab_your_analysis")}</h2>
+
+      {isLocalizing ? (
+        <p className="mt-3 text-sm text-muted">{t("lab_translating")}</p>
+      ) : null}
+
+      {translationUnavailable ? (
+        <p className="mt-3 rounded-xl bg-warning-light px-4 py-3 text-sm text-warning">
+          {t("lab_translation_unavailable")}
+        </p>
+      ) : null}
 
       {parsed.structured ? (
         <StructuredAnalysisView parsed={parsed} />
       ) : (
         <article className="noor-card mt-4 border-l-4 border-l-primary p-5">
           <div className="analysis-markdown lab-analysis-text">
-            <ReactMarkdown>{result.analysis}</ReactMarkdown>
+            <ReactMarkdown>{buildShareAnalysisText(parsed)}</ReactMarkdown>
           </div>
         </article>
       )}
@@ -279,6 +359,7 @@ function StructuredAnalysisView({
 }: {
   parsed: ReturnType<typeof parseLabAnalysis>;
 }) {
+  const { t } = useLanguage();
   const urgent = isDoctorVisitUrgent(parsed.doctorVisit);
   const [activeFilter, setActiveFilter] = useState<LabValueFilterKey>("all");
   const sortedValues = parsed.values;
@@ -299,7 +380,7 @@ function StructuredAnalysisView({
     <div className="mt-4 flex flex-col gap-4">
       {parsed.summary ? (
         <section className="rounded-2xl border border-border border-l-4 border-l-[#1D9E75] bg-[#E1F5EE] p-5 shadow-[var(--warm-shadow)]">
-          <h3 className="text-lg font-bold text-[#085041]">Zusammenfassung</h3>
+          <h3 className="text-lg font-bold text-[#085041]">{t("lab_summary")}</h3>
           <div className="analysis-markdown lab-analysis-text mt-3">
             <ReactMarkdown>{parsed.summary}</ReactMarkdown>
           </div>
@@ -309,7 +390,7 @@ function StructuredAnalysisView({
       {sortedValues.length > 0 ? (
         <section className="noor-card">
           <h3 className="px-4 pt-4 text-lg font-bold text-[#085041]">
-            Ihre Laborwerte im Detail
+            {t("lab_values_detail")}
           </h3>
           <div
             className="sticky top-0 z-10 border-b-[0.5px] border-[#E4E2DB] bg-white px-4 py-3"
@@ -345,7 +426,7 @@ function StructuredAnalysisView({
 
       {parsed.nextSteps.length > 0 ? (
         <section className="noor-card p-5">
-          <h3 className="text-lg font-bold text-[#085041]">Nächste Schritte</h3>
+          <h3 className="text-lg font-bold text-[#085041]">{t("lab_next_steps")}</h3>
           <ol className="mt-4 flex list-none flex-col gap-3">
             {parsed.nextSteps.map((step, index) => (
               <li key={step} className="flex gap-3 text-[17px] leading-relaxed">
@@ -375,7 +456,7 @@ function StructuredAnalysisView({
               : "border-l-[#1D9E75] bg-[#E1F5EE]"
           }`}
         >
-          <h3 className="text-lg font-bold text-[#085041]">Wann zum Arzt</h3>
+          <h3 className="text-lg font-bold text-[#085041]">{t("lab_when_doctor")}</h3>
           <div className="analysis-markdown lab-analysis-text mt-3">
             <ReactMarkdown>{parsed.doctorVisit}</ReactMarkdown>
           </div>
@@ -392,20 +473,21 @@ function StructuredAnalysisView({
 }
 
 function LabValueFilterEmptyState({ filter }: { filter: LabValueFilterKey }) {
+  const { t } = useLanguage();
   const messages: Record<
     Exclude<LabValueFilterKey, "all">,
     { title: string; subtitle: string }
   > = {
     red: {
-      title: "Keine erhöhten Werte 🎉",
-      subtitle: "Alle Ihre Werte liegen im Normalbereich.",
+      title: t("lab_filter_empty_high_title"),
+      subtitle: t("lab_filter_empty_high_subtitle"),
     },
     amber: {
-      title: "Keine auffälligen Werte",
-      subtitle: "Nichts zu beachten.",
+      title: t("lab_filter_empty_watch_title"),
+      subtitle: t("lab_filter_empty_watch_subtitle"),
     },
     green: {
-      title: "Alle Werte werden noch analysiert.",
+      title: t("lab_filter_empty_normal_title"),
       subtitle: "",
     },
   };
@@ -433,6 +515,7 @@ function SummaryBar({
   activeFilter: LabValueFilterKey;
   onFilterChange: (filter: LabValueFilterKey) => void;
 }) {
+  const { t } = useLanguage();
   const items: Array<{
     filter: Exclude<LabValueFilterKey, "all">;
     emoji: string;
@@ -444,21 +527,21 @@ function SummaryBar({
       filter: "green",
       emoji: "🟢",
       count: counts.green,
-      label: "Normal",
+      label: t("lab_status_normal"),
       color: "text-[#1D9E75]",
     },
     {
       filter: "amber",
       emoji: "🟡",
       count: counts.amber,
-      label: "Beachten",
+      label: t("lab_status_watch"),
       color: "text-[#BA7517]",
     },
     {
       filter: "red",
       emoji: "🔴",
       count: counts.red,
-      label: "Erhöht",
+      label: t("lab_status_high"),
       color: "text-[#A32D2D]",
     },
   ];
@@ -467,18 +550,21 @@ function SummaryBar({
     <div
       className="flex items-center justify-between gap-2"
       role="group"
-      aria-label="Laborwerte filtern"
+      aria-label={t("lab_filter_aria")}
     >
       {items.map((item) => {
         const isActive = activeFilter === item.filter;
 
         return (
           <button
-            key={item.label}
+            key={item.filter}
             type="button"
             onClick={() => onFilterChange(item.filter)}
             aria-pressed={isActive}
-            aria-label={`${item.label} anzeigen (${item.count})`}
+            aria-label={t("lab_filter_show", {
+              label: item.label,
+              count: item.count,
+            })}
             className="flex min-w-0 flex-1 flex-col items-center gap-1 rounded-2xl px-2 py-1 text-center transition-all duration-150 ease-in-out hover:bg-background/70"
           >
             <span
@@ -501,14 +587,15 @@ function SummaryBar({
 }
 
 function PersonalGoalsSection({ goals }: { goals: PersonalGoal[] }) {
+  const { t } = useLanguage();
+
   return (
     <section className="noor-card p-5">
       <h3 className="text-lg font-bold text-[#085041]">
-        Ihre persönlichen Tagesziele
+        {t("lab_personal_goals")}
       </h3>
       <p className="text-body mt-2 text-muted">
-        Basierend auf Ihren Laborwerten, Ihrem Alter, Gewicht und
-        Aktivitätslevel berechnet:
+        {t("lab_personal_goals_intro")}
       </p>
       <div className="mt-4 flex flex-col gap-4">
         {goals.map((goal) => (
@@ -521,18 +608,18 @@ function PersonalGoalsSection({ goals }: { goals: PersonalGoal[] }) {
               {goal.name}
             </h4>
             <p className="text-body mt-2 leading-relaxed text-foreground">
-              <span className="font-semibold text-heading">Ihr Ziel: </span>
+              <span className="font-semibold text-heading">{t("lab_your_goal")} </span>
               {goal.target}
             </p>
             {goal.why ? (
               <p className="text-body mt-2 leading-relaxed text-foreground">
-                <span className="font-semibold text-heading">Warum: </span>
+                <span className="font-semibold text-heading">{t("lab_why")} </span>
                 {goal.why}
               </p>
             ) : null}
             {goal.current ? (
               <p className="text-body mt-2 leading-relaxed text-muted">
-                <span className="font-semibold text-heading">Aktuell: </span>
+                <span className="font-semibold text-heading">{t("lab_current")} </span>
                 {goal.current}
               </p>
             ) : null}
@@ -544,11 +631,16 @@ function PersonalGoalsSection({ goals }: { goals: PersonalGoal[] }) {
 }
 
 function LifestylePlanSection({ plan }: { plan: LifestylePlan }) {
+  const { t } = useLanguage();
   const items = [
-    { emoji: "🥗", title: "Ernährung", content: plan.nutrition },
-    { emoji: "🚶", title: "Bewegung", content: plan.exercise },
-    { emoji: "💧", title: "Trinken", content: plan.hydration },
-    { emoji: "📅", title: "Nächste Kontrolle", content: plan.nextCheckup },
+    { emoji: "🥗", title: t("lab_lifestyle_nutrition"), content: plan.nutrition },
+    { emoji: "🚶", title: t("lab_lifestyle_exercise"), content: plan.exercise },
+    { emoji: "💧", title: t("lab_lifestyle_hydration"), content: plan.hydration },
+    {
+      emoji: "📅",
+      title: t("lab_lifestyle_next_checkup"),
+      content: plan.nextCheckup,
+    },
   ].filter((item) => item.content);
 
   if (items.length === 0) return null;
@@ -556,11 +648,9 @@ function LifestylePlanSection({ plan }: { plan: LifestylePlan }) {
   return (
     <section className="noor-card p-5">
       <h3 className="text-lg font-bold text-[#085041]">
-        Ihr persönlicher Lebensstil-Plan
+        {t("lab_lifestyle_plan")}
       </h3>
-      <p className="text-body mt-2 text-muted">
-        Basierend auf Ihren Laborwerten empfehle ich folgendes:
-      </p>
+      <p className="text-body mt-2 text-muted">{t("lab_lifestyle_intro")}</p>
       <div className="mt-4 flex flex-col gap-4">
         {items.map((item) => (
           <div
@@ -582,6 +672,8 @@ function LifestylePlanSection({ plan }: { plan: LifestylePlan }) {
 }
 
 function LabValueCard({ value }: { value: ParsedLabValue }) {
+  const { t } = useLanguage();
+
   return (
     <article
       className={`noor-card border-l-4 bg-surface p-4 ${BORDER_BY_LEVEL[value.level]}`}
@@ -592,7 +684,8 @@ function LabValueCard({ value }: { value: ParsedLabValue }) {
         <p className="mt-2 text-sm text-muted">
           {value.patientValue ? (
             <>
-              <span className="font-semibold">Ihr Wert:</span> {value.patientValue}
+              <span className="font-semibold">{t("lab_your_value")}</span>{" "}
+              {value.patientValue}
             </>
           ) : null}
           {value.patientValue && value.referenceRange ? (
@@ -600,7 +693,7 @@ function LabValueCard({ value }: { value: ParsedLabValue }) {
           ) : null}
           {value.referenceRange ? (
             <>
-              <span className="font-semibold">Normalbereich:</span>{" "}
+              <span className="font-semibold">{t("lab_normal_range")}</span>{" "}
               {value.referenceRange}
             </>
           ) : null}
@@ -609,7 +702,7 @@ function LabValueCard({ value }: { value: ParsedLabValue }) {
 
       {value.meaning ? (
         <p className="lab-analysis-text lab-value-explanation mt-3 text-foreground">
-          <span className="font-semibold text-heading">Was bedeutet das: </span>
+          <span className="font-semibold text-heading">{t("lab_what_means")} </span>
           {value.meaning}
         </p>
       ) : null}
@@ -618,14 +711,17 @@ function LabValueCard({ value }: { value: ParsedLabValue }) {
         <span
           className={`mt-3 inline-flex rounded-full px-3 py-1 text-sm font-semibold ${statusBadgeClass(value.status, value.level)}`}
         >
-          {value.status}
+          {translateLabStatusLabel(value.status, t)}
         </span>
       ) : null}
 
       {value.tip ? (
         <p className="lab-analysis-text lab-value-explanation mt-3 flex gap-2 text-foreground">
           <span aria-hidden="true">💡</span>
-          <span>{value.tip}</span>
+          <span>
+            <span className="font-semibold text-heading">{t("lab_tip")} </span>
+            {value.tip}
+          </span>
         </p>
       ) : null}
     </article>

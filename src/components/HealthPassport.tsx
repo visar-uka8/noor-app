@@ -275,6 +275,13 @@ export function HealthPassport() {
       <main className="mx-auto flex w-full max-w-app flex-1 flex-col px-5 py-6">
         <PassportCompletionBanner percent={completionPercent} />
 
+        <Link
+          href="/appointments"
+          className="mb-5 rounded-2xl border border-border bg-background px-4 py-3 text-sm font-semibold text-primary transition-colors hover:border-primary/30"
+        >
+          Arzttermine planen & Vorbereitung anzeigen →
+        </Link>
+
         <button
           type="button"
           onClick={() => setIsEmergencyMode(true)}

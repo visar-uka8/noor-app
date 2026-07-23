@@ -2,6 +2,7 @@
 
 import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { useLanguage } from "@/components/LanguageProvider";
 import { buildApiAuthHeaders } from "@/lib/api-auth";
 import type { ActivityInsightResult } from "@/lib/activity-insight";
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
@@ -13,6 +14,7 @@ type ActivityInsightCardProps = {
 export function ActivityInsightCard({
   enabled = true,
 }: ActivityInsightCardProps) {
+  const { t } = useLanguage();
   const [insight, setInsight] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(enabled);
 
@@ -75,7 +77,7 @@ export function ActivityInsightCard({
         }}
       >
         <Loader2 size={16} className="animate-spin" aria-hidden="true" />
-        Noor analysiert Ihre Daten…
+        {t("activity_insight_loading")}
       </div>
     );
   }
@@ -101,7 +103,7 @@ export function ActivityInsightCard({
           marginBottom: "8px",
         }}
       >
-        💡 Noor Einblick
+        💡 {t("activity_insight_title")}
       </div>
       <div
         style={{

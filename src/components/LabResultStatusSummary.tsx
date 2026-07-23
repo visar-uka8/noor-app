@@ -1,9 +1,11 @@
 "use client";
 
 import { getLabResultStatusDisplay } from "@/lib/parse-lab-analysis";
+import { useLanguage } from "@/components/LanguageProvider";
 import type { LabResultRecord } from "@/types/lab-results";
 
 export function LabResultStatusSummary({ result }: { result: LabResultRecord }) {
+  const { t } = useLanguage();
   const display = getLabResultStatusDisplay(result);
 
   if (display.mode === "tap") {
@@ -16,7 +18,7 @@ export function LabResultStatusSummary({ result }: { result: LabResultRecord }) 
           color: "#88856F",
         }}
       >
-        Analyse verfügbar — tippen zum Ansehen
+        {t("analysis_available")}
       </p>
     );
   }
@@ -32,13 +34,13 @@ export function LabResultStatusSummary({ result }: { result: LabResultRecord }) 
         marginTop: 0,
         flexWrap: "wrap",
       }}
-      aria-label={`${counts.normal} normal, ${counts.watch} beachten, ${counts.high} erhöht`}
+      aria-label={`${counts.normal} ${t("lab_status_normal")}, ${counts.watch} ${t("lab_status_watch")}, ${counts.high} ${t("lab_status_high")}`}
     >
       {counts.normal > 0 ? (
         <StatusBadge
           emoji="🟢"
           count={counts.normal}
-          label="Normal"
+          label={t("lab_status_normal")}
           background="#EAF3DE"
           color="#27500A"
         />
@@ -47,7 +49,7 @@ export function LabResultStatusSummary({ result }: { result: LabResultRecord }) 
         <StatusBadge
           emoji="🟡"
           count={counts.watch}
-          label="Beachten"
+          label={t("lab_status_watch")}
           background="#FAEEDA"
           color="#633806"
         />
@@ -56,7 +58,7 @@ export function LabResultStatusSummary({ result }: { result: LabResultRecord }) 
         <StatusBadge
           emoji="🔴"
           count={counts.high}
-          label="Erhöht"
+          label={t("lab_status_high")}
           background="#FCEBEB"
           color="#791F1F"
         />
