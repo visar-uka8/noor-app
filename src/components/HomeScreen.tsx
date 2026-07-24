@@ -13,6 +13,7 @@ import { FamilyNoteHomeCard } from "@/components/FamilyNoteHomeCard";
 import { FamilyNoteReplyHomeCard } from "@/components/FamilyNoteReplyHomeCard";
 import { FamilyDashboardPanel } from "@/components/FamilyDashboardPanel";
 import { HomeTodayActivityCard } from "@/components/HomeTodayActivityCard";
+import { GoalsUpdatedBanner } from "@/components/GoalsUpdatedBanner";
 import { HomeAppointmentsCard } from "@/components/HomeAppointmentsCard";
 import { EmailConfirmationPromptCard } from "@/components/EmailConfirmationPromptCard";
 import { ProfileHealthPromptCard } from "@/components/ProfileHealthPromptCard";
@@ -182,7 +183,7 @@ function HomeScreenPreview({ mockData }: { mockData: HomeScreenPreviewMockData }
           <HomeTodayActivityCard
             activity={data.todayActivity}
             week={data.activityWeek}
-            waterToday={data.waterToday}
+            healthGoals={data.healthGoals}
           />
         </div>
       </div>
@@ -434,6 +435,8 @@ function HomeScreenConnected() {
         <>
           <StatusBanner data={homeData!} t={t} />
 
+          <GoalsUpdatedBanner />
+
           {!user?.email_confirmed_at ? <EmailConfirmationPromptCard /> : null}
 
           {homeData!.profileHealthIncomplete && user?.id ? (
@@ -564,7 +567,7 @@ function HomeScreenConnected() {
           <HomeTodayActivityCard
             activity={homeData!.todayActivity}
             week={homeData!.activityWeek}
-            waterToday={homeData!.waterToday}
+            healthGoals={homeData!.healthGoals}
           />
         </>
       )}

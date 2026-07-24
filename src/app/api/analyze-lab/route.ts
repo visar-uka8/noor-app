@@ -7,7 +7,7 @@ import { uploadLabResultFile } from "@/lib/lab-storage";
 import { analyzeLabDocument, getLabAiProvider } from "@/lib/lab-analyze";
 import { notifyLabResultAlerts } from "@/lib/notifications";
 import { getLabAnalysisCounts, parseLabAnalysis } from "@/lib/parse-lab-analysis";
-import { saveHealthGoalsFromAnalysis } from "@/lib/health-goals";
+import { parseAndSaveGoals } from "@/lib/health-goals";
 import { checkLabAnalysisQuota } from "@/lib/subscription";
 import {
   isAppLanguage,
@@ -298,18 +298,28 @@ export async function POST(request: Request) {
     );
 
     const parsedAnalysis = parseLabAnalysis(analysis);
-    void saveHealthGoalsFromAnalysis(dataClient, {
-      userId: user.id,
-      labResultId: data.id,
-      personalGoalsSection: parsedAnalysis.personalGoalsSection,
-      goals: parsedAnalysis.personalGoals,
-    }).catch((goalsError) => {
+    let goalsSaved = false;
+
+    try {
+      const goalsResult = await parseAndSaveGoals(
+        dataClient,
+        analysis,
+        user.id,
+        data.id,
+        {
+          personalGoalsSection: parsedAnalysis.personalGoalsSection,
+          goals: parsedAnalysis.personalGoals,
+        },
+      );
+      goalsSaved = goalsResult.saved;
+    } catch (goalsError) {
       console.error("Health goals save failed", goalsError);
-    });
+    }
 
     return Response.json({
       analysis,
       labResultId: data.id,
+      goalsSaved,
     } satisfies LabAnalysisResult);
   } catch (error) {
     console.error("Lab analysis failed", error);

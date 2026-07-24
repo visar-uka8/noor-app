@@ -7,6 +7,7 @@ import { LabResultAnalysis } from "@/components/LabResultAnalysis";
 import { LabResultHistory } from "@/components/LabResultHistory";
 import { UpgradePromptCard } from "@/components/UpgradePromptCard";
 import { useHomeViewModeContext } from "@/components/HomeViewModeContext";
+import { markGoalsUpdatedInStorage } from "@/components/GoalsUpdatedBanner";
 import { useLanguage } from "@/components/LanguageProvider";
 import { useFamilyConnection } from "@/hooks/useFamilyConnection";
 import { useFamilyRoles } from "@/hooks/useFamilyRoles";
@@ -250,6 +251,9 @@ export function LabResultsFlow() {
       setAnalysisResult(result);
       if (!result.saveFailed) {
         setHistoryRefreshKey((current) => current + 1);
+        if (result.goalsSaved) {
+          markGoalsUpdatedInStorage();
+        }
       }
       setStep("results");
     } catch (error) {

@@ -2,6 +2,7 @@ export type LabAnalysisResult = {
   analysis: string;
   labResultId?: string;
   createdAt?: string;
+  goalsSaved?: boolean;
   saveFailed?: boolean;
   saveError?: string;
   saveErrorCode?: string;

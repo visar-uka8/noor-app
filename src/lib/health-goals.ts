@@ -135,6 +135,148 @@ export function hasAnyHealthGoalNumbers(numbers: ParsedHealthGoalNumbers) {
   );
 }
 
+type ClaudeExtractedGoals = {
+  steps?: number | null;
+  water_liters?: number | null;
+  protein_grams?: number | null;
+  sleep_hours_min?: number | null;
+  sleep_hours_max?: number | null;
+};
+
+async function extractGoalsWithClaude(
+  analysisText: string,
+): Promise<ParsedHealthGoalNumbers | null> {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    return null;
+  }
+
+  try {
+    const { default: Anthropic } = await import("@anthropic-ai/sdk");
+    const anthropic = new Anthropic({ apiKey });
+
+    const message = await anthropic.messages.create({
+      model: process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-20250514",
+      max_tokens: 500,
+      messages: [
+        {
+          role: "user",
+          content: `Extract the daily goals from this lab analysis. Return ONLY valid JSON, nothing else, no markdown, no explanation.
+
+Analysis text:
+${analysisText}
+
+Return this exact format:
+{
+  "steps": 8000,
+  "water_liters": 2.8,
+  "protein_grams": 136,
+  "sleep_hours_min": 7,
+  "sleep_hours_max": 8
+}
+
+If a value is not mentioned, use null.
+Numbers only — no units in the values.`,
+        },
+      ],
+    });
+
+    const textBlock = message.content.find((block) => block.type === "text");
+    if (!textBlock || textBlock.type !== "text") {
+      return null;
+    }
+
+    const goalsText = textBlock.text.trim();
+    const jsonMatch = goalsText.match(/\{[\s\S]*\}/);
+    const goals = JSON.parse(jsonMatch?.[0] ?? goalsText) as ClaudeExtractedGoals;
+
+    return {
+      stepsGoal:
+        goals.steps != null ? Math.round(Number(goals.steps)) : null,
+      waterGoalLiters:
+        goals.water_liters != null ? Number(goals.water_liters) : null,
+      proteinGoalGrams:
+        goals.protein_grams != null
+          ? Math.round(Number(goals.protein_grams))
+          : null,
+      sleepHoursMin:
+        goals.sleep_hours_min != null
+          ? Math.round(Number(goals.sleep_hours_min))
+          : null,
+      sleepHoursMax:
+        goals.sleep_hours_max != null
+          ? Math.round(Number(goals.sleep_hours_max))
+          : null,
+    };
+  } catch (error) {
+    console.error("Claude goals extraction failed", error);
+    return null;
+  }
+}
+
+async function persistHealthGoals(
+  supabase: SupabaseClient,
+  userId: string,
+  labResultId: string,
+  numbers: ParsedHealthGoalNumbers,
+) {
+  const validUntil = new Date();
+  validUntil.setUTCDate(validUntil.getUTCDate() + GOALS_VALID_DAYS);
+
+  const { error } = await supabase.from("health_goals").insert({
+    user_id: userId,
+    lab_result_id: labResultId,
+    steps_goal: numbers.stepsGoal,
+    water_goal_liters: numbers.waterGoalLiters,
+    protein_goal_grams: numbers.proteinGoalGrams,
+    sleep_hours_min: numbers.sleepHoursMin,
+    sleep_hours_max: numbers.sleepHoursMax,
+    calculated_at: new Date().toISOString(),
+    valid_until: validUntil.toISOString(),
+  });
+
+  if (error) {
+    console.error("Goals save error:", error);
+    return { saved: false as const, numbers, error };
+  }
+
+  console.log("Goals saved successfully:", numbers);
+  return { saved: true as const, numbers };
+}
+
+export async function parseAndSaveGoals(
+  supabase: SupabaseClient,
+  analysisText: string,
+  userId: string,
+  labResultId: string,
+  fallback?: {
+    personalGoalsSection: string;
+    goals: PersonalGoal[];
+  },
+) {
+  try {
+    let numbers = await extractGoalsWithClaude(analysisText);
+
+    if (!numbers || !hasAnyHealthGoalNumbers(numbers)) {
+      if (fallback) {
+        numbers = extractHealthGoalNumbers(
+          fallback.personalGoalsSection,
+          fallback.goals,
+        );
+      }
+    }
+
+    if (!numbers || !hasAnyHealthGoalNumbers(numbers)) {
+      return { saved: false as const, numbers: numbers ?? null };
+    }
+
+    return await persistHealthGoals(supabase, userId, labResultId, numbers);
+  } catch (error) {
+    console.error("Goals parse error:", error);
+    return { saved: false as const, numbers: null };
+  }
+}
+
 export async function saveHealthGoalsFromAnalysis(
   supabase: SupabaseClient,
   options: {
@@ -153,24 +295,10 @@ export async function saveHealthGoalsFromAnalysis(
     return { saved: false as const, numbers };
   }
 
-  const validUntil = new Date();
-  validUntil.setUTCDate(validUntil.getUTCDate() + GOALS_VALID_DAYS);
-
-  const { error } = await supabase.from("health_goals").insert({
-    user_id: options.userId,
-    lab_result_id: options.labResultId,
-    steps_goal: numbers.stepsGoal,
-    water_goal_liters: numbers.waterGoalLiters,
-    protein_goal_grams: numbers.proteinGoalGrams,
-    sleep_hours_min: numbers.sleepHoursMin,
-    sleep_hours_max: numbers.sleepHoursMax,
-    valid_until: validUntil.toISOString(),
-  });
-
-  if (error) {
-    console.error("Health goals save failed", error);
-    return { saved: false as const, numbers, error };
-  }
-
-  return { saved: true as const, numbers };
+  return persistHealthGoals(
+    supabase,
+    options.userId,
+    options.labResultId,
+    numbers,
+  );
 }

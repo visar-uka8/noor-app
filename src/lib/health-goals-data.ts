@@ -277,3 +277,29 @@ export async function loadHomeWaterSummary(
     }),
   };
 }
+
+export function hasTrackableHomeGoals(goals: ActiveHealthGoals | null) {
+  if (!goals) return false;
+
+  return (
+    goals.stepsGoal != null ||
+    goals.waterGoalLiters != null ||
+    goals.proteinGoalGrams != null
+  );
+}
+
+export async function loadHomeHealthGoalsSummary(
+  supabase: SupabaseClient,
+  userId: string,
+) {
+  const [goals, today] = await Promise.all([
+    loadActiveHealthGoalsForUser(supabase, userId),
+    loadTodayGoalProgress(supabase, userId),
+  ]);
+
+  if (!goals || !hasTrackableHomeGoals(goals)) {
+    return null;
+  }
+
+  return { goals, today };
+}

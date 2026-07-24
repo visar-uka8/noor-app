@@ -31,6 +31,7 @@ export function DailyActivityCard({
   const [selectedType, setSelectedType] = useState<ActivityType | null>(null);
   const [durationMinutes, setDurationMinutes] = useState<number | null>(null);
   const [note, setNote] = useState("");
+  const [stepsToday, setStepsToday] = useState<number | "">("");
   const [savedLogs, setSavedLogs] = useState<StoredActivityLog[]>([]);
   const [waterLiters, setWaterLiters] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
@@ -75,6 +76,9 @@ export function DailyActivityCard({
       if (goalsResponse.ok) {
         const payload = (await goalsResponse.json()) as HealthGoalsApiResponse;
         setWaterLiters(payload.today?.waterLiters ?? 0);
+        if (payload.today?.steps) {
+          setStepsToday(payload.today.steps);
+        }
       }
     } catch {
       // Non-blocking — card stays usable without prior log.
@@ -127,9 +131,19 @@ export function DailyActivityCard({
         throw new Error(t("activity_saved_confirm_failed"));
       }
 
+      if (typeof stepsToday === "number" && stepsToday > 0) {
+        await fetchWithTimeout("/api/health-goals/today", {
+          method: "PATCH",
+          credentials: "include",
+          headers,
+          body: JSON.stringify({ steps: stepsToday }),
+        });
+      }
+
       setSelectedType(null);
       setDurationMinutes(null);
       setNote("");
+      setStepsToday("");
       setShowSavedMessage(true);
       await fetchTodayData();
       router.refresh();
@@ -293,6 +307,23 @@ export function DailyActivityCard({
                   </div>
                 </div>
               ) : null}
+
+              <label className="mt-5 block">
+                <span className="mb-1.5 block text-sm font-medium text-[#085041]">
+                  🚶 {t("activity_steps_today_label")}
+                </span>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  placeholder={t("activity_steps_placeholder")}
+                  value={stepsToday}
+                  onChange={(event) => {
+                    const next = event.target.value;
+                    setStepsToday(next === "" ? "" : Number(next));
+                  }}
+                  className="min-h-12 w-full rounded-xl border border-[#E4E2DB] px-3 text-base text-foreground outline-none focus:border-primary"
+                />
+              </label>
 
               <label className="mt-5 block">
                 <span className="mb-2 block text-base font-semibold text-foreground">

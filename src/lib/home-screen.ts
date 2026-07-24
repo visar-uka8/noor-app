@@ -2,6 +2,10 @@ import type { PatientFamilyNote } from "@/types/family-notes";
 import type { HealthPassportData } from "@/types/health-passport";
 import type { StoredConfirmation, StoredMedication } from "@/types/medication";
 import type { StoredActivityLog } from "@/types/activity-log";
+import type {
+  ActiveHealthGoals,
+  DailyGoalProgress,
+} from "@/types/health-goals";
 import { formatTodayActivityShortLabelFromLogs } from "@/types/activity-log";
 import {
   buildFamilyMemberCardSubtitle,
@@ -85,6 +89,10 @@ export type HomeScreenData = {
     liters: number;
     goalLiters: number;
   };
+  healthGoals: {
+    goals: ActiveHealthGoals;
+    today: DailyGoalProgress;
+  } | null;
   unreadFamilyNote: PatientFamilyNote | null;
   profileHealthIncomplete: boolean;
   profileHealthProgress: {
@@ -332,6 +340,7 @@ export function buildPreviewHomeScreenData(
     todayActivity: null,
     activityWeek: mock.activityWeek ?? { activeDays: 0, totalMinutes: 0 },
     waterToday: { liters: 0, goalLiters: 2 },
+    healthGoals: null,
     unreadFamilyNote: null,
     profileHealthIncomplete: false,
     profileHealthProgress: null,
@@ -388,6 +397,7 @@ export const demoHomeScreenData: HomeScreenData = {
   todayActivity: null,
   activityWeek: { activeDays: 0, totalMinutes: 0 },
   waterToday: { liters: 0, goalLiters: 2 },
+  healthGoals: null,
   unreadFamilyNote: null,
   profileHealthIncomplete: false,
   profileHealthProgress: null,
