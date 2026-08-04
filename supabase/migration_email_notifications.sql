@@ -1,10 +1,10 @@
--- Schedule missed-dose email checks every 10 minutes.
+-- Schedule missed-dose email checks every 10 minutes via Supabase pg_cron.
 -- Timing thresholds (see src/lib/medication-notification-timing.ts):
 --   patient reminder: 15 minutes after scheduled dose
 --   family alert:     30 minutes after scheduled dose
--- Requires pg_cron and pg_net extensions in Supabase.
+-- Vercel Hobby only allows daily crons, so frequent checks must run here
+-- (not in vercel.json). Requires pg_cron and pg_net.
 -- Replace YOUR_PROJECT_REF and YOUR_SERVICE_ROLE_KEY before running.
--- Prefer Vercel cron on /api/cron/check-missed-doses when deploying to Vercel Pro.
 
 -- select cron.unschedule('check-missed-doses');
 
