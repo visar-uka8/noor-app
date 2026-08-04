@@ -9,7 +9,7 @@ import {
   formatEmergencyVaccinationLine,
 } from "@/lib/vaccination-status";
 import {
-  frequencyLabels,
+  getPassportFrequencyLabel,
   type HealthPassportData,
   type MedicationFrequency,
 } from "@/types/health-passport";
@@ -192,5 +192,5 @@ export function HealthPassportPdf({
 function formatFrequencies(frequency: MedicationFrequency[]) {
   if (frequency.length === 0) return "—";
 
-  return frequency.map((entry) => frequencyLabels[entry]).join(", ");
+  return frequency.map((entry) => getPassportFrequencyLabel(entry)).join(", ");
 }

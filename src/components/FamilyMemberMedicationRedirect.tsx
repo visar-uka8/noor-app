@@ -11,17 +11,17 @@ export function FamilyMemberMedicationRedirect({
   children: React.ReactNode;
 }) {
   const router = useRouter();
-  const profileRole = useUserRole();
+  const { role: profileRole, isLoading: isRoleLoading } = useUserRole();
   const familyMemberNav = useFamilyMemberNav(profileRole);
 
   useEffect(() => {
-    if (profileRole === null) return;
+    if (isRoleLoading) return;
     if (familyMemberNav) {
       router.replace("/");
     }
-  }, [familyMemberNav, profileRole, router]);
+  }, [familyMemberNav, isRoleLoading, router]);
 
-  if (profileRole === null || familyMemberNav) {
+  if (isRoleLoading || familyMemberNav) {
     return null;
   }
 

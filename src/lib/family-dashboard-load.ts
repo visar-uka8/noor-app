@@ -18,6 +18,10 @@ import {
   syncMissedDoses,
 } from "@/lib/medication-data";
 import { calculateMedicationStreak } from "@/lib/medication-streak";
+import {
+  getWeeklySummary,
+  shouldShowWeeklySummary,
+} from "@/lib/weekly-summary";
 import { formatLabResultDate } from "@/types/lab-results";
 
 export async function loadFamilyDashboardForPatient(
@@ -69,6 +73,23 @@ export async function loadFamilyDashboardForPatient(
   const patientPassport = await loadHealthPassportForUser(patientId, supabase);
   const healthPassportAvailable = isHealthPassportAvailable(patientPassport);
 
+  const { data: patientProfileRow } = await supabase
+    .from("profiles")
+    .select("created_at")
+    .eq("id", patientId)
+    .maybeSingle<{ created_at?: string | null }>();
+
+  const showWeeklySummary = shouldShowWeeklySummary(
+    patientProfileRow?.created_at ?? null,
+    medications.length,
+  );
+  const weeklySummary = showWeeklySummary
+    ? await getWeeklySummary(supabase, patientId).catch((error) => {
+        console.error("Family weekly summary load failed:", error);
+        return null;
+      })
+    : null;
+
   const firstName = profile?.first_name?.trim() || "Angehörige";
   const lastName = profile?.last_name?.trim() || "";
   const displayLabel = getCaretakerLabel(firstName);
@@ -97,6 +118,7 @@ export async function loadFamilyDashboardForPatient(
         }
       : null,
     healthPassportAvailable,
+    weeklySummary,
   });
 }
 
@@ -114,5 +136,6 @@ export function emptyFamilyDashboardResponse(): FamilyDashboardData {
     todayActivityText: null,
     latestLabResult: null,
     healthPassportAvailable: false,
+    weeklySummary: null,
   };
 }

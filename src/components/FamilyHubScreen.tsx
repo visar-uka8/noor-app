@@ -31,7 +31,7 @@ const emptyHub: FamilyHubResponse = {
 };
 
 export function FamilyHubScreen() {
-  const role = useUserRole();
+  const { role } = useUserRole();
   const isFamilyMember = role === "family_member";
   const [hub, setHub] = useState<FamilyHubResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);

@@ -1,4 +1,5 @@
 import Stripe from "stripe";
+import { trackServerEvent } from "@/lib/analytics";
 import { createSupabaseDataClient } from "@/lib/supabase-data";
 import { getStripeClient, stripe, tierFromStripePriceId } from "@/lib/stripe";
 import {
@@ -131,6 +132,12 @@ export async function POST(request: Request) {
           "active",
           typeof session.customer === "string" ? session.customer : null,
         );
+
+        void trackServerEvent(supabase, userId, "subscription_started", {
+          plan: tier,
+          price:
+            session.amount_total != null ? session.amount_total / 100 : 0,
+        });
         break;
       }
 

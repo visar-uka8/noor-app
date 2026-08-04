@@ -1,20 +1,34 @@
 "use client";
 
+import { Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ErrorBanner } from "@/components/AppStates";
+import {
+  InsulinMedicationSetup,
+  type InsulinSetupValue,
+} from "@/components/InsulinMedicationSetup";
+import { InsulinHistorySection } from "@/components/InsulinHistorySection";
 import { useLanguage } from "@/components/LanguageProvider";
 import { Toggle } from "@/components/ui/Toggle";
 import { filterCommonMedications, getSuggestedDoses } from "@/lib/common-medications";
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
+import { isInsulinMedicationName, parseBasalDosageUnits } from "@/lib/insulin-medications";
 import { normalizeTimeValue } from "@/lib/medication-schedule";
 import {
+  customSlotFromIndex,
   defaultTimeSlotValues,
+  isCustomMedicationTimeSlot,
+  isStandardMedicationTimeSlot,
+  STANDARD_MEDICATION_TIME_SLOTS,
   type MedicationTimeEntry,
-  type MedicationTimeSlot,
+  type StandardMedicationTimeSlot,
   type StoredMedication,
 } from "@/types/medication";
-import { getMedicationTimeSlotLabel } from "@/lib/i18n/medication-labels";
+import {
+  formatMedicationScheduleEntry,
+  getMedicationTimeSlotLabel,
+} from "@/lib/i18n/medication-labels";
 
 type SlotState = {
   enabled: boolean;
@@ -25,26 +39,39 @@ type MedicationFormProps = {
   medicationId?: string;
 };
 
-const slots: MedicationTimeSlot[] = ["morning", "midday", "evening"];
+const MAX_CUSTOM_TIMES = 6;
 
 export function MedicationForm({ medicationId }: MedicationFormProps) {
   const router = useRouter();
   const { t } = useLanguage();
   const [name, setName] = useState("");
   const [dosage, setDosage] = useState("");
-  const [slotStates, setSlotStates] = useState<Record<MedicationTimeSlot, SlotState>>({
+  const [slotStates, setSlotStates] = useState<
+    Record<StandardMedicationTimeSlot, SlotState>
+  >({
     morning: { enabled: false, time: defaultTimeSlotValues.morning },
     midday: { enabled: false, time: defaultTimeSlotValues.midday },
     evening: { enabled: false, time: defaultTimeSlotValues.evening },
+    night: { enabled: false, time: defaultTimeSlotValues.night },
   });
+  const [customTimes, setCustomTimes] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(Boolean(medicationId));
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [knownMedication, setKnownMedication] = useState<string | null>(null);
+  const [loadedMedication, setLoadedMedication] = useState<StoredMedication | null>(
+    null,
+  );
+  const [insulinSetup, setInsulinSetup] = useState<InsulinSetupValue | null>(
+    null,
+  );
   const nameFieldRef = useRef<HTMLDivElement>(null);
 
   const trimmedName = name.trim();
+  const isInsulinMode =
+    loadedMedication?.is_insulin === true ||
+    isInsulinMedicationName(trimmedName);
   const nameSuggestions = useMemo(
     () => filterCommonMedications(name),
     [name],
@@ -55,10 +82,25 @@ export function MedicationForm({ medicationId }: MedicationFormProps) {
   );
   const showNameDropdown = showSuggestions && trimmedName.length > 0;
 
-  const savePreview = useMemo(
-    () => buildMedicationSavePreview(name, dosage, slotStates, t),
-    [name, dosage, slotStates, t],
-  );
+  const savePreview = useMemo(() => {
+    if (isInsulinMode && insulinSetup) {
+      const schedule = insulinSetup.times
+        .map((entry) => formatMedicationScheduleEntry(entry, t))
+        .join(", ");
+      return [trimmedName, insulinSetup.dosage, schedule].filter(Boolean).join(" · ");
+    }
+
+    return buildMedicationSavePreview(name, dosage, slotStates, customTimes, t);
+  }, [
+    isInsulinMode,
+    insulinSetup,
+    name,
+    dosage,
+    slotStates,
+    customTimes,
+    t,
+    trimmedName,
+  ]);
 
   useEffect(() => {
     if (!showSuggestions) return;
@@ -88,6 +130,7 @@ export function MedicationForm({ medicationId }: MedicationFormProps) {
         }
 
         const data = (await response.json()) as { medication: StoredMedication };
+        setLoadedMedication(data.medication);
         setName(data.medication.name);
         setDosage(data.medication.dosage);
         setKnownMedication(
@@ -95,7 +138,10 @@ export function MedicationForm({ medicationId }: MedicationFormProps) {
             ? data.medication.name.trim()
             : null,
         );
-        setSlotStates(createSlotStatesFromMedication(data.medication.times));
+
+        const formState = createFormStateFromMedication(data.medication.times);
+        setSlotStates(formState.slotStates);
+        setCustomTimes(formState.customTimes);
       } catch {
         setError(t("med_load_failed_retry"));
       } finally {
@@ -104,17 +150,44 @@ export function MedicationForm({ medicationId }: MedicationFormProps) {
     }
 
     void loadMedication();
-  }, [medicationId]);
+  }, [medicationId, t]);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
 
-    const times = buildTimesFromSlotStates(slotStates);
+    let payload: Record<string, unknown>;
 
-    if (times.length === 0) {
-      setError(t("med_select_time"));
-      return;
+    if (isInsulinMode) {
+      if (!insulinSetup || insulinSetup.times.length === 0) {
+        setError(t("med_select_time"));
+        return;
+      }
+
+      if (
+        insulinSetup.insulinType === "basal" &&
+        !parseBasalDosageUnits(insulinSetup.dosage)
+      ) {
+        setError(t("insulin_basal_units_required"));
+        return;
+      }
+
+      payload = {
+        name,
+        dosage: insulinSetup.dosage,
+        times: insulinSetup.times,
+        is_insulin: true,
+        insulin_type: insulinSetup.insulinType,
+      };
+    } else {
+      const times = buildTimesFromSlotStates(slotStates, customTimes, t);
+
+      if (times.length === 0) {
+        setError(t("med_select_time"));
+        return;
+      }
+
+      payload = { name, dosage, times, is_insulin: false, insulin_type: null };
     }
 
     setIsSaving(true);
@@ -126,7 +199,7 @@ export function MedicationForm({ medicationId }: MedicationFormProps) {
           method: medicationId ? "PATCH" : "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          body: JSON.stringify({ name, dosage, times }),
+          body: JSON.stringify(payload),
         },
       );
 
@@ -136,9 +209,6 @@ export function MedicationForm({ medicationId }: MedicationFormProps) {
         details?: string;
         hint?: string;
       };
-
-      console.log("Medication save response status:", response.status);
-      console.log("Medication save response body:", responseBody);
 
       if (!response.ok) {
         throw new Error(responseBody.error ?? "Speichern fehlgeschlagen.");
@@ -155,6 +225,25 @@ export function MedicationForm({ medicationId }: MedicationFormProps) {
     } finally {
       setIsSaving(false);
     }
+  }
+
+  function addCustomTime() {
+    if (customTimes.length >= MAX_CUSTOM_TIMES) return;
+    setCustomTimes((current) => [...current, defaultTimeSlotValues.morning]);
+  }
+
+  function updateCustomTime(index: number, time: string) {
+    setCustomTimes((current) =>
+      current.map((entry, entryIndex) =>
+        entryIndex === index ? normalizeTimeValue(time) : entry,
+      ),
+    );
+  }
+
+  function removeCustomTime(index: number) {
+    setCustomTimes((current) =>
+      current.filter((_, entryIndex) => entryIndex !== index),
+    );
   }
 
   if (isLoading) {
@@ -254,6 +343,8 @@ export function MedicationForm({ medicationId }: MedicationFormProps) {
             </div>
           </div>
 
+          {!isInsulinMode ? (
+            <>
           <label className="flex flex-col gap-2">
             <span className="text-base font-bold text-foreground">{t("dosage")}</span>
             <input
@@ -295,7 +386,7 @@ export function MedicationForm({ medicationId }: MedicationFormProps) {
             </h2>
 
             <div className="mt-4 flex flex-col gap-3">
-              {slots.map((slot) => (
+              {STANDARD_MEDICATION_TIME_SLOTS.map((slot) => (
                 <div key={slot} className="noor-card p-4">
                   <div className="flex items-center justify-between gap-4">
                     <span className="text-base font-semibold text-foreground">
@@ -337,8 +428,66 @@ export function MedicationForm({ medicationId }: MedicationFormProps) {
                   ) : null}
                 </div>
               ))}
+
+              {customTimes.map((time, index) => (
+                <div key={`custom-${index}`} className="noor-card p-4">
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="text-base font-semibold text-foreground">
+                      {t("med_custom_dose", { n: index + 1 })}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => removeCustomTime(index)}
+                      className="flex h-10 w-10 items-center justify-center rounded-full text-[#BA7517] transition-colors hover:bg-[#FAEEDA]"
+                      aria-label={t("med_remove_custom_time", { n: index + 1 })}
+                    >
+                      <Trash2 size={18} strokeWidth={2} />
+                    </button>
+                  </div>
+
+                  <label className="mt-4 flex flex-col gap-2">
+                    <span className="text-sm font-semibold text-muted">
+                      {t("med_time_label")}
+                    </span>
+                    <input
+                      type="time"
+                      value={time}
+                      onChange={(event) =>
+                        updateCustomTime(index, event.target.value)
+                      }
+                      className="w-full rounded-xl border border-[#E4E2DB] bg-[#F7F6F2] px-4 py-3 text-base font-medium text-[#085041] outline-none"
+                      style={{ borderWidth: "0.5px" }}
+                    />
+                  </label>
+                </div>
+              ))}
+
+              {customTimes.length < MAX_CUSTOM_TIMES ? (
+                <button
+                  type="button"
+                  onClick={addCustomTime}
+                  className="mt-2 flex w-full cursor-pointer items-center justify-between rounded-xl bg-[#F7F6F2] px-4 py-3.5 text-left transition-colors hover:bg-[#F0EFE9]"
+                >
+                  <span className="text-[15px] font-medium text-[#085041]">
+                    {t("med_add_custom_time")}
+                  </span>
+                  <span className="text-[#1D9E75]">→</span>
+                </button>
+              ) : null}
             </div>
           </section>
+            </>
+          ) : (
+            <InsulinMedicationSetup
+              medicationName={trimmedName}
+              initialMedication={loadedMedication}
+              onValuesChange={setInsulinSetup}
+            />
+          )}
+
+          {loadedMedication?.is_insulin && medicationId ? (
+            <InsulinHistorySection medicationId={medicationId} />
+          ) : null}
 
           {savePreview ? (
             <p
@@ -363,27 +512,44 @@ export function MedicationForm({ medicationId }: MedicationFormProps) {
   );
 }
 
-function createSlotStatesFromMedication(times: MedicationTimeEntry[]) {
-  const next: Record<MedicationTimeSlot, SlotState> = {
+function createDefaultSlotStates(): Record<
+  StandardMedicationTimeSlot,
+  SlotState
+> {
+  return {
     morning: { enabled: false, time: defaultTimeSlotValues.morning },
     midday: { enabled: false, time: defaultTimeSlotValues.midday },
     evening: { enabled: false, time: defaultTimeSlotValues.evening },
+    night: { enabled: false, time: defaultTimeSlotValues.night },
   };
+}
+
+function createFormStateFromMedication(times: MedicationTimeEntry[]) {
+  const slotStates = createDefaultSlotStates();
+  const customTimes: string[] = [];
 
   for (const entry of times) {
-    next[entry.slot] = {
-      enabled: true,
-      time: normalizeTimeValue(entry.time),
-    };
+    if (isStandardMedicationTimeSlot(entry.slot)) {
+      slotStates[entry.slot] = {
+        enabled: true,
+        time: normalizeTimeValue(entry.time),
+      };
+      continue;
+    }
+
+    if (isCustomMedicationTimeSlot(entry.slot)) {
+      customTimes.push(normalizeTimeValue(entry.time));
+    }
   }
 
-  return next;
+  return { slotStates, customTimes };
 }
 
 function buildMedicationSavePreview(
   name: string,
   dosage: string,
-  slotStates: Record<MedicationTimeSlot, SlotState>,
+  slotStates: Record<StandardMedicationTimeSlot, SlotState>,
+  customTimes: string[],
   t: ReturnType<typeof useLanguage>["t"],
 ) {
   const trimmedName = name.trim();
@@ -393,13 +559,8 @@ function buildMedicationSavePreview(
     return null;
   }
 
-  const scheduleParts = slots
-    .filter((slot) => slotStates[slot].enabled)
-    .map(
-      (slot) =>
-        `${getMedicationTimeSlotLabel(slot, t)} ${slotStates[slot].time}`,
-    );
-
+  const times = buildTimesFromSlotStates(slotStates, customTimes, t);
+  const scheduleParts = times.map((entry) => formatMedicationScheduleEntry(entry, t));
   const parts = [trimmedName, trimmedDosage];
 
   if (scheduleParts.length > 0) {
@@ -410,12 +571,29 @@ function buildMedicationSavePreview(
 }
 
 function buildTimesFromSlotStates(
-  slotStates: Record<MedicationTimeSlot, SlotState>,
-) {
-  return slots
-    .filter((slot) => slotStates[slot].enabled)
-    .map((slot) => ({
-      slot,
-      time: normalizeTimeValue(slotStates[slot].time),
-    }));
+  slotStates: Record<StandardMedicationTimeSlot, SlotState>,
+  customTimes: string[],
+  t: ReturnType<typeof useLanguage>["t"],
+): MedicationTimeEntry[] {
+  const times: MedicationTimeEntry[] = [];
+
+  for (const slot of STANDARD_MEDICATION_TIME_SLOTS) {
+    if (slotStates[slot].enabled) {
+      times.push({
+        slot,
+        time: normalizeTimeValue(slotStates[slot].time),
+        label: getMedicationTimeSlotLabel(slot, t),
+      });
+    }
+  }
+
+  customTimes.forEach((time, index) => {
+    times.push({
+      slot: customSlotFromIndex(index),
+      time: normalizeTimeValue(time),
+      label: t("med_custom_dose", { n: index + 1 }),
+    });
+  });
+
+  return times;
 }

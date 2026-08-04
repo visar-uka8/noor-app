@@ -3,6 +3,7 @@
 import { Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { ActivityLogSheet } from "@/components/ActivityLogSheet";
 import { useLanguage } from "@/components/LanguageProvider";
 import { buildApiAuthHeaders } from "@/lib/api-auth";
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
@@ -10,10 +11,8 @@ import {
   formatLocalizedTodayActivityEntry,
   getActivityTypeOptions,
 } from "@/lib/i18n/activity-labels";
-import { WaterQuickLog } from "@/components/WaterQuickLog";
 import type { HealthGoalsApiResponse } from "@/types/health-goals";
 import {
-  durationOptions,
   type ActivityType,
   type StoredActivityLog,
 } from "@/types/activity-log";
@@ -28,19 +27,13 @@ export function DailyActivityCard({
   const router = useRouter();
   const { t } = useLanguage();
   const activityTypeOptions = useMemo(() => getActivityTypeOptions(t), [t]);
-  const [selectedType, setSelectedType] = useState<ActivityType | null>(null);
-  const [durationMinutes, setDurationMinutes] = useState<number | null>(null);
-  const [note, setNote] = useState("");
-  const [stepsToday, setStepsToday] = useState<number | "">("");
+  const [sheetType, setSheetType] = useState<ActivityType | null>(null);
   const [savedLogs, setSavedLogs] = useState<StoredActivityLog[]>([]);
-  const [waterLiters, setWaterLiters] = useState(0);
+  const [stepsToday, setStepsToday] = useState<number | "">("");
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [isSavingWater, setIsSavingWater] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [waterSaveError, setWaterSaveError] = useState<string | null>(null);
   const [showSavedMessage, setShowSavedMessage] = useState(false);
-  const [showWaterSavedMessage, setShowWaterSavedMessage] = useState(false);
 
   useEffect(() => {
     void fetchTodayData(true);
@@ -75,7 +68,6 @@ export function DailyActivityCard({
 
       if (goalsResponse.ok) {
         const payload = (await goalsResponse.json()) as HealthGoalsApiResponse;
-        setWaterLiters(payload.today?.waterLiters ?? 0);
         if (payload.today?.steps) {
           setStepsToday(payload.today.steps);
         }
@@ -89,17 +81,17 @@ export function DailyActivityCard({
     }
   }
 
-  async function saveActivity() {
-    if (!selectedType) {
-      setSaveError(t("activity_select_type"));
-      return;
-    }
-
-    if (selectedType !== "rest" && durationMinutes == null) {
-      setSaveError(t("activity_select_duration"));
-      return;
-    }
-
+  async function saveActivity({
+    activityType,
+    durationMinutes,
+    stepsValue,
+    note,
+  }: {
+    activityType: ActivityType;
+    durationMinutes: number | null;
+    stepsValue: number | "";
+    note: string;
+  }) {
     setIsSaving(true);
     setSaveError(null);
 
@@ -111,8 +103,8 @@ export function DailyActivityCard({
         credentials: "include",
         headers,
         body: JSON.stringify({
-          activity_type: selectedType,
-          duration_minutes: selectedType === "rest" ? null : durationMinutes,
+          activity_type: activityType,
+          duration_minutes: durationMinutes,
           note,
         }),
       });
@@ -131,19 +123,16 @@ export function DailyActivityCard({
         throw new Error(t("activity_saved_confirm_failed"));
       }
 
-      if (typeof stepsToday === "number" && stepsToday > 0) {
+      if (typeof stepsValue === "number" && stepsValue > 0) {
         await fetchWithTimeout("/api/health-goals/today", {
           method: "PATCH",
           credentials: "include",
           headers,
-          body: JSON.stringify({ steps: stepsToday }),
+          body: JSON.stringify({ steps: stepsValue }),
         });
       }
 
-      setSelectedType(null);
-      setDurationMinutes(null);
-      setNote("");
-      setStepsToday("");
+      setSheetType(null);
       setShowSavedMessage(true);
       await fetchTodayData();
       router.refresh();
@@ -153,59 +142,44 @@ export function DailyActivityCard({
       setSaveError(
         error instanceof Error ? error.message : t("activity_save_failed"),
       );
+      return false;
     } finally {
       setIsSaving(false);
     }
+
+    return true;
   }
 
-  async function saveWater(liters: number) {
-    setIsSavingWater(true);
-    setWaterSaveError(null);
-    const previousValue = waterLiters;
-    setWaterLiters(liters);
+  async function handleActivityTypeClick(type: ActivityType) {
+    if (isSaving) return;
 
-    try {
-      const headers = await buildApiAuthHeaders(true);
-      const response = await fetchWithTimeout("/api/health-goals/today", {
-        method: "PATCH",
-        credentials: "include",
-        headers,
-        body: JSON.stringify({ waterLiters: liters }),
-      });
-
-      const payload = (await response.json().catch(() => null)) as {
-        error?: string;
-        today?: { waterLiters?: number };
-      } | null;
-
-      if (!response.ok) {
-        throw new Error(payload?.error ?? t("common_save_failed"));
-      }
-
-      setWaterLiters(payload?.today?.waterLiters ?? liters);
-      setShowWaterSavedMessage(true);
-      router.refresh();
-      window.setTimeout(() => setShowWaterSavedMessage(false), 2000);
-    } catch (error) {
-      setWaterLiters(previousValue);
-      setWaterSaveError(
-        error instanceof Error
-          ? error.message
-          : t("common_water_save_failed"),
-      );
-    } finally {
-      setIsSavingWater(false);
-    }
-  }
-
-  function selectType(type: ActivityType) {
-    setSelectedType(type);
     setSaveError(null);
 
     if (type === "rest") {
-      setDurationMinutes(null);
+      const success = await saveActivity({
+        activityType: type,
+        durationMinutes: null,
+        stepsValue: stepsToday,
+        note: "",
+      });
+      if (!success) {
+        // saveActivity sets saveError
+      }
+      return;
     }
+
+    setSheetType(type);
   }
+
+  function closeSheet() {
+    if (isSaving) return;
+    setSheetType(null);
+    setSaveError(null);
+  }
+
+  const sheetOption = activityTypeOptions.find(
+    (option) => option.value === sheetType,
+  );
 
   const content = (
     <>
@@ -237,131 +211,31 @@ export function DailyActivityCard({
           ) : null}
 
           <div className="mt-4 grid grid-cols-2 gap-3">
-            {activityTypeOptions.map((option) => {
-              const selected = selectedType === option.value;
-
-              return (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => selectType(option.value)}
-                  className={`flex min-h-[96px] flex-col items-start rounded-xl border px-4 py-3.5 text-left transition-colors ${
-                    selected
-                      ? "border-primary bg-primary-light"
-                      : "border-border bg-background hover:border-primary/30"
-                  }`}
-                  style={{ borderWidth: "0.5px", borderRadius: "12px" }}
-                  aria-pressed={selected}
-                >
-                  <span className="text-2xl" aria-hidden="true">
-                    {option.emoji}
-                  </span>
-                  <span className="mt-2 block text-base font-semibold text-[#085041]">
-                    {option.title}
-                  </span>
-                  <span className="mt-0.5 block text-sm text-muted">
-                    {option.subtitle}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-
-          <WaterQuickLog
-            value={waterLiters}
-            isSaving={isSavingWater}
-            error={waterSaveError}
-            onSave={saveWater}
-          />
-
-          {selectedType ? (
-            <div className="mt-5">
-              {selectedType !== "rest" ? (
-                <div>
-                  <span className="block text-base font-semibold text-foreground">
-                    {t("how_long")}
-                  </span>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {durationOptions.map((option) => {
-                      const selected = durationMinutes === option.value;
-
-                      return (
-                        <button
-                          key={option.value}
-                          type="button"
-                          onClick={() => {
-                            setDurationMinutes(option.value);
-                            setSaveError(null);
-                          }}
-                          className={`rounded-full border px-4 py-2 text-sm font-semibold transition-colors ${
-                            selected
-                              ? "border-primary bg-primary text-white"
-                              : "border-border bg-background text-foreground hover:border-primary/40"
-                          }`}
-                          aria-pressed={selected}
-                        >
-                          {option.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              ) : null}
-
-              <label className="mt-5 block">
-                <span className="mb-1.5 block text-sm font-medium text-[#085041]">
-                  🚶 {t("activity_steps_today_label")}
-                </span>
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  placeholder={t("activity_steps_placeholder")}
-                  value={stepsToday}
-                  onChange={(event) => {
-                    const next = event.target.value;
-                    setStepsToday(next === "" ? "" : Number(next));
-                  }}
-                  className="min-h-12 w-full rounded-xl border border-[#E4E2DB] px-3 text-base text-foreground outline-none focus:border-primary"
-                />
-              </label>
-
-              <label className="mt-5 block">
-                <span className="mb-2 block text-base font-semibold text-foreground">
-                  {t("note_optional")}
-                </span>
-                <input
-                  type="text"
-                  value={note}
-                  onChange={(event) => setNote(event.target.value)}
-                  placeholder={t("activity_note_placeholder")}
-                  className="min-h-12 w-full rounded-2xl border border-border bg-background px-4 text-base text-foreground outline-none focus:border-primary"
-                />
-              </label>
-
-              {saveError ? (
-                <p className="mt-3 text-sm font-semibold text-danger" role="alert">
-                  {saveError}
-                </p>
-              ) : null}
-
+            {activityTypeOptions.map((option) => (
               <button
+                key={option.value}
                 type="button"
                 disabled={isSaving}
-                onClick={() => void saveActivity()}
-                className="btn-primary mt-5 w-full gap-2 disabled:opacity-70"
+                onClick={() => void handleActivityTypeClick(option.value)}
+                className="flex min-h-[96px] flex-col items-start rounded-xl border border-border bg-background px-4 py-3.5 text-left transition-colors hover:border-primary/30 disabled:opacity-60"
+                style={{ borderWidth: "0.5px", borderRadius: "12px" }}
               >
-                {isSaving && <Loader2 size={20} className="animate-spin" />}
-                {t("save_activity")}
+                <span className="text-2xl" aria-hidden="true">
+                  {option.emoji}
+                </span>
+                <span className="mt-2 block text-base font-semibold text-[#085041]">
+                  {option.title}
+                </span>
+                <span className="mt-0.5 block text-sm text-muted">
+                  {option.subtitle}
+                </span>
               </button>
-            </div>
-          ) : null}
+            ))}
+          </div>
 
-          {showWaterSavedMessage ? (
-            <p
-              className="mt-3 text-center text-sm font-semibold text-[#378ADD]"
-              role="status"
-            >
-              {t("activity_water_saved")}
+          {saveError && !sheetType ? (
+            <p className="mt-3 text-sm font-semibold text-danger" role="alert">
+              {saveError}
             </p>
           ) : null}
 
@@ -375,6 +249,30 @@ export function DailyActivityCard({
           ) : null}
         </>
       )}
+
+      <ActivityLogSheet
+        open={sheetType != null}
+        activityType={sheetType}
+        activityTitle={sheetOption?.title ?? ""}
+        activityEmoji={sheetOption?.emoji ?? ""}
+        initialSteps={stepsToday}
+        isSaving={isSaving}
+        saveError={sheetType ? saveError : null}
+        onClose={closeSheet}
+        onSave={({ durationMinutes, stepsToday: stepsValue, note }) => {
+          if (!sheetType) return;
+          void saveActivity({
+            activityType: sheetType,
+            durationMinutes,
+            stepsValue,
+            note,
+          }).then((success) => {
+            if (success) {
+              setSaveError(null);
+            }
+          });
+        }}
+      />
     </>
   );
 

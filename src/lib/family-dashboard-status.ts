@@ -4,6 +4,7 @@ import type {
   StoredMedication,
 } from "@/types/medication";
 import type { StoredActivityLog } from "@/types/activity-log";
+import type { WeeklySummary } from "@/lib/weekly-summary";
 import {
   formatFamilyActivitySummaryFromLogs,
   formatFamilyCardActivitySubtitleFromLogs,
@@ -31,6 +32,8 @@ export type FamilyMedicationItem = {
   time: string;
   status: FamilyMedicationStatus;
   statusText: string;
+  isInsulin?: boolean;
+  insulinUnits?: number | null;
 };
 
 export type FamilyDashboardMember = {
@@ -63,6 +66,7 @@ export type FamilyDashboardData = {
   todayActivityText: string | null;
   latestLabResult: FamilyLatestLabResult | null;
   healthPassportAvailable: boolean;
+  weeklySummary: WeeklySummary | null;
 };
 
 export const overallStatusCopy: Record<
@@ -126,10 +130,16 @@ export function applyMedicationConfirmationChange(
     if (medication.id !== itemId) return medication;
 
     if (confirmation.confirmed_at) {
+      const statusText =
+        medication.isInsulin && confirmation.insulin_units
+          ? `💉 ${medication.name} ${medication.timeLabel} — ${confirmation.insulin_units} IE ✓ ${formatConfirmationTime(confirmation.confirmed_at)} Uhr`
+          : `${formatConfirmationTime(confirmation.confirmed_at)} Uhr bestätigt`;
+
       return {
         ...medication,
         status: "confirmed" as const,
-        statusText: `${formatConfirmationTime(confirmation.confirmed_at)} Uhr bestätigt`,
+        statusText,
+        insulinUnits: confirmation.insulin_units,
       };
     }
 
@@ -202,6 +212,7 @@ export function buildFamilyDashboardData(input: {
   todayActivities?: StoredActivityLog[];
   latestLabResult: FamilyLatestLabResult | null;
   healthPassportAvailable?: boolean;
+  weeklySummary?: WeeklySummary | null;
 }): FamilyDashboardData {
   const medications = buildMedicationItems(input.medications, input.confirmations);
   const overallStatus = getOverallStatus(medications);
@@ -231,6 +242,7 @@ export function buildFamilyDashboardData(input: {
     todayActivityText,
     latestLabResult: input.latestLabResult,
     healthPassportAvailable: input.healthPassportAvailable ?? false,
+    weeklySummary: input.weeklySummary ?? null,
   };
 }
 
@@ -277,11 +289,20 @@ export function buildMedicationItems(
   confirmations: StoredConfirmation[],
 ): FamilyMedicationItem[] {
   const doses = expandMedicationsToDailyDoses(medications);
+  const medicationById = new Map(medications.map((med) => [med.id, med]));
 
   return doses.map((dose) => {
     const confirmation = findConfirmationForDose(confirmations, dose);
+    const medication = medicationById.get(dose.medicationId);
+    const isMealInsulin =
+      medication?.is_insulin && medication.insulin_type === "mahlzeit";
 
     if (confirmation?.confirmed_at) {
+      const statusText =
+        isMealInsulin && confirmation.insulin_units
+          ? `💉 ${dose.name} ${dose.slotLabel} — ${confirmation.insulin_units} IE ✓ ${formatConfirmationTime(confirmation.confirmed_at)} Uhr`
+          : `${formatConfirmationTime(confirmation.confirmed_at)} Uhr bestätigt`;
+
       return {
         id: dose.id,
         medicationId: dose.medicationId,
@@ -290,7 +311,9 @@ export function buildMedicationItems(
         timeLabel: dose.slotLabel,
         time: dose.time,
         status: "confirmed",
-        statusText: `${formatConfirmationTime(confirmation.confirmed_at)} Uhr bestätigt`,
+        statusText,
+        isInsulin: medication?.is_insulin,
+        insulinUnits: confirmation.insulin_units,
       };
     }
 
@@ -304,6 +327,7 @@ export function buildMedicationItems(
         time: dose.time,
         status: "missed",
         statusText: "vergessen",
+        isInsulin: medication?.is_insulin,
       };
     }
 
@@ -316,6 +340,7 @@ export function buildMedicationItems(
       time: dose.time,
       status: "pending",
       statusText: "noch ausstehend",
+      isInsulin: medication?.is_insulin,
     };
   });
 }
@@ -413,6 +438,8 @@ export const demoFamilyDashboard = buildFamilyDashboardData({
       frequency: "ONCE_DAILY",
       start_date: new Date().toISOString(),
       is_active: true,
+      is_insulin: false,
+      insulin_type: null,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     },

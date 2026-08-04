@@ -13,7 +13,7 @@ export function LabResultsPageTitle() {
   const { mode, hasFamilyConnection } = useHomeViewModeContext();
   const { connection } = useFamilyConnection();
   const { roles } = useFamilyRoles();
-  const profileRole = useUserRole();
+  const { role: profileRole } = useUserRole();
   const isFamilyMember = isFamilyMemberAccount(profileRole, roles);
 
   const isFamilyView =

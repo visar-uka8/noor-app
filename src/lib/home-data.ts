@@ -30,6 +30,7 @@ import {
 } from "@/lib/family-roles";
 import {
   queryActivePatientWatchersSafe,
+  queryActiveWatcherLinksForUser,
   queryActiveWatcherLinkForUser,
 } from "@/lib/family-links-query";
 import {
@@ -55,6 +56,11 @@ import {
   listAppointmentsForUser,
 } from "@/lib/appointments-data";
 import { appointmentNeedsNotes } from "@/types/appointments";
+import { syncOnboardingForHome } from "@/lib/onboarding";
+import {
+  getWeeklySummary,
+  shouldShowWeeklySummary,
+} from "@/lib/weekly-summary";
 import { resolveStoredAvatarUrl } from "@/lib/profile-avatar-store";
 import type { StoredConfirmation, StoredMedication } from "@/types/medication";
 
@@ -111,11 +117,36 @@ export async function buildHomeScreenResponse(
   );
   const healthGoals = await loadHomeHealthGoalsSummarySafe(user.id, supabase);
   const family = await loadFamilyCardSafe(user.id, supabase, todayActivityLogs);
+  const familyWatchingCount = await loadFamilyWatchingCountSafe(user.id, supabase);
   const passport = await loadHealthPassportForUser(user.id, supabase);
   const watchedPatientHealthPassportAvailable =
     await loadWatchedPatientPassportAvailable(user.id, supabase);
   const unreadFamilyNote = await loadVisibleFamilyNoteSafe(supabase, user.id);
   const nextAppointment = await loadNextAppointmentSafe(user.id, supabase);
+
+  const onboarding = await syncOnboardingForHome(supabase, user.id, {
+    dateOfBirth: profileEdit?.date_of_birth ?? null,
+    medicationCount: medications.length,
+    labResultCount: labResult.hasResult ? 1 : 0,
+    familyConnectedCount: family.connectedCount,
+    familyWatchingCount,
+  }).catch((error) => {
+    console.error("Home onboarding sync failed:", error);
+    return null;
+  });
+
+  const accountCreatedAt = await loadProfileCreatedAtSafe(user.id, supabase);
+
+  const showWeeklySummary = shouldShowWeeklySummary(
+    accountCreatedAt,
+    medications.length,
+  );
+  const weeklySummary = showWeeklySummary
+    ? await getWeeklySummary(supabase, user.id).catch((error) => {
+        console.error("Home weekly summary load failed:", error);
+        return null;
+      })
+    : null;
 
   const metadata = user.user_metadata as {
     first_name?: string;
@@ -172,6 +203,8 @@ export async function buildHomeScreenResponse(
         }
       : null,
     nextAppointment,
+    onboarding,
+    weeklySummary,
   };
 
   console.log("Home page data:", payload);
@@ -389,6 +422,19 @@ async function loadFamilyCardSafe(
   }
 }
 
+async function loadFamilyWatchingCountSafe(
+  userId: string,
+  supabase: SupabaseClient,
+) {
+  try {
+    const links = await queryActiveWatcherLinksForUser(supabase, userId);
+    return links.length;
+  } catch (error) {
+    console.error("Home family watching count failed:", error);
+    return 0;
+  }
+}
+
 async function loadPatientWatchersSafe(userId: string, supabase: SupabaseClient) {
   const links = await queryActivePatientWatchersSafe(supabase, userId);
   if (!links.length) return [];
@@ -484,6 +530,29 @@ async function loadNextAppointmentSafe(
     };
   } catch (error) {
     console.error("Home appointment load failed:", error);
+    return null;
+  }
+}
+
+async function loadProfileCreatedAtSafe(
+  userId: string,
+  supabase: SupabaseClient,
+) {
+  try {
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("created_at")
+      .eq("id", userId)
+      .maybeSingle<{ created_at?: string | null }>();
+
+    if (error) {
+      console.error("Home profile created_at load failed:", error);
+      return null;
+    }
+
+    return data?.created_at ?? null;
+  } catch (error) {
+    console.error("Home profile created_at load failed:", error);
     return null;
   }
 }

@@ -6,6 +6,7 @@ import {
   logSupabaseError,
 } from "@/lib/load-settings-profile";
 import { saveProfileUpdatesWithFallback } from "@/lib/profile-save";
+import { markOnboardingStep } from "@/lib/onboarding";
 import { createSupabaseDataClient } from "@/lib/supabase-data";
 import type { Profile, UserRole } from "@/types/profiles";
 
@@ -220,6 +221,19 @@ export async function PATCH(request: Request) {
             "Einstellungen konnten gerade nicht gespeichert werden.",
         },
         { status: 500 },
+      );
+    }
+
+    if (
+      typeof healthUpdates === "object" &&
+      healthUpdates !== null &&
+      "date_of_birth" in healthUpdates &&
+      healthUpdates.date_of_birth
+    ) {
+      void markOnboardingStep(supabase, payload.id, "profile").catch(
+        (stepError) => {
+          console.error("Onboarding profile step failed:", stepError);
+        },
       );
     }
 

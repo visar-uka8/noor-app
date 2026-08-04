@@ -1,76 +1,109 @@
 "use client";
 
-import { MailCheck } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useAuthUser } from "@/hooks/useAuthUser";
 import {
   dismissEmailConfirmationPrompt,
   isEmailConfirmationPromptDismissed,
 } from "@/lib/email-confirmation-prompt-dismiss";
+import { getRegistrationConfirmUrl } from "@/lib/registration-onboarding";
+import { supabase } from "@/lib/supabase";
 
 export function EmailConfirmationPromptCard() {
+  const { user } = useAuthUser();
   const [dismissed, setDismissed] = useState<boolean | null>(null);
+  const [isResending, setIsResending] = useState(false);
+  const [resendMessage, setResendMessage] = useState<string | null>(null);
+
+  const emailConfirmed = Boolean(user?.email_confirmed_at);
 
   useEffect(() => {
     setDismissed(isEmailConfirmationPromptDismissed());
   }, []);
 
-  if (dismissed !== false) {
+  if (emailConfirmed || dismissed !== false || !user?.email) {
     return null;
   }
 
+  async function resendConfirmationEmail() {
+    if (!user?.email) return;
+
+    setIsResending(true);
+    setResendMessage(null);
+
+    try {
+      const { error } = await supabase.auth.resend({
+        type: "signup",
+        email: user.email,
+        options: {
+          emailRedirectTo: getRegistrationConfirmUrl(),
+        },
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      setResendMessage("E-Mail wurde erneut gesendet.");
+    } catch {
+      setResendMessage(
+        "E-Mail konnte gerade nicht gesendet werden. Bitte später erneut versuchen.",
+      );
+    } finally {
+      setIsResending(false);
+    }
+  }
+
+  function dismiss() {
+    dismissEmailConfirmationPrompt();
+    setDismissed(true);
+  }
+
   return (
-    <section
-      className="flex flex-wrap items-center justify-between gap-4"
-      style={{
-        backgroundColor: "#FAEEDA",
-        border: "0.5px solid #E4D4A8",
-        borderRadius: "16px",
-        padding: "16px",
-      }}
-      aria-label="E-Mail bestätigen"
+    <div
+      className="mb-3 flex items-center justify-between gap-3 rounded-2xl px-4 py-3"
+      style={{ backgroundColor: "#FAEEDA" }}
+      role="status"
+      aria-live="polite"
     >
-      <div className="flex min-w-0 flex-1 items-center gap-3">
-        <span
-          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl"
-          style={{ backgroundColor: "#F5E6C4", color: "#BA7517" }}
-          aria-hidden="true"
-        >
-          <MailCheck size={26} strokeWidth={2.2} />
+      <div className="flex min-w-0 flex-1 items-center gap-2.5">
+        <span className="text-lg" aria-hidden="true">
+          ✉️
         </span>
         <div className="min-w-0">
-          <p
-            style={{
-              margin: 0,
-              fontSize: "15px",
-              fontWeight: 600,
-              color: "#633806",
-            }}
-          >
+          <div className="text-sm font-semibold text-[#633806]">
             E-Mail bestätigen
-          </p>
-          <p
-            style={{
-              margin: "2px 0 0",
-              fontSize: "13px",
-              color: "#BA7517",
-            }}
-          >
-            Bitte klicken Sie den Link in Ihrer Bestätigungs-E-Mail, um Ihr
-            Konto zu sichern.
-          </p>
+          </div>
+          <div className="mt-0.5 text-xs text-[#BA7517]">
+            {resendMessage ?? "Wir haben Ihnen eine E-Mail geschickt."}
+          </div>
         </div>
       </div>
 
-      <button
-        type="button"
-        onClick={() => {
-          dismissEmailConfirmationPrompt();
-          setDismissed(true);
-        }}
-        className="btn-touch shrink-0 rounded-2xl border-2 border-[#E4D4A8] bg-white px-4 py-3 text-base font-semibold text-[#633806] transition-opacity hover:opacity-80"
-      >
-        Später
-      </button>
-    </section>
+      <div className="flex shrink-0 items-center gap-2">
+        <button
+          type="button"
+          onClick={() => void resendConfirmationEmail()}
+          disabled={isResending}
+          className="whitespace-nowrap rounded-[20px] border-none px-3.5 py-1.5 text-xs font-semibold text-white disabled:opacity-70"
+          style={{ backgroundColor: "#BA7517", cursor: "pointer" }}
+        >
+          {isResending ? (
+            <Loader2 size={14} className="animate-spin" aria-hidden="true" />
+          ) : (
+            "Erneut senden"
+          )}
+        </button>
+        <button
+          type="button"
+          onClick={dismiss}
+          className="border-none bg-transparent p-1 text-base text-[#88856F]"
+          aria-label="Schließen"
+        >
+          ✕
+        </button>
+      </div>
+    </div>
   );
 }

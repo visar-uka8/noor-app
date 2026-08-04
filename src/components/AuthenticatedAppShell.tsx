@@ -39,7 +39,7 @@ function AuthenticatedAppShellProviders({
   children: React.ReactNode;
 }) {
   const { roles } = useFamilyRoles();
-  const profileRole = useUserRole();
+  const { role: profileRole } = useUserRole();
   const { mode } = useHomeViewMode(
     roles.isWatcher,
     profileRole,

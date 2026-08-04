@@ -10,6 +10,15 @@ import { AuthShell } from "@/components/AuthShell";
 import { createClient } from "@/lib/supabase/client";
 import type { Profile } from "@/types/profiles";
 
+function isEmailNotConfirmedError(error: { message?: string }) {
+  const message = (error.message ?? "").toLowerCase();
+
+  return (
+    message.includes("email not confirmed") ||
+    message.includes("not confirmed")
+  );
+}
+
 export function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -46,35 +55,85 @@ export function LoginForm() {
         password,
       });
 
-      if (error) throw error;
-      if (!data.user) throw new Error("No user returned from Supabase.");
+      if (error) {
+        if (isEmailNotConfirmedError(error)) {
+          const resumeResponse = await fetch("/api/auth/resume-registration", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              email: email.trim(),
+              password,
+            }),
+          });
 
-      const profileResponse = await fetch(`/api/profiles?userId=${data.user.id}`);
-      const profileData = (await profileResponse.json()) as {
-        profile: Profile | null;
-      };
-      const role = profileData.profile?.role ?? "patient";
+          const resumeBody = (await resumeResponse.json().catch(() => null)) as {
+            error?: string;
+          } | null;
 
-      if (role === "family_member") {
-        const dashResponse = await fetch("/api/family-dashboard", {
-          credentials: "include",
-        });
-        const dashData = (await dashResponse.json()) as { connected?: boolean };
+          if (!resumeResponse.ok) {
+            throw new Error(
+              resumeBody?.error ??
+                "Anmeldung ist gerade nicht möglich. Bitte prüfen Sie E-Mail und Passwort.",
+            );
+          }
 
-        router.refresh();
-        router.push(dashData.connected ? "/" : "/family/connect");
-        return;
+          await completeLoginRedirect(router);
+          return;
+        }
+
+        throw error;
       }
 
-      router.refresh();
-      router.push("/");
-    } catch {
+      if (!data.user) throw new Error("No user returned from Supabase.");
+
+      await completeLoginRedirect(router, data.user.id);
+    } catch (error) {
       setErrorMessage(
-        "Anmeldung ist gerade nicht möglich. Bitte prüfen Sie E-Mail und Passwort.",
+        error instanceof Error
+          ? error.message
+          : "Anmeldung ist gerade nicht möglich. Bitte prüfen Sie E-Mail und Passwort.",
       );
     } finally {
       setIsLoading(false);
     }
+  }
+
+  async function completeLoginRedirect(
+    router: ReturnType<typeof useRouter>,
+    userId?: string,
+  ) {
+    const supabase = createClient();
+    const resolvedUserId =
+      userId ??
+      (await supabase.auth.getUser()).data.user?.id ??
+      null;
+
+    if (!resolvedUserId) {
+      router.refresh();
+      router.push("/");
+      return;
+    }
+
+    const profileResponse = await fetch(`/api/profiles?userId=${resolvedUserId}`);
+    const profileData = (await profileResponse.json()) as {
+      profile: Profile | null;
+    };
+    const role = profileData.profile?.role ?? "patient";
+
+    if (role === "family_member") {
+      const dashResponse = await fetch("/api/family-dashboard", {
+        credentials: "include",
+      });
+      const dashData = (await dashResponse.json()) as { connected?: boolean };
+
+      router.refresh();
+      router.push(dashData.connected ? "/" : "/family/connect");
+      return;
+    }
+
+    router.refresh();
+    router.push("/");
   }
 
   return (

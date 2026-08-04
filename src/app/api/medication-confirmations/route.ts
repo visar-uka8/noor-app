@@ -16,18 +16,20 @@ import {
   loadTodayConfirmations,
   syncMissedDoses,
 } from "@/lib/medication-data";
+import { trackServerEvent } from "@/lib/analytics";
 import { calculateMedicationStreak } from "@/lib/medication-streak";
 import type { MedicationTimeSlot, StoredConfirmation } from "@/types/medication";
 
 export const runtime = "nodejs";
 
 const confirmationSelect =
-  "id, medication_id, dose_time, medication_name, scheduled_at, confirmed_at, missed";
+  "id, medication_id, dose_time, medication_name, scheduled_at, confirmed_at, missed, insulin_units";
 
 type ConfirmationPayload = {
   medication_id?: unknown;
   dose_time?: unknown;
   scheduled_time?: unknown;
+  insulin_units?: unknown;
 };
 
 type UndoPayload = {
@@ -78,6 +80,7 @@ export async function POST(request: Request) {
     const medicationId = normalizeMedicationId(payload.medication_id);
     const doseTime = normalizeDoseTime(payload.dose_time);
     const scheduledTime = normalizeScheduledTime(payload.scheduled_time);
+    const insulinUnits = normalizeInsulinUnits(payload.insulin_units);
     const { user, authError } = await getAuthenticatedUser(request);
 
     console.log("[medication-confirmations POST] user:", user?.id ?? null);
@@ -121,6 +124,17 @@ export async function POST(request: Request) {
       return Response.json({ error: "Einnahmezeit nicht gefunden." }, { status: 404 });
     }
 
+    if (
+      medication.is_insulin &&
+      medication.insulin_type === "mahlzeit" &&
+      insulinUnits == null
+    ) {
+      return Response.json(
+        { error: "Bitte geben Sie die Insulindosis in IE an." },
+        { status: 400 },
+      );
+    }
+
     const scheduledAt = getScheduledAtForTime(timeEntry.time).toISOString();
     const confirmation = {
       user_id: user.id,
@@ -133,6 +147,7 @@ export async function POST(request: Request) {
       scheduled_at: scheduledAt,
       confirmed_at: new Date().toISOString(),
       missed: isDoseMissed(getScheduledAtForTime(timeEntry.time)),
+      insulin_units: insulinUnits,
     };
 
     const existingConfirmation = await findTodayConfirmation({
@@ -164,6 +179,7 @@ export async function POST(request: Request) {
           medication_name: confirmation.medication_name,
           dose_time: confirmation.dose_time,
           scheduled_at: confirmation.scheduled_at,
+          insulin_units: confirmation.insulin_units,
         })
         .eq("id", existingConfirmation.id)
         .select(confirmationSelect)
@@ -172,6 +188,8 @@ export async function POST(request: Request) {
       console.log("[medication-confirmations POST] update:", data, error);
 
       if (error) throw error;
+
+      void trackMedicationConfirmed(supabase, user.id);
 
       return Response.json({ confirmation: data, alreadyConfirmed: false });
     }
@@ -201,12 +219,17 @@ export async function POST(request: Request) {
             .update({
               confirmed_at: confirmation.confirmed_at,
               missed: confirmation.missed,
+              insulin_units: confirmation.insulin_units,
             })
             .eq("id", raced.id)
             .select(confirmationSelect)
             .single<StoredConfirmation>();
 
           if (updateError) throw updateError;
+
+          if (!raced.confirmed_at) {
+            void trackMedicationConfirmed(supabase, user.id);
+          }
 
           return Response.json({
             confirmation: updated,
@@ -217,6 +240,8 @@ export async function POST(request: Request) {
 
       throw error;
     }
+
+    void trackMedicationConfirmed(supabase, user.id);
 
     return Response.json({ confirmation: data, alreadyConfirmed: false });
   } catch (error) {
@@ -364,12 +389,40 @@ function normalizeDoseTime(value: unknown): MedicationTimeSlot {
   throw new Error("Dose time is invalid.");
 }
 
+function normalizeInsulinUnits(value: unknown) {
+  if (value == null || value === "") return null;
+
+  const units = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(units) || units <= 0 || units > 200) {
+    throw new Error("Insulindosis ist ungültig.");
+  }
+
+  return Math.round(units);
+}
+
 function normalizeScheduledTime(value: unknown) {
   if (typeof value !== "string" || value.trim().length === 0) {
     throw new Error("Scheduled time is required.");
   }
 
   return value.trim();
+}
+
+async function trackMedicationConfirmed(
+  supabase: NonNullable<ReturnType<typeof createSupabaseDataClient>> | Awaited<
+    ReturnType<typeof createClient>
+  >,
+  userId: string,
+) {
+  try {
+    const medications = await loadActiveMedications(userId, supabase);
+    const streakConfirmations = await loadConfirmationsForStreak(userId, supabase);
+    const streak = calculateMedicationStreak(medications, streakConfirmations);
+
+    await trackServerEvent(supabase, userId, "medication_confirmed", { streak });
+  } catch (error) {
+    console.error("Medication confirmation analytics failed", error);
+  }
 }
 
 function createSupabaseDataClient() {

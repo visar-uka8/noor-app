@@ -1,16 +1,15 @@
 import { normalizeMedicationTimes } from "@/lib/medication-schedule";
 import type { PassportMedication } from "@/types/health-passport";
-import type { MedicationTimeSlot, StoredMedication } from "@/types/medication";
-import { timeSlotLabels } from "@/types/medication";
+import type { StoredMedication } from "@/types/medication";
+import {
+  getMedicationTimeEntryLabel,
+  isMedicationTimeSlot,
+} from "@/types/medication";
 
 type LegacyPassportMedication = Partial<PassportMedication> & {
   dosage?: string;
   times?: unknown;
 };
-
-function isMedicationTimeSlot(value: unknown): value is MedicationTimeSlot {
-  return value === "morning" || value === "midday" || value === "evening";
-}
 
 export function coercePassportMedication(
   input: LegacyPassportMedication,
@@ -77,7 +76,20 @@ export function formatPassportMedicationLine(
   const normalized = coercePassportMedication(medication);
   if (!normalized) return "";
 
-  const labels = normalized.frequency.map((slot) => timeSlotLabels[slot]);
+  const labels =
+    medication.times !== undefined
+      ? normalizeMedicationTimes(medication.times).map((entry) =>
+          getMedicationTimeEntryLabel(entry),
+        )
+      : normalized.frequency.map((slot) => {
+          if (typeof slot === "string" && slot.startsWith("custom_")) {
+            const index = Number(slot.replace("custom_", ""));
+            return Number.isFinite(index) ? `Dosis ${index}` : slot;
+          }
+
+          return getMedicationTimeEntryLabel({ slot });
+        });
+
   const schedule = labels.join(", ");
   const dosePart = normalized.dose ? ` ${normalized.dose}` : "";
   const schedulePart = schedule ? ` — ${schedule}` : "";

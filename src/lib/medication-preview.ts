@@ -1,5 +1,5 @@
 import type { GroupedDoseRow } from "@/components/MedicationGroupCard";
-import { timeSlotLabels } from "@/types/medication";
+import { getMedicationTimeEntryLabel } from "@/types/medication";
 import type { DailyDoseSlot } from "@/types/medication";
 
 const previewConfirmedAt = "2026-07-17T08:12:00";
@@ -17,10 +17,13 @@ function buildPreviewDose(input: {
     name: input.name,
     dosage: input.dosage,
     slot: input.slot,
-    slotLabel: timeSlotLabels[input.slot],
+    slotLabel: getMedicationTimeEntryLabel({ slot: input.slot }),
     time: input.time,
     scheduledAt: `2026-07-17T${input.time}:00`,
     displayLabel: input.name,
+    isInsulin: false,
+    insulinType: null,
+    requiresInsulinUnits: false,
   };
 }
 

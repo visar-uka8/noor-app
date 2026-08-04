@@ -1,11 +1,13 @@
 import { createClient } from "@/lib/supabase/server";
 import { determineFrequency } from "@/lib/medication-schedule";
-import type { MedicationTimeEntry } from "@/types/medication";
+import type { InsulinType, MedicationTimeEntry } from "@/types/medication";
 
 type MedicationInsertInput = {
   name: string;
   dosage: string;
   times: MedicationTimeEntry[];
+  is_insulin?: boolean;
+  insulin_type?: InsulinType | null;
 };
 
 export async function getMedicationAuthContext() {
@@ -14,9 +16,6 @@ export async function getMedicationAuthContext() {
     data: { user },
     error: authError,
   } = await supabase.auth.getUser();
-
-  console.log("Medication auth user:", user);
-  console.log("Medication auth error:", authError);
 
   return { supabase, user, authError };
 }
@@ -35,6 +34,8 @@ export function buildMedicationInsertRecord(
     frequency,
     start_date: new Date().toISOString().split("T")[0],
     is_active: true,
+    is_insulin: Boolean(input.is_insulin),
+    insulin_type: input.is_insulin ? input.insulin_type ?? null : null,
   };
 }
 
@@ -49,4 +50,9 @@ export function formatSupabaseError(error: {
   return [error.message, error.code, error.details, error.hint]
     .filter(Boolean)
     .join(" — ");
+}
+
+export function normalizeInsulinType(value: unknown): InsulinType | null {
+  if (value === "mahlzeit" || value === "basal") return value;
+  return null;
 }

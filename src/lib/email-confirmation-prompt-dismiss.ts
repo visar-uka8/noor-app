@@ -19,3 +19,13 @@ export function dismissEmailConfirmationPrompt() {
     // Ignore storage failures.
   }
 }
+
+export function clearEmailConfirmationPromptDismiss() {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.localStorage.removeItem(storageKey);
+  } catch {
+    // Ignore storage failures.
+  }
+}

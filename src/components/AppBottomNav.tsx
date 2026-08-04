@@ -10,7 +10,7 @@ import { useFamilyMemberNav } from "@/lib/family-member-flow";
 export function AppBottomNav() {
   const pathname = usePathname();
   const { t } = useLanguage();
-  const profileRole = useUserRole();
+  const { role: profileRole } = useUserRole();
   const familyMemberNav = useFamilyMemberNav(profileRole);
 
   const items = familyMemberNav

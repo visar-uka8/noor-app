@@ -3,6 +3,8 @@ import { getAuthenticatedUser } from "@/lib/supabase/request-auth";
 import { createSupabaseDataClient } from "@/lib/supabase-data";
 import { queryFamilyLinkForPair } from "@/lib/family-links-query";
 import { checkFamilyMemberQuota } from "@/lib/subscription";
+import { trackServerEvent } from "@/lib/analytics";
+import { markOnboardingStep } from "@/lib/onboarding";
 import {
   getProfileFirstName,
   getProfileLanguage,
@@ -84,6 +86,15 @@ export async function POST(request: Request) {
 
     if (existingLink?.active !== false) {
       const patientName = await loadPatientName(supabase, invite.patient_id);
+
+      void markOnboardingStep(supabase, invite.patient_id, "family").catch(
+        (stepError) => {
+          console.error("Onboarding patient family step failed:", stepError);
+        },
+      );
+      void markOnboardingStep(supabase, user.id, "family").catch((stepError) => {
+        console.error("Onboarding watcher family step failed:", stepError);
+      });
 
       return Response.json({
         connected: true,
@@ -179,6 +190,20 @@ export async function POST(request: Request) {
       user.id,
     ).catch((notificationError) => {
       console.error("Family connection notification failed", notificationError);
+    });
+
+    void markOnboardingStep(supabase, invite.patient_id, "family").catch(
+      (stepError) => {
+        console.error("Onboarding patient family step failed:", stepError);
+      },
+    );
+
+    void markOnboardingStep(supabase, user.id, "family").catch((stepError) => {
+      console.error("Onboarding watcher family step failed:", stepError);
+    });
+
+    void trackServerEvent(supabase, user.id, "family_connected", {
+      relationship,
     });
 
     return Response.json({

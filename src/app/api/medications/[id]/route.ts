@@ -6,7 +6,9 @@ import {
 import {
   formatSupabaseError,
   getMedicationAuthContext,
+  normalizeInsulinType,
 } from "@/lib/medications-api";
+import type { InsulinType } from "@/types/medication";
 
 export const runtime = "nodejs";
 
@@ -14,6 +16,8 @@ type MedicationPayload = {
   name?: unknown;
   dosage?: unknown;
   times?: unknown;
+  is_insulin?: unknown;
+  insulin_type?: unknown;
 };
 
 export async function GET(
@@ -85,14 +89,22 @@ export async function PATCH(
       updates.name = payload.name.trim();
     }
 
+    const isInsulin =
+      payload.is_insulin === true
+        ? true
+        : payload.is_insulin === false
+          ? false
+          : undefined;
+    const insulinType =
+      payload.insulin_type !== undefined
+        ? normalizeInsulinType(payload.insulin_type)
+        : undefined;
+
     if (payload.dosage !== undefined) {
-      if (typeof payload.dosage !== "string" || payload.dosage.trim().length === 0) {
-        return Response.json(
-          { error: "Bitte geben Sie die Dosierung ein." },
-          { status: 400 },
-        );
-      }
-      updates.dosage = payload.dosage.trim();
+      updates.dosage = normalizeDosage(payload.dosage, {
+        isInsulin: isInsulin ?? insulinType != null,
+        insulinType: insulinType ?? null,
+      });
     }
 
     if (payload.times !== undefined) {
@@ -107,6 +119,20 @@ export async function PATCH(
       updates.frequency = determineFrequency(times.length);
     }
 
+    if (isInsulin !== undefined) {
+      updates.is_insulin = isInsulin;
+      updates.insulin_type = isInsulin ? insulinType ?? null : null;
+    } else if (insulinType !== undefined) {
+      updates.insulin_type = insulinType;
+    }
+
+    if (isInsulin && insulinType === null) {
+      return Response.json(
+        { error: "Bitte wählen Sie die Insulinart." },
+        { status: 400 },
+      );
+    }
+
     const { data, error } = await supabase
       .from("medications")
       .update(updates)
@@ -115,9 +141,6 @@ export async function PATCH(
       .eq("is_active", true)
       .select("*")
       .maybeSingle();
-
-    console.log("Medication update error:", error);
-    console.log("Medication update data:", data);
 
     if (error) {
       return Response.json(
@@ -135,7 +158,12 @@ export async function PATCH(
     console.error("Medication update failed", error);
 
     return Response.json(
-      { error: "Medikament konnte gerade nicht gespeichert werden." },
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Medikament konnte gerade nicht gespeichert werden.",
+      },
       { status: 500 },
     );
   }
@@ -165,9 +193,6 @@ export async function DELETE(
       .select("id")
       .maybeSingle();
 
-    console.log("Medication delete error:", error);
-    console.log("Medication delete data:", data);
-
     if (error) {
       return Response.json(
         { error: formatSupabaseError(error), code: error.code },
@@ -188,4 +213,23 @@ export async function DELETE(
       { status: 500 },
     );
   }
+}
+
+function normalizeDosage(
+  value: unknown,
+  options: { isInsulin: boolean; insulinType: InsulinType | null },
+) {
+  if (
+    options.isInsulin &&
+    options.insulinType === "mahlzeit" &&
+    (value === undefined || (typeof value === "string" && value.trim().length === 0))
+  ) {
+    return "variabel";
+  }
+
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new Error("Bitte geben Sie die Dosierung ein.");
+  }
+
+  return value.trim();
 }

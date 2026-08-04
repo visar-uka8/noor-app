@@ -1,6 +1,7 @@
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
+import { trackServerEvent } from "@/lib/analytics";
 import {
   isMissingConditionsColumnError,
   isMissingVaccinationsColumnError,
@@ -10,6 +11,7 @@ import {
   normalizeStoredConditions,
 } from "@/lib/health-passport-load";
 import { toPassportMedications, normalizePassportMedications } from "@/lib/health-passport-medications";
+import { calculateHealthPassportCompletionPercent } from "@/lib/health-passport-completion";
 import { loadActiveMedications } from "@/lib/medication-data";
 import {
   bloodTypes,
@@ -18,6 +20,7 @@ import {
   type HealthPassportData,
   type MedicationFrequency,
 } from "@/types/health-passport";
+import { isMedicationTimeSlot } from "@/types/medication";
 
 export const runtime = "nodejs";
 
@@ -126,6 +129,10 @@ export async function POST(request: Request) {
       throw error;
     }
 
+    void trackServerEvent(supabase, user.id, "passport_saved", {
+      completeness: calculateHealthPassportCompletionPercent(passport),
+    });
+
     return Response.json({ stored: true, passport });
   } catch (error) {
     console.error("Health passport save failed", error);
@@ -216,8 +223,7 @@ function normalizeFrequency(value: unknown): MedicationFrequency[] {
   if (!Array.isArray(value)) return [];
 
   return value.filter(
-    (entry): entry is MedicationFrequency =>
-      entry === "morning" || entry === "midday" || entry === "evening",
+    (entry): entry is MedicationFrequency => isMedicationTimeSlot(entry),
   );
 }
 

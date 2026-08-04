@@ -6,7 +6,12 @@ import type {
   StoredConfirmation,
   StoredMedication,
 } from "@/types/medication";
-import { defaultTimeSlotValues, timeSlotLabels } from "@/types/medication";
+import {
+  customSlotFromIndex,
+  defaultTimeSlotValues,
+  getMedicationTimeEntryLabel,
+  isMedicationTimeSlot,
+} from "@/types/medication";
 import { MISSED_GRACE_MINUTES } from "@/lib/medication-notification-timing";
 
 const UPCOMING_LEAD_MINUTES = 30;
@@ -104,19 +109,35 @@ export function normalizeMedicationTimes(value: unknown): MedicationTimeEntry[] 
       continue;
     }
 
-    if (
-      item &&
-      typeof item === "object" &&
-      "slot" in item &&
-      "time" in item &&
-      isMedicationTimeSlot(item.slot) &&
-      typeof item.time === "string" &&
-      item.time.trim().length > 0
-    ) {
-      entries.push({
-        slot: item.slot,
-        time: normalizeTimeValue(item.time),
-      });
+    if (item && typeof item === "object" && "time" in item) {
+      const record = item as {
+        slot?: unknown;
+        label?: unknown;
+        time?: unknown;
+      };
+
+      if (
+        typeof record.time !== "string" ||
+        record.time.trim().length === 0
+      ) {
+        continue;
+      }
+
+      const time = normalizeTimeValue(record.time);
+      const label =
+        typeof record.label === "string" && record.label.trim().length > 0
+          ? record.label.trim()
+          : undefined;
+
+      if (isMedicationTimeSlot(record.slot)) {
+        entries.push({ slot: record.slot, time, label });
+        continue;
+      }
+
+      const slotFromLabel = inferSlotFromLabel(label);
+      if (slotFromLabel) {
+        entries.push({ slot: slotFromLabel, time, label });
+      }
     }
   }
 
@@ -130,16 +151,23 @@ export function expandMedicationsToDailyDoses(
     normalizeMedicationTimes(medication.times).map((entry) => {
       const scheduledAt = getScheduledAtForTime(entry.time).toISOString();
 
+      const slotLabel = getMedicationTimeEntryLabel(entry);
+
       return {
         id: makeDoseSlotId(medication.id, entry.slot, entry.time),
         medicationId: medication.id,
         name: medication.name,
         dosage: medication.dosage,
         slot: entry.slot,
-        slotLabel: timeSlotLabels[entry.slot],
+        slotLabel,
         time: entry.time,
         scheduledAt,
-        displayLabel: `${timeSlotLabels[entry.slot]} — ${medication.name} — ${entry.time}`,
+        displayLabel: `${slotLabel} — ${medication.name} — ${entry.time}`,
+        isInsulin: Boolean(medication.is_insulin),
+        insulinType: medication.insulin_type ?? null,
+        requiresInsulinUnits:
+          Boolean(medication.is_insulin) &&
+          medication.insulin_type === "mahlzeit",
       };
     }),
   );
@@ -154,10 +182,19 @@ export function makeDoseSlotId(
 }
 
 export function parseDoseSlotId(id: string) {
-  const [medicationId, slot, time] = id.split(":");
+  const firstColon = id.indexOf(":");
+  if (firstColon === -1) return null;
+
+  const medicationId = id.slice(0, firstColon);
+  const rest = id.slice(firstColon + 1);
+  const secondColon = rest.indexOf(":");
+  if (secondColon === -1) return null;
+
+  const slot = rest.slice(0, secondColon);
+  const time = rest.slice(secondColon + 1);
   if (!medicationId || !isMedicationTimeSlot(slot) || !time) return null;
 
-  return { medicationId, slot, time };
+  return { medicationId, slot, time: normalizeTimeValue(time) };
 }
 
 export function getScheduledAtForTime(timeValue: string, baseDate = new Date()) {
@@ -259,8 +296,30 @@ export function inferSlotFromTime(timeValue: string): MedicationTimeSlot | null 
   const [hours] = normalizeTimeValue(timeValue).split(":").map(Number);
 
   if (hours < 11) return "morning";
-  if (hours < 17) return "midday";
-  return "evening";
+  if (hours < 14) return "midday";
+  if (hours < 19) return "evening";
+  if (hours < 23) return "night";
+  return "night";
+}
+
+function inferSlotFromLabel(label: string | undefined): MedicationTimeSlot | null {
+  if (!label) return null;
+
+  const normalized = label.trim().toLowerCase();
+  if (normalized === "morgens") return "morning";
+  if (normalized === "mittags") return "midday";
+  if (normalized === "abends") return "evening";
+  if (normalized === "nachts") return "night";
+  if (normalized === "vor dem frühstück") return "before_breakfast";
+  if (normalized === "vor dem mittagessen") return "before_lunch";
+  if (normalized === "vor dem abendessen") return "before_dinner";
+
+  const doseMatch = label.match(/^Dosis\s+(\d+)$/i);
+  if (doseMatch) {
+    return customSlotFromIndex(Number(doseMatch[1]) - 1);
+  }
+
+  return null;
 }
 
 export function normalizeTimeValue(value: string) {
@@ -273,9 +332,7 @@ export function normalizeTimeValue(value: string) {
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }
 
-export function isMedicationTimeSlot(value: unknown): value is MedicationTimeSlot {
-  return value === "morning" || value === "midday" || value === "evening";
-}
+export { isMedicationTimeSlot } from "@/types/medication";
 
 export function formatConfirmationTime(value: string) {
   return new Intl.DateTimeFormat("de-DE", {
@@ -293,12 +350,21 @@ export function parseStoredMedication(row: {
   frequency: string;
   start_date: string;
   is_active: boolean;
+  is_insulin?: boolean | null;
+  insulin_type?: string | null;
   created_at: string;
   updated_at: string;
 }): StoredMedication {
+  const insulinType =
+    row.insulin_type === "mahlzeit" || row.insulin_type === "basal"
+      ? row.insulin_type
+      : null;
+
   return {
     ...row,
     times: normalizeMedicationTimes(row.times),
     frequency: row.frequency as MedicationFrequency,
+    is_insulin: Boolean(row.is_insulin),
+    insulin_type: insulinType,
   };
 }

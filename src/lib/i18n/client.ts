@@ -2,7 +2,6 @@
 
 import i18n from "i18next";
 import { initReactI18next } from "react-i18next";
-import LanguageDetector from "i18next-browser-languagedetector";
 import deCommon from "../../../public/locales/de/common.json";
 import enCommon from "../../../public/locales/en/common.json";
 import trCommon from "../../../public/locales/tr/common.json";
@@ -22,24 +21,17 @@ const resources = {
 
 const initPromise = i18n.isInitialized
   ? Promise.resolve(i18n)
-  : i18n
-      .use(LanguageDetector)
-      .use(initReactI18next)
-      .init({
-        resources,
-        fallbackLng: DEFAULT_LANGUAGE,
-        supportedLngs: ["de", "en", "tr", "sq"],
-        defaultNS: "common",
-        ns: ["common"],
-        detection: {
-          order: ["localStorage", "navigator"],
-          caches: ["localStorage"],
-          lookupLocalStorage: LANGUAGE_STORAGE_KEY,
-        },
-        interpolation: {
-          escapeValue: false,
-        },
-      });
+  : i18n.use(initReactI18next).init({
+      resources,
+      lng: DEFAULT_LANGUAGE,
+      fallbackLng: DEFAULT_LANGUAGE,
+      supportedLngs: ["de", "en", "tr", "sq"],
+      defaultNS: "common",
+      ns: ["common"],
+      interpolation: {
+        escapeValue: false,
+      },
+    });
 
 export async function ensureI18nReady() {
   await initPromise;

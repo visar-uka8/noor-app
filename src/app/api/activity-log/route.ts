@@ -1,3 +1,4 @@
+import { trackServerEvent } from "@/lib/analytics";
 import { createSupabaseDataClient } from "@/lib/supabase-data";
 import { getAuthenticatedSupabase } from "@/lib/supabase/request-auth";
 import {
@@ -77,6 +78,11 @@ export async function POST(request: Request) {
         { status: 500 },
       );
     }
+
+    void trackServerEvent(supabase, user.id, "activity_logged", {
+      type: activityType,
+      duration: durationMinutes ?? 0,
+    });
 
     return Response.json({ stored: true, log });
   } catch (error) {

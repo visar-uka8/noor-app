@@ -13,6 +13,7 @@ import {
   GroupedDoseRow,
   MedicationGroupCard,
 } from "@/components/MedicationGroupCard";
+import { InsulinMealDoseCard } from "@/components/InsulinMealDoseCard";
 import { MedicationConfirmationPreview } from "@/components/MedicationConfirmationPreview";
 import { MedicationPharmacySection } from "@/components/MedicationPharmacySection";
 import { MedicationStreakCard } from "@/components/MedicationStreakCard";
@@ -78,6 +79,9 @@ function MedicationConfirmationConnected() {
     expiresAt: number;
   } | null>(null);
   const [isUndoing, setIsUndoing] = useState(false);
+  const [insulinDoseInputs, setInsulinDoseInputs] = useState<
+    Record<string, string>
+  >({});
   const [now, setNow] = useState(() => Date.now());
   const isSlow = useSlowConnection(isLoading || pendingDoseIds.size > 0);
 
@@ -90,6 +94,14 @@ function MedicationConfirmationConnected() {
     () => expandMedicationsToDailyDoses(medications),
     [medications],
   );
+
+  const medicationById = useMemo(() => {
+    const map = new Map<string, StoredMedication>();
+    for (const medication of medications) {
+      map.set(medication.id, medication);
+    }
+    return map;
+  }, [medications]);
 
   const confirmedDoseIds = useMemo(() => {
     const confirmed = new Set<string>();
@@ -325,7 +337,7 @@ function MedicationConfirmationConnected() {
     }
   }
 
-  async function confirmDose(dose: DailyDoseSlot) {
+  async function confirmDose(dose: DailyDoseSlot, insulinUnits?: number | null) {
     console.log("Confirming:", dose.medicationId, dose.scheduledAt, dose.slot, dose.time);
 
     if (!dose?.medicationId) {
@@ -351,6 +363,7 @@ function MedicationConfirmationConnected() {
       scheduled_at: dose.scheduledAt,
       confirmed_at: optimisticConfirmedAt,
       missed: doseVisualStates.get(dose.id) === "missed",
+      insulin_units: insulinUnits ?? null,
     };
 
     // Optimistic UI so the loader isn't stuck if the network is slow.
@@ -389,6 +402,7 @@ function MedicationConfirmationConnected() {
           medication_id: dose.medicationId,
           dose_time: dose.slot,
           scheduled_time: dose.time,
+          insulin_units: insulinUnits ?? undefined,
         }),
       });
 
@@ -414,6 +428,7 @@ function MedicationConfirmationConnected() {
         scheduled_at: data.confirmation.scheduled_at || dose.scheduledAt,
         confirmed_at: data.confirmation.confirmed_at,
         missed: Boolean(data.confirmation.missed),
+        insulin_units: data.confirmation.insulin_units ?? insulinUnits ?? null,
       };
 
       setConfirmations((current) => [
@@ -575,15 +590,54 @@ function MedicationConfirmationConnected() {
           role="group"
           aria-label={t("med_daily_aria")}
         >
-          {groupedMedications.map((group) => (
-            <MedicationGroupCard
-              key={group.key}
-              name={group.name}
-              dosage={group.dosage}
-              doses={group.doses}
-              onConfirm={handleConfirmTap}
-            />
-          ))}
+          {groupedMedications.flatMap((group) => {
+            const medication = medicationById.get(group.key);
+            const isMealInsulin =
+              medication?.is_insulin && medication.insulin_type === "mahlzeit";
+
+            if (isMealInsulin) {
+              return group.doses.map((row) => {
+                const confirmation = findConfirmationForDose(
+                  confirmations,
+                  row.dose,
+                );
+
+                return (
+                  <InsulinMealDoseCard
+                    key={row.dose.id}
+                    dose={row.dose}
+                    insulinType="mahlzeit"
+                    visualState={row.visualState}
+                    confirmedAt={confirmation?.confirmed_at}
+                    confirmedUnits={confirmation?.insulin_units}
+                    pending={row.pending}
+                    insulinDose={insulinDoseInputs[row.dose.id] ?? ""}
+                    onInsulinDoseChange={(value) =>
+                      setInsulinDoseInputs((current) => ({
+                        ...current,
+                        [row.dose.id]: value,
+                      }))
+                    }
+                    onConfirm={() => {
+                      const units = Number(insulinDoseInputs[row.dose.id]);
+                      if (!Number.isFinite(units) || units <= 0) return;
+                      void confirmDose(row.dose, units);
+                    }}
+                  />
+                );
+              });
+            }
+
+            return [
+              <MedicationGroupCard
+                key={group.key}
+                name={group.name}
+                dosage={group.dosage}
+                doses={group.doses}
+                onConfirm={handleConfirmTap}
+              />,
+            ];
+          })}
         </div>
 
         <MedicationManageSection

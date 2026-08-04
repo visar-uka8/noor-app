@@ -8,6 +8,7 @@ import {
 } from "@/components/FamilyLabAnalysisSheet";
 import { FamilyHealthPassportSheet } from "@/components/FamilyHealthPassportSheet";
 import { FamilyNoteComposeSheet } from "@/components/FamilyNoteComposeSheet";
+import { WeeklySummaryDigest } from "@/components/WeeklySummaryDigest";
 import { Avatar } from "@/components/ui/Avatar";
 import { MedicationStreakCard } from "@/components/MedicationStreakCard";
 import {
@@ -196,6 +197,9 @@ export const FamilyMemberCard = memo(function FamilyMemberCard({
                 <p className="mt-1 text-[13px] text-[#88856F]">
                   {data.member.relationship}
                 </p>
+              ) : null}
+              {data.weeklySummary ? (
+                <WeeklySummaryDigest summary={data.weeklySummary} />
               ) : null}
             </div>
           </div>

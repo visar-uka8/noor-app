@@ -6,6 +6,8 @@ import type {
   ActiveHealthGoals,
   DailyGoalProgress,
 } from "@/types/health-goals";
+import type { OnboardingState } from "@/types/onboarding";
+import type { WeeklySummary } from "@/lib/weekly-summary";
 import { formatTodayActivityShortLabelFromLogs } from "@/types/activity-log";
 import {
   buildFamilyMemberCardSubtitle,
@@ -105,6 +107,8 @@ export type HomeScreenData = {
     scheduledAt: string;
     needsNotes: boolean;
   } | null;
+  onboarding: OnboardingState | null;
+  weeklySummary: WeeklySummary | null;
 };
 
 export function getTimeGreeting(date: Date) {
@@ -345,6 +349,8 @@ export function buildPreviewHomeScreenData(
     profileHealthIncomplete: false,
     profileHealthProgress: null,
     nextAppointment: null,
+    onboarding: null,
+    weeklySummary: null,
   };
 }
 
@@ -402,4 +408,6 @@ export const demoHomeScreenData: HomeScreenData = {
   profileHealthIncomplete: false,
   profileHealthProgress: null,
   nextAppointment: null,
+  onboarding: null,
+  weeklySummary: null,
 };

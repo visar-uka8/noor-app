@@ -35,6 +35,7 @@ const emptyDashboard: FamilyDashboardData = {
   todayActivityText: null,
   latestLabResult: null,
   healthPassportAvailable: false,
+  weeklySummary: null,
 };
 
 type FamilyDashboardPanelProps = {

@@ -3,11 +3,14 @@ import { createSupabaseDataClient, isUsingServiceRoleClient } from "@/lib/supaba
 import { resolveLabFileType } from "@/lib/lab-file";
 import { insertLabResult } from "@/lib/lab-results-db";
 import { loadRecentActivityLogs } from "@/lib/activity-log-data";
+import { loadActiveMedications } from "@/lib/medication-data";
 import { uploadLabResultFile } from "@/lib/lab-storage";
 import { analyzeLabDocument, getLabAiProvider } from "@/lib/lab-analyze";
 import { notifyLabResultAlerts } from "@/lib/notifications";
 import { getLabAnalysisCounts, parseLabAnalysis } from "@/lib/parse-lab-analysis";
 import { parseAndSaveGoals } from "@/lib/health-goals";
+import { trackServerEvent } from "@/lib/analytics";
+import { markOnboardingStep } from "@/lib/onboarding";
 import { checkLabAnalysisQuota } from "@/lib/subscription";
 import {
   isAppLanguage,
@@ -190,6 +193,8 @@ export async function POST(request: Request) {
       console.log("Step 2: Using provided file_url", fileUrl);
     }
 
+    void trackServerEvent(authSupabase, user.id, "lab_result_uploaded");
+
     const base64File = Buffer.from(await file.arrayBuffer()).toString("base64");
 
     const { data: profile } = await authSupabase
@@ -215,6 +220,14 @@ export async function POST(request: Request) {
     }
 
     const recentActivity = await loadRecentActivityLogs(user.id, authSupabase);
+    const medications = await loadActiveMedications(user.id, authSupabase);
+    const insulinMedications = medications
+      .filter((medication) => medication.is_insulin)
+      .map((medication) => ({
+        name: medication.name,
+        insulin_type: medication.insulin_type,
+        dosage: medication.dosage,
+      }));
     console.log("Lab analyze recent activity:", recentActivity.length);
 
     console.log("Step 3: Calling AI API...");
@@ -224,6 +237,7 @@ export async function POST(request: Request) {
       base64File,
       profile,
       conditions,
+      insulinMedications,
       recentActivity,
     });
     console.log("Step 4: Analysis received", analysis.length, "chars");
@@ -296,6 +310,16 @@ export async function POST(request: Request) {
         console.error("Lab result notification failed", notificationError);
       },
     );
+
+    void markOnboardingStep(dataClient, user.id, "lab").catch((stepError) => {
+      console.error("Onboarding lab step failed:", stepError);
+    });
+
+    void trackServerEvent(dataClient, user.id, "lab_analysis_completed", {
+      normal_count: counts.normal,
+      watch_count: counts.watch,
+      high_count: counts.high,
+    });
 
     const parsedAnalysis = parseLabAnalysis(analysis);
     let goalsSaved = false;

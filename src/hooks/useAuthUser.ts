@@ -17,6 +17,11 @@ export function useAuthUser() {
     }
 
     const supabase = createClient();
+    const timeoutId = window.setTimeout(() => {
+      if (!cancelled) {
+        setIsLoading(false);
+      }
+    }, 8_000);
 
     async function loadUser() {
       try {
@@ -47,11 +52,13 @@ export function useAuthUser() {
     } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!cancelled) {
         setUser(session?.user ?? null);
+        setIsLoading(false);
       }
     });
 
     return () => {
       cancelled = true;
+      window.clearTimeout(timeoutId);
       subscription.unsubscribe();
     };
   }, []);

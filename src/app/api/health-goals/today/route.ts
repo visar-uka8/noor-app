@@ -1,9 +1,11 @@
+import { trackServerEvent } from "@/lib/analytics";
 import {
   upsertTodayGoalProgress,
   isMissingDailyGoalLogsTable,
 } from "@/lib/health-goals-data";
 import { createSupabaseDataClient } from "@/lib/supabase-data";
 import { getAuthenticatedSupabase } from "@/lib/supabase/request-auth";
+import { getTodayDateString } from "@/types/activity-log";
 import type { DailyGoalProgress } from "@/types/health-goals";
 import type { PostgrestError } from "@supabase/supabase-js";
 
@@ -65,7 +67,32 @@ export async function PATCH(request: Request) {
     }
 
     const supabase = createSupabaseDataClient() ?? authSupabase;
+
+    let previousWaterLiters = 0;
+    if (waterLiters !== undefined) {
+      const { data: existingRow } = await supabase
+        .from("daily_goal_logs")
+        .select("water_liters")
+        .eq("user_id", user.id)
+        .eq("date", getTodayDateString())
+        .maybeSingle<{ water_liters?: number | string | null }>();
+
+      const raw = existingRow?.water_liters;
+      if (raw != null) {
+        const parsed = typeof raw === "number" ? raw : Number.parseFloat(String(raw));
+        previousWaterLiters = Number.isFinite(parsed) ? parsed : 0;
+      }
+    }
+
     const today = await upsertTodayGoalProgress(supabase, user.id, updates);
+
+    if (waterLiters !== undefined) {
+      const dailyTotal = today.waterLiters ?? waterLiters;
+      void trackServerEvent(supabase, user.id, "water_logged", {
+        amount: Math.round((dailyTotal - previousWaterLiters) * 10) / 10,
+        daily_total: dailyTotal,
+      });
+    }
 
     return Response.json({ today });
   } catch (error) {

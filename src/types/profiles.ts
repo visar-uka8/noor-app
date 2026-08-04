@@ -18,6 +18,13 @@ export type Profile = {
   elder_mode: boolean;
   language: "de" | "en" | "tr" | "sq";
   created_at: string;
+  onboarding_completed?: boolean;
+  onboarding_steps?: {
+    profile: boolean;
+    medication: boolean;
+    lab: boolean;
+    family: boolean;
+  };
 };
 
 export type PendingRegistrationProfile = {

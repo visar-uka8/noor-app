@@ -213,11 +213,49 @@ ${filled
   .join("\n")}`;
 }
 
+export type LabInsulinMedication = {
+  name: string;
+  insulin_type: "mahlzeit" | "basal" | null;
+  dosage?: string;
+};
+
+export function buildLabInsulinContext(
+  medications: LabInsulinMedication[] | null | undefined,
+) {
+  const insulinMedications = (medications ?? []).filter(
+    (medication) => medication.insulin_type,
+  );
+
+  if (!insulinMedications.length) {
+    return "";
+  }
+
+  const lines = insulinMedications.map((medication) => {
+    const typeLabel =
+      medication.insulin_type === "basal" ? "Basalinsulin" : "Mahlzeiteninsulin";
+    const dosePart = medication.dosage?.trim()
+      ? `, ${medication.dosage.trim()}`
+      : "";
+    return `${medication.name.trim()} (${typeLabel}${dosePart})`;
+  });
+
+  return `WICHTIG — PATIENT NIMMT INSULIN:
+${lines.join(", ")}
+
+Bei der Analyse bitte besonders auf folgendes eingehen:
+- HbA1c Wert und Interpretation für Diabetiker
+- Nüchternblutzucker Bewertung
+- Empfehlungen speziell für Insulinpatienten
+- Zusammenhang zwischen Laborwerten und Diabetesmanagement
+- Warnung wenn HbA1c außerhalb des Zielbereichs für das Diabetesmanagement liegt`;
+}
+
 export function buildLabSystemPrompt(
   language: Language,
   userContext = "Kein Profil verfügbar.",
   activityContext = "Keine Aktivitätsdaten vorhanden.",
   conditionsContext = "Keine bekannten Erkrankungen.",
+  insulinContext = "",
   profile?: LabAnalysisProfile | null,
 ) {
   const metrics = buildLabProfileMetrics(profile);
@@ -233,7 +271,7 @@ ${userContext}
 
 ${conditionsContext}
 
-${activityContext}
+${insulinContext ? `${insulinContext}\n\n` : ""}${activityContext}
 
 WICHTIG FÜR ERKRANKUNGEN:
 Berücksichtige bei ALLEN Wert-Erklärungen und Empfehlungen die bekannten Erkrankungen des Patienten.
@@ -445,6 +483,7 @@ export async function analyzeLabDocument(options: {
   base64File: string;
   profile?: LabAnalysisProfile | null;
   conditions?: LabAnalysisCondition[] | null;
+  insulinMedications?: LabInsulinMedication[] | null;
   recentActivity?: Array<{
     date: string;
     activity_type: string;
@@ -459,12 +498,14 @@ export async function analyzeLabDocument(options: {
 
   const userContext = buildLabUserContext(options.profile);
   const conditionsContext = buildLabConditionsContext(options.conditions);
+  const insulinContext = buildLabInsulinContext(options.insulinMedications);
   const activityContext = buildLabActivityContext(options.recentActivity ?? []);
   const systemPrompt = buildLabSystemPrompt(
     options.language,
     userContext,
     activityContext,
     conditionsContext,
+    insulinContext,
     options.profile,
   );
   const userPrompt = buildLabUserPrompt(options.language);

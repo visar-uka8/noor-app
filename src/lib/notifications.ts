@@ -21,7 +21,7 @@ import {
   renderNoorEmailHtml,
   signature,
 } from "@/lib/notifications/email-layout";
-import { timeSlotLabels } from "@/types/medication";
+import { getMedicationTimeEntryLabel } from "@/types/medication";
 import type { MedicationTimeSlot } from "@/types/medication";
 
 const DEFAULT_FROM = "Noor <benachrichtigungen@noorhealth.de>";
@@ -529,8 +529,12 @@ export async function getFamilyMemberRecipients(
   return recipients;
 }
 
-export function getDoseSlotLabel(doseTime: MedicationTimeSlot) {
-  return timeSlotLabels[doseTime];
+export function getDoseSlotLabel(
+  doseTime: MedicationTimeSlot,
+  label?: string | null,
+) {
+  if (label?.trim()) return label.trim();
+  return getMedicationTimeEntryLabel({ slot: doseTime });
 }
 
 export function formatGermanTime(value: string | Date) {

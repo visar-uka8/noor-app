@@ -9,7 +9,7 @@ import {
   getVaccinationDueStatus,
 } from "@/lib/vaccination-status";
 import {
-  frequencyLabels,
+  getPassportFrequencyLabel,
   type HealthPassportData,
   type MedicationFrequency,
 } from "@/types/health-passport";
@@ -514,7 +514,7 @@ function formatMedicationLine(
   dose: string,
   frequency: MedicationFrequency[],
 ) {
-  const labels = frequency.map((entry) => frequencyLabels[entry]);
+  const labels = frequency.map((entry) => getPassportFrequencyLabel(entry));
   const schedule =
     labels.length === 0
       ? ""

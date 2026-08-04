@@ -12,6 +12,9 @@ import {
 import { FamilyNoteHomeCard } from "@/components/FamilyNoteHomeCard";
 import { FamilyNoteReplyHomeCard } from "@/components/FamilyNoteReplyHomeCard";
 import { FamilyDashboardPanel } from "@/components/FamilyDashboardPanel";
+import { LanguageSuggestionBanner } from "@/components/LanguageSuggestionBanner";
+import { OnboardingChecklist } from "@/components/OnboardingChecklist";
+import { WeeklySummaryCard } from "@/components/WeeklySummaryCard";
 import { HomeTodayActivityCard } from "@/components/HomeTodayActivityCard";
 import { GoalsUpdatedBanner } from "@/components/GoalsUpdatedBanner";
 import { HomeAppointmentsCard } from "@/components/HomeAppointmentsCard";
@@ -29,6 +32,7 @@ import { useFamilyRoles } from "@/hooks/useFamilyRoles";
 import { useUserRole } from "@/hooks/useUserRole";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { useSlowConnection } from "@/hooks/useSlowConnection";
+import { useWaterQuickLog } from "@/hooks/useWaterQuickLog";
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 import {
   needsFamilyConnect,
@@ -198,6 +202,8 @@ function HomeScreenConnected() {
   const { connection, isLoading: isConnectionLoading } = useFamilyConnection();
   const { roles, isLoading: isRolesLoading } = useFamilyRoles();
   const profileRole = useUserRole();
+  const profileRoleValue = profileRole.role;
+  const isRoleLoading = profileRole.isLoading;
   const isOnline = useOnlineStatus();
   const [now, setNow] = useState<Date | null>(null);
   const [homeData, setHomeData] = useState<HomeScreenData | null>(null);
@@ -207,16 +213,28 @@ function HomeScreenConnected() {
     useWatcherFamilyNoteReply();
   const [isLoading, setIsLoading] = useState(true);
   const [hasLoadError, setHasLoadError] = useState(false);
+  const [bootTimedOut, setBootTimedOut] = useState(false);
   const isSlow = useSlowConnection(isLoading);
   const useDemoFallback = !process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const isFamilyMemberHome = showFamilyDashboardHome(profileRole, roles);
-  const awaitingFamilyConnect = needsFamilyConnect(profileRole, roles);
+  const isFamilyMemberHome = showFamilyDashboardHome(profileRoleValue, roles);
+  const awaitingFamilyConnect = needsFamilyConnect(profileRoleValue, roles);
   // Always show Familie on patient home — subtitle reflects invite vs connected.
   const visibleFeatureCards = featureCards;
   const watchedPatientName =
     connection.patientName ||
     roles.watching[0]?.patientName ||
     "Ihrem Angehörigen";
+
+  const initialWaterLiters =
+    homeData?.healthGoals?.today?.waterLiters ??
+    homeData?.waterToday?.liters ??
+    0;
+  const {
+    waterLiters,
+    isSaving: isSavingWater,
+    error: waterSaveError,
+    quickAddWater,
+  } = useWaterQuickLog({ initialLiters: initialWaterLiters });
 
   useEffect(() => {
     setNow(new Date());
@@ -225,27 +243,28 @@ function HomeScreenConnected() {
   }, []);
 
   useEffect(() => {
-    if (isAuthLoading || isRolesLoading || profileRole === null) return;
-    if (!awaitingFamilyConnect) return;
-    router.replace("/family/connect");
-  }, [
-    awaitingFamilyConnect,
-    isAuthLoading,
-    isRolesLoading,
-    profileRole,
-    router,
-  ]);
-
-  useEffect(() => {
     void fetch("/api/check-in", { method: "POST" });
   }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setBootTimedOut(true), 12_000);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (awaitingFamilyConnect) {
+      router.replace("/family/connect");
+    }
+  }, [awaitingFamilyConnect, router]);
 
   async function loadHomeData() {
     setIsLoading(true);
     setHasLoadError(false);
 
     try {
-      const response = await fetchWithTimeout("/api/home");
+      const response = await fetchWithTimeout("/api/home", {
+        credentials: "include",
+      });
 
       if (response.status === 401) {
         console.log("Home page request unauthorized");
@@ -359,14 +378,25 @@ function HomeScreenConnected() {
     );
   }
 
-  if (
-    isAuthLoading ||
-    isRolesLoading ||
-    profileRole === null ||
-    awaitingFamilyConnect ||
-    (isFamilyMemberHome && isConnectionLoading) ||
-    (!isFamilyMemberHome && isLoading)
-  ) {
+  const isBootstrapping =
+    !bootTimedOut &&
+    (isAuthLoading ||
+      isRolesLoading ||
+      isRoleLoading ||
+      (isFamilyMemberHome && isConnectionLoading) ||
+      (!isFamilyMemberHome && isLoading));
+
+  if (awaitingFamilyConnect) {
+    return shell(
+      <>
+        <h1 className="text-[1.75rem] font-bold leading-tight">{greeting} 👋</h1>
+        <p className="text-body mt-2 text-white/90">{t("common.oneMoment")}</p>
+      </>,
+      <CardListSkeleton />,
+    );
+  }
+
+  if (isBootstrapping) {
     return shell(
       <>
         <h1 className="text-[1.75rem] font-bold leading-tight">{greeting} 👋</h1>
@@ -381,6 +411,19 @@ function HomeScreenConnected() {
     );
   }
 
+  if (bootTimedOut && !isFamilyMemberHome && !homeData && !hasLoadError) {
+    return shell(
+      <h1 className="text-[1.75rem] font-bold leading-tight">{greeting} 👋</h1>,
+      <ConnectionErrorState
+        isOffline={!isOnline}
+        onRetry={() => {
+          setBootTimedOut(false);
+          void loadHomeData();
+        }}
+      />,
+    );
+  }
+
   if (!isFamilyMemberHome && (hasLoadError || !homeData)) {
     return shell(
       <h1 className="text-[1.75rem] font-bold leading-tight">{greeting} 👋</h1>,
@@ -391,7 +434,9 @@ function HomeScreenConnected() {
     );
   }
 
-  return shell(
+  return (
+    <>
+      {shell(
     <div className="flex items-start justify-between gap-4">
       <div>
         <h1 className="text-[1.75rem] font-bold leading-tight">
@@ -433,11 +478,13 @@ function HomeScreenConnected() {
         <FamilyDashboardPanel showConnectLink={false} />
       ) : (
         <>
+          {!user?.email_confirmed_at ? <EmailConfirmationPromptCard /> : null}
+
           <StatusBanner data={homeData!} t={t} />
 
           <GoalsUpdatedBanner />
 
-          {!user?.email_confirmed_at ? <EmailConfirmationPromptCard /> : null}
+          <LanguageSuggestionBanner />
 
           {homeData!.profileHealthIncomplete && user?.id ? (
             <ProfileHealthPromptCard
@@ -447,6 +494,17 @@ function HomeScreenConnected() {
           ) : null}
 
           <MedicationStreakCard streak={homeData!.medicationStreak ?? 0} />
+
+          {homeData!.onboarding && !homeData!.onboarding.completed ? (
+            <OnboardingChecklist
+              onboarding={homeData!.onboarding}
+              onCompleted={() => void loadHomeData()}
+            />
+          ) : null}
+
+          {homeData!.weeklySummary ? (
+            <WeeklySummaryCard summary={homeData!.weeklySummary} />
+          ) : null}
 
           <HomeAppointmentsCard nextAppointment={homeData!.nextAppointment} />
 
@@ -568,10 +626,16 @@ function HomeScreenConnected() {
             activity={homeData!.todayActivity}
             week={homeData!.activityWeek}
             healthGoals={homeData!.healthGoals}
+            waterLiters={waterLiters}
+            isSavingWater={isSavingWater}
+            waterError={waterSaveError}
+            onQuickAddWater={(amount) => quickAddWater(amount)}
           />
         </>
       )}
     </>,
+      )}
+    </>
   );
 }
 

@@ -2,9 +2,6 @@ export type AppLanguage = "de" | "en" | "tr" | "sq";
 
 export const DEFAULT_LANGUAGE: AppLanguage = "de";
 
-/** Set to true when re-enabling the language picker in settings and registration. */
-export const SHOW_LANGUAGE_SELECTOR = false;
-
 export const LANGUAGE_STORAGE_KEY = "noor-language";
 
 export const SUPPORTED_LANGUAGES: Array<{

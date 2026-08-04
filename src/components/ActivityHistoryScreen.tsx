@@ -3,11 +3,13 @@
 import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { DailyActivityCard } from "@/components/DailyActivityCard";
+import { WaterTodayRow } from "@/components/WaterTodayRow";
 import { ActivityGoalsSection } from "@/components/ActivityGoalsSection";
 import { ActivityInsightCard } from "@/components/ActivityInsightCard";
 import { ActivityLast14DaysChart } from "@/components/ActivityLast14DaysChart";
 import { ConnectionErrorState } from "@/components/AppStates";
 import { useLanguage } from "@/components/LanguageProvider";
+import { useWaterQuickLog } from "@/hooks/useWaterQuickLog";
 import { buildApiAuthHeaders } from "@/lib/api-auth";
 import {
   formatLocalizedActivityEntry,
@@ -19,6 +21,7 @@ import {
   type ActivityHistorySummary,
 } from "@/lib/activity-history";
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
+import type { HealthGoalsApiResponse } from "@/types/health-goals";
 
 function StatCard({
   value,
@@ -62,6 +65,15 @@ export function ActivityHistoryScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [hasLoadError, setHasLoadError] = useState(false);
   const [showLogForm, setShowLogForm] = useState(false);
+  const [initialWaterLiters, setInitialWaterLiters] = useState(0);
+  const [waterGoalLiters, setWaterGoalLiters] = useState<number | null>(null);
+  const [goalsRefreshKey, setGoalsRefreshKey] = useState(0);
+
+  const {
+    waterLiters,
+    isSaving: isSavingWater,
+    quickAddWater,
+  } = useWaterQuickLog({ initialLiters: initialWaterLiters });
 
   const loadHistory = useCallback(async () => {
     setIsLoading(true);
@@ -69,17 +81,29 @@ export function ActivityHistoryScreen() {
 
     try {
       const headers = await buildApiAuthHeaders();
-      const response = await fetchWithTimeout("/api/activity-log/history", {
-        credentials: "include",
-        headers,
-      });
+      const [historyResponse, goalsResponse] = await Promise.all([
+        fetchWithTimeout("/api/activity-log/history", {
+          credentials: "include",
+          headers,
+        }),
+        fetchWithTimeout("/api/health-goals", {
+          credentials: "include",
+          headers,
+        }),
+      ]);
 
-      if (!response.ok) {
+      if (!historyResponse.ok) {
         throw new Error("History request failed");
       }
 
-      const payload = (await response.json()) as ActivityHistorySummary;
+      const payload = (await historyResponse.json()) as ActivityHistorySummary;
       setSummary(payload);
+
+      if (goalsResponse.ok) {
+        const goalsPayload = (await goalsResponse.json()) as HealthGoalsApiResponse;
+        setInitialWaterLiters(goalsPayload.today?.waterLiters ?? 0);
+        setWaterGoalLiters(goalsPayload.goals?.waterGoalLiters ?? null);
+      }
     } catch {
       setSummary(null);
       setHasLoadError(true);
@@ -139,6 +163,20 @@ export function ActivityHistoryScreen() {
           </button>
         </div>
 
+        <WaterTodayRow
+          className="mt-4 border-t border-border pt-4"
+          waterLiters={waterLiters}
+          waterGoalLiters={waterGoalLiters}
+          isSaving={isSavingWater}
+          onQuickAdd={async (amount) => {
+            const success = await quickAddWater(amount);
+            if (success) {
+              setGoalsRefreshKey((current) => current + 1);
+            }
+            return success;
+          }}
+        />
+
         {showLogForm ? (
           <div className="mt-5 border-t border-border pt-5">
             <DailyActivityCard
@@ -146,13 +184,14 @@ export function ActivityHistoryScreen() {
               onSaved={() => {
                 void loadHistory();
                 setShowLogForm(false);
+                setGoalsRefreshKey((current) => current + 1);
               }}
             />
           </div>
         ) : null}
       </section>
 
-      <ActivityGoalsSection />
+      <ActivityGoalsSection key={goalsRefreshKey} />
 
       <section className="noor-card p-5">
         <SectionHeading title={t("activity_week_heading")} />

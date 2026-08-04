@@ -2,20 +2,35 @@
 
 import { useRouter } from "next/navigation";
 import { useLanguage } from "@/components/LanguageProvider";
+import { WaterTodayRow } from "@/components/WaterTodayRow";
 import { getActivityTypeLabel } from "@/lib/i18n/activity-labels";
-import { getGoalProgressRatio } from "@/lib/health-goals-data";
 import type { HomeScreenData } from "@/lib/home-screen";
 
 type HomeTodayActivityCardProps = {
   activity: HomeScreenData["todayActivity"];
   week: HomeScreenData["activityWeek"];
   healthGoals: HomeScreenData["healthGoals"];
+  waterLiters?: number;
+  isSavingWater?: boolean;
+  waterError?: string | null;
+  onQuickAddWater?: (amount: number) => void | Promise<boolean>;
 };
+
+function formatWaterLiters(value: number): string {
+  return value.toLocaleString("de-DE", {
+    minimumFractionDigits: value % 1 === 0 ? 0 : 1,
+    maximumFractionDigits: 1,
+  });
+}
 
 export function HomeTodayActivityCard({
   activity,
   week,
   healthGoals,
+  waterLiters,
+  isSavingWater = false,
+  waterError = null,
+  onQuickAddWater,
 }: HomeTodayActivityCardProps) {
   const router = useRouter();
   const { t } = useLanguage();
@@ -36,14 +51,24 @@ export function HomeTodayActivityCard({
     }
   }
 
-  const hasGoals = healthGoals != null;
   const todayLog = healthGoals?.today;
-  const goals = healthGoals?.goals;
+  const waterGoalLiters = healthGoals?.goals?.waterGoalLiters ?? null;
   const totalMinutes = activity?.totalMinutes ?? 0;
   const activityTypeLabel =
     activity?.activityType != null
       ? getActivityTypeLabel(activity.activityType, t)
       : null;
+
+  const waterToday = waterLiters ?? todayLog?.waterLiters ?? 0;
+  const hasWaterGoal = waterGoalLiters != null && waterGoalLiters > 0;
+
+  const waterLabelText = hasWaterGoal
+    ? waterToday > 0
+      ? `${formatWaterLiters(waterToday)}L / ${formatWaterLiters(waterGoalLiters)}L`
+      : t("water_card_goal_hint", { goal: formatWaterLiters(waterGoalLiters) })
+    : waterToday > 0
+      ? t("water_card_today", { amount: formatWaterLiters(waterToday) })
+      : t("water_card_track");
 
   return (
     <section
@@ -51,20 +76,18 @@ export function HomeTodayActivityCard({
       tabIndex={0}
       onClick={navigateToActivity}
       onKeyDown={handleKeyDown}
-      className="noor-card flex flex-col p-4 transition-colors hover:border-primary/30 active:scale-[0.98]"
+      className="noor-card mb-3 flex flex-col p-4 transition-colors hover:border-primary/30 active:scale-[0.98]"
       style={{ cursor: "pointer" }}
       aria-label={
         activity ? t("home_activity_view_history") : t("home_activity_view_log")
       }
     >
-      <div className="mb-1">
-        <h2 className="home-card-title font-bold text-[#085041]">
-          {t("home_activity_goals_title")}
-        </h2>
-        <p className="home-card-subtitle mt-1 text-muted">{weekSubtitle}</p>
-      </div>
+      <h2 className="home-card-title mb-2 text-[15px] font-semibold text-[#085041]">
+        {t("home_activity_goals_title")}
+      </h2>
+      <p className="home-card-subtitle mb-1 text-muted">{weekSubtitle}</p>
 
-      <div className={hasGoals ? "mb-3.5" : ""}>
+      <div className="mb-3">
         {activity && totalMinutes > 0 ? (
           <div className="flex items-center gap-2.5 rounded-[10px] bg-[#E1F5EE] p-2.5">
             <span className="text-xl" aria-hidden="true">
@@ -86,124 +109,57 @@ export function HomeTodayActivityCard({
             </span>
           </div>
         ) : (
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2.5">
-              <span className="text-[22px]" aria-hidden="true">
-                🏃
-              </span>
-              <span className="text-sm text-[#88856F]">
-                {t("home_no_activity_today")}
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation();
-                router.push("/activity");
-              }}
-              className="rounded-[20px] border-none bg-[#E1F5EE] px-3.5 py-1.5 text-[13px] font-semibold text-[#1D9E75]"
-            >
-              {t("home_activity_log_entry")}
-            </button>
+          <div className="flex items-center gap-2.5">
+            <span className="text-[22px]" aria-hidden="true">
+              🏃
+            </span>
+            <span className="text-sm text-[#88856F]">
+              {t("home_no_activity_today")}
+            </span>
           </div>
         )}
       </div>
 
-      {hasGoals && goals ? (
-        <div className="border-t border-[#F0EFE9] pt-3">
-          <div className="mb-2.5 text-[11px] font-medium uppercase tracking-[0.06em] text-[#88856F]">
-            {t("daily_goals")}
-          </div>
-
-          {goals.stepsGoal != null ? (
-            <GoalProgressRow
-              emoji="🚶"
-              label={t("steps_goal")}
-              current={todayLog?.steps ?? 0}
-              goal={goals.stepsGoal}
-              color="#1D9E75"
-              targetLabel={t("goal_target", {
-                value: goals.stepsGoal.toLocaleString("de-DE"),
-              })}
-              formatValue={(value) => value.toLocaleString("de-DE")}
-            />
-          ) : null}
-
-          {goals.waterGoalLiters != null ? (
-            <GoalProgressRow
-              emoji="💧"
-              label={t("water_label")}
-              current={todayLog?.waterLiters ?? 0}
-              goal={goals.waterGoalLiters}
-              color="#378ADD"
-              targetLabel={t("goal_target", {
-                value: `${goals.waterGoalLiters.toLocaleString("de-DE", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}L`,
-              })}
-              formatValue={(value) =>
-                `${value.toLocaleString("de-DE", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}L`
+      {onQuickAddWater ? (
+        <div
+          onClick={(event) => event.stopPropagation()}
+          onPointerDown={(event) => event.stopPropagation()}
+          role="presentation"
+          className="mt-3 border-t border-[#F0EFE9] pt-3"
+          style={{ borderTopWidth: "0.5px" }}
+        >
+          <WaterTodayRow
+            waterLiters={waterToday}
+            waterGoalLiters={waterGoalLiters}
+            isSaving={isSavingWater}
+            error={waterError}
+            statusText={waterLabelText}
+            statusClassName="text-[13px] font-medium text-[#085041]"
+            stopPropagation
+            onQuickAdd={async (amount) => {
+              const result = onQuickAddWater(amount);
+              if (result instanceof Promise) {
+                return result;
               }
-            />
-          ) : null}
-
-          <div
-            role="presentation"
-            onClick={(event) => {
-              event.stopPropagation();
-              router.push("/activity");
+              return true;
             }}
-            className="mt-2 cursor-pointer text-right text-xs font-medium text-[#1D9E75]"
-          >
-            {t("home_log_steps_water")} →
+          />
+        </div>
+      ) : (
+        <div
+          className="border-t border-[#F0EFE9] pt-3"
+          style={{ borderTopWidth: "0.5px", marginTop: "12px", paddingTop: "12px" }}
+        >
+          <div className="flex items-center gap-2">
+            <span className="text-sm" aria-hidden="true">
+              💧
+            </span>
+            <span className="text-[13px] font-medium text-[#085041]">
+              {waterLabelText}
+            </span>
           </div>
         </div>
-      ) : null}
+      )}
     </section>
-  );
-}
-
-function GoalProgressRow({
-  emoji,
-  label,
-  current,
-  goal,
-  color,
-  targetLabel,
-  formatValue,
-}: {
-  emoji: string;
-  label: string;
-  current: number;
-  goal: number;
-  color: string;
-  targetLabel: string;
-  formatValue: (value: number) => string;
-}) {
-  const reached = current >= goal;
-  const progress = getGoalProgressRatio(current, goal);
-
-  return (
-    <div className="mb-2.5 last:mb-2">
-      <div className="mb-1 flex justify-between">
-        <span className="text-[13px] text-[#1E1D1B]">
-          {emoji} {label}
-        </span>
-        <span
-          className={`text-[13px] font-semibold ${reached ? "text-[#1D9E75]" : "text-[#085041]"}`}
-        >
-          {current > 0
-            ? `${formatValue(current)} / ${formatValue(goal)}`
-            : targetLabel}
-        </span>
-      </div>
-      <div className="h-[5px] overflow-hidden rounded-[3px] bg-[#E4E2DB]">
-        <div
-          className="h-full rounded-[3px] transition-[width] duration-500 ease-out"
-          style={{
-            width: `${Math.round(progress * 100)}%`,
-            backgroundColor: color,
-          }}
-        />
-      </div>
-    </div>
   );
 }

@@ -487,21 +487,19 @@ export function SettingsScreen() {
             variant="settings"
             value={language}
             disabled={isDemo || isLoading}
-            onChange={(nextLanguage) => {
-              void (async () => {
-                await setLanguage(nextLanguage);
-                setSettings((current) =>
-                  current
-                    ? {
-                        ...current,
-                        profile: {
-                          ...current.profile,
-                          language: nextLanguage,
-                        },
-                      }
-                    : current,
-                );
-              })();
+            onChange={async (nextLanguage) => {
+              await setLanguage(nextLanguage);
+              setSettings((current) =>
+                current
+                  ? {
+                      ...current,
+                      profile: {
+                        ...current.profile,
+                        language: nextLanguage,
+                      },
+                    }
+                  : current,
+              );
             }}
           />
           <TextSizeSettingsRow

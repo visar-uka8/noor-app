@@ -32,7 +32,7 @@ export async function loadTodayConfirmations(
   const { data, error } = await supabase
     .from("medication_confirmations")
     .select(
-      "id, medication_id, dose_time, medication_name, scheduled_at, confirmed_at, missed",
+      "id, medication_id, dose_time, medication_name, scheduled_at, confirmed_at, missed, insulin_units",
     )
     .eq("user_id", userId)
     .gte("scheduled_at", start.toISOString())
@@ -57,7 +57,7 @@ export async function loadConfirmationsForStreak(
   const { data, error } = await supabase
     .from("medication_confirmations")
     .select(
-      "id, medication_id, dose_time, medication_name, scheduled_at, confirmed_at, missed",
+      "id, medication_id, dose_time, medication_name, scheduled_at, confirmed_at, missed, insulin_units",
     )
     .eq("user_id", userId)
     .gte("scheduled_at", start.toISOString())

@@ -12,7 +12,15 @@ export const bloodTypes = [
 
 export type BloodType = (typeof bloodTypes)[number];
 
-export type MedicationFrequency = "morning" | "midday" | "evening";
+export type MedicationFrequency =
+  | "morning"
+  | "midday"
+  | "evening"
+  | "night"
+  | "before_breakfast"
+  | "before_lunch"
+  | "before_dinner"
+  | `custom_${number}`;
 
 export type PassportMedication = {
   id: string;
@@ -75,11 +83,26 @@ export type HealthPassportData = {
   emergencyContact: EmergencyContact;
 };
 
-export const frequencyLabels: Record<MedicationFrequency, string> = {
+export const standardFrequencyLabels = {
   morning: "Morgens",
   midday: "Mittags",
   evening: "Abends",
-};
+  night: "Nachts",
+} as const;
+
+export function getPassportFrequencyLabel(slot: MedicationFrequency): string {
+  if (slot in standardFrequencyLabels) {
+    return standardFrequencyLabels[slot as keyof typeof standardFrequencyLabels];
+  }
+
+  const match = typeof slot === "string" ? slot.match(/^custom_(\d+)$/) : null;
+  if (match) return `Dosis ${match[1]}`;
+
+  return String(slot);
+}
+
+/** @deprecated Use getPassportFrequencyLabel for custom dose slots. */
+export const frequencyLabels = standardFrequencyLabels;
 
 export function createEmptyMedication(): PassportMedication {
   return {

@@ -1,19 +1,17 @@
 "use client";
 
 import { Check, ChevronDown, X } from "lucide-react";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
-  DEFAULT_LANGUAGE,
   LANGUAGE_FIELD_LABELS,
-  SHOW_LANGUAGE_SELECTOR,
   SUPPORTED_LANGUAGES,
   type AppLanguage,
 } from "@/lib/i18n/languages";
 
 type LanguageSelectorProps = {
   value: AppLanguage;
-  onChange: (language: AppLanguage) => void;
+  onChange: (language: AppLanguage) => void | Promise<void>;
   variant?: "registration" | "settings";
   disabled?: boolean;
 };
@@ -24,21 +22,29 @@ export function LanguageSelector({
   variant = "settings",
   disabled = false,
 }: LanguageSelectorProps) {
-  if (!SHOW_LANGUAGE_SELECTOR) {
-    return null;
-  }
-
   const [open, setOpen] = useState(false);
+  const [pendingLanguage, setPendingLanguage] = useState<AppLanguage | null>(
+    null,
+  );
+  const [isApplying, setIsApplying] = useState(false);
+  const applyingRef = useRef(false);
   const sheetTitleId = useId();
   const labelClassName =
     variant === "registration"
       ? "text-base font-semibold text-foreground"
       : "text-[15px] font-semibold text-[#1E1D1B]";
 
+  const activeLanguage = pendingLanguage ?? value;
   const label = LANGUAGE_FIELD_LABELS[value];
   const selectedLanguage =
-    SUPPORTED_LANGUAGES.find((language) => language.code === value) ??
+    SUPPORTED_LANGUAGES.find((language) => language.code === activeLanguage) ??
     SUPPORTED_LANGUAGES[0];
+
+  useEffect(() => {
+    if (pendingLanguage && pendingLanguage === value) {
+      setPendingLanguage(null);
+    }
+  }, [pendingLanguage, value]);
 
   useEffect(() => {
     if (!open) return;
@@ -46,7 +52,7 @@ export function LanguageSelector({
     const previousOverflow = document.body.style.overflow;
 
     function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
+      if (event.key === "Escape" && !applyingRef.current) {
         setOpen(false);
       }
     }
@@ -60,9 +66,27 @@ export function LanguageSelector({
     };
   }, [open]);
 
-  function handleSelect(language: AppLanguage) {
-    onChange(language);
-    setOpen(false);
+  async function handleSelect(language: AppLanguage) {
+    if (disabled || applyingRef.current) {
+      return;
+    }
+
+    if (language === activeLanguage) {
+      setOpen(false);
+      return;
+    }
+
+    applyingRef.current = true;
+    setIsApplying(true);
+    setPendingLanguage(language);
+
+    try {
+      await onChange(language);
+    } finally {
+      applyingRef.current = false;
+      setIsApplying(false);
+      setOpen(false);
+    }
   }
 
   return (
@@ -72,7 +96,7 @@ export function LanguageSelector({
           <span className={`block w-full text-left ${labelClassName}`}>{label}</span>
           <button
             type="button"
-            disabled={disabled}
+            disabled={disabled || isApplying}
             aria-haspopup="dialog"
             aria-expanded={open}
             aria-controls={sheetTitleId}
@@ -96,14 +120,22 @@ export function LanguageSelector({
 
       {open && typeof document !== "undefined"
         ? createPortal(
-            <div
-              className="fixed inset-0 z-[85] bg-black/40"
-              onClick={() => setOpen(false)}
-              role="presentation"
-            >
+            <div className="fixed inset-0 z-[85]">
+              {/* Sibling backdrop — not a parent of the sheet — so the first
+                  language tap cannot be swallowed as a "close overlay" click. */}
+              <button
+                type="button"
+                aria-label="Schließen"
+                disabled={isApplying}
+                className="absolute inset-0 border-0 bg-black/40 p-0"
+                onClick={() => {
+                  if (!applyingRef.current) {
+                    setOpen(false);
+                  }
+                }}
+              />
               <div
-                className="fixed inset-x-0 bottom-0 mx-auto w-full max-w-app rounded-t-[20px] bg-surface px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] pt-5 shadow-[var(--warm-shadow)]"
-                onClick={(event) => event.stopPropagation()}
+                className="absolute inset-x-0 bottom-0 mx-auto w-full max-w-app rounded-t-[20px] bg-surface px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] pt-5 shadow-[var(--warm-shadow)]"
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby={sheetTitleId}
@@ -117,8 +149,9 @@ export function LanguageSelector({
                   </h2>
                   <button
                     type="button"
+                    disabled={isApplying}
                     onClick={() => setOpen(false)}
-                    className="flex min-h-12 min-w-12 items-center justify-center rounded-xl text-muted transition-colors hover:bg-primary-light hover:text-primary"
+                    className="flex min-h-12 min-w-12 items-center justify-center rounded-xl text-muted transition-colors hover:bg-primary-light hover:text-primary disabled:opacity-70"
                     aria-label="Schließen"
                   >
                     <X size={24} strokeWidth={2.4} />
@@ -127,14 +160,15 @@ export function LanguageSelector({
 
                 <div className="flex flex-col gap-2">
                   {SUPPORTED_LANGUAGES.map((language) => {
-                    const selected = language.code === value;
+                    const selected = language.code === activeLanguage;
 
                     return (
                       <button
                         key={language.code}
                         type="button"
-                        onClick={() => handleSelect(language.code)}
-                        className={`flex min-h-14 w-full items-center rounded-2xl border-2 px-4 py-3 text-left transition-colors ${
+                        disabled={isApplying}
+                        onClick={() => void handleSelect(language.code)}
+                        className={`flex min-h-14 w-full items-center rounded-2xl border-2 px-4 py-3 text-left transition-colors disabled:opacity-70 ${
                           selected
                             ? "border-primary bg-primary-light"
                             : "border-border bg-surface hover:border-primary/30"
